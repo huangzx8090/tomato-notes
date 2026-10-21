@@ -26,10 +26,11 @@ extension Color {
 }
 
 struct PaperCard<Content: View>: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @ViewBuilder var content: Content
     var body: some View {
         content.padding(18).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
+            .background(Theme.surface.opacity(reduceTransparency ? 1 : 0.78), in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.border.opacity(0.6), lineWidth: 0.6))
     }
 }
@@ -40,8 +41,8 @@ struct PrimaryButtonStyle: ButtonStyle {
         configuration.label.font(.system(size: 14, weight: .semibold))
             .frame(maxWidth: .infinity).frame(height: 43)
             .foregroundStyle(.white)
-            .background((green ? Theme.green : Theme.accent).opacity(configuration.isPressed ? 0.8 : 1),
-                        in: RoundedRectangle(cornerRadius: 12))
+            .modifier(GlassControlSurface(cornerRadius: 12, tint: green ? Theme.green : Theme.accent,
+                                         prominent: true, pressed: configuration.isPressed))
             .contentShape(RoundedRectangle(cornerRadius: 12))
     }
 }
@@ -49,12 +50,58 @@ struct PrimaryButtonStyle: ButtonStyle {
 struct SubtleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Theme.secondary).padding(.horizontal, 11).padding(.vertical, 8)
-            .background(configuration.isPressed ? Theme.border : Theme.surface,
-                        in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border, lineWidth: 0.7))
+            .foregroundStyle(Theme.primary).padding(.horizontal, 11).padding(.vertical, 8)
+            .modifier(GlassControlSurface(cornerRadius: 9, tint: Theme.surface.opacity(0.35),
+                                         pressed: configuration.isPressed))
             .contentShape(Rectangle())
     }
+}
+
+struct GlassControlSurface: ViewModifier {
+    let cornerRadius: CGFloat
+    var tint: Color = Theme.surface.opacity(0.3)
+    var prominent = false
+    var pressed = false
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if reduceTransparency {
+            content.background(prominent ? tint : Theme.surface, in: RoundedRectangle(cornerRadius: cornerRadius))
+                .opacity(pressed ? 0.8 : 1)
+        } else if #available(macOS 26.0, *) {
+            content.glassEffect(.regular.tint(tint).interactive(), in: RoundedRectangle(cornerRadius: cornerRadius))
+                .opacity(pressed ? 0.84 : 1)
+        } else {
+            content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius))
+                .background(prominent ? tint : Color.clear, in: RoundedRectangle(cornerRadius: cornerRadius))
+                .opacity(pressed ? 0.8 : 1)
+        }
+    }
+}
+
+@MainActor
+func makeGlassHostingView<Content: View>(rootView: Content, size: NSSize, cornerRadius: CGFloat = 16) -> NSView {
+    let frame = NSRect(origin: .zero, size: size)
+    let hosting = InteractiveHostingView(rootView: rootView)
+    hosting.frame = frame
+    hosting.autoresizingMask = [.width, .height]
+    if #available(macOS 26.0, *) {
+        let glass = NSGlassEffectView(frame: frame)
+        glass.style = .regular
+        glass.cornerRadius = cornerRadius
+        glass.tintColor = NSColor(srgbRed: 0.96, green: 0.94, blue: 0.90, alpha: 0.25)
+        glass.contentView = hosting
+        return glass
+    }
+    let material = NSVisualEffectView(frame: frame)
+    material.material = .popover
+    material.blendingMode = .behindWindow
+    material.state = .active
+    material.wantsLayer = true
+    material.layer?.cornerRadius = cornerRadius
+    material.layer?.masksToBounds = true
+    material.addSubview(hosting)
+    return material
 }
 
 final class InteractiveHostingView<Content: View>: NSHostingView<Content> {

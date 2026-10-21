@@ -12,8 +12,8 @@ let package = Package(
     targets: [
         .target(name: "TomatoCore"),
         .target(name: "TomatoSystem", dependencies: ["TomatoCore"],
-                linkerSettings: [.linkedFramework("Carbon")]),
-        .executableTarget(name: "TomatoDataTool", dependencies: ["TomatoCore"]),
+                linkerSettings: [.linkedFramework("Carbon"), .linkedFramework("Security"), .linkedFramework("ImageIO")]),
+        .executableTarget(name: "TomatoDataTool", dependencies: ["TomatoCore", "TomatoSystem"]),
         .executableTarget(name: "TomatoDiagnostics", dependencies: ["TomatoCore", "TomatoSystem"],
                           linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("Carbon")]),
         .executableTarget(
@@ -27,7 +27,8 @@ let package = Package(
                 .linkedFramework("IOKit")
             ]
         ),
-        .testTarget(name: "TomatoCoreTests", dependencies: ["TomatoCore"])
+        .testTarget(name: "TomatoCoreTests", dependencies: ["TomatoCore"]),
+        .testTarget(name: "TomatoSystemTests", dependencies: ["TomatoCore", "TomatoSystem"])
     ],
     swiftLanguageModes: [.v5]
 )

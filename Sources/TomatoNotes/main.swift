@@ -10,6 +10,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     private lazy var shortcuts = HotkeyManager()
     private lazy var reminders = ReminderManager()
     private var notes: NoteWindows!
+    private var work: WorkWindows!
     private var statusItem: NSStatusItem!
     private var mainPanel: MainPanelWindow?
     private var heartbeat: Timer?
@@ -26,6 +27,11 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         state = AppState(repository: repository)
         super.init()
         notes = NoteWindows(state: state)
+        work = WorkWindows(state: state)
+        work.onConfigureAI = { [weak self] in
+            self?.showPopover()
+            NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showAISettings"), object: nil)
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -58,14 +64,15 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         panel.isOpaque = false
         panel.hasShadow = true
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        let hosting = InteractiveHostingView(rootView: MainPanel(
+        let hosting = makeGlassHostingView(rootView: MainPanel(
             state: state,
             createNote: { [weak self] in self?.hidePanel(); self?.notes.create() },
             openNote: { [weak self] id in self?.hidePanel(); self?.notes.open(id) },
+            openWork: { [weak self] scope in self?.hidePanel(); self?.work.open(scope) },
             testReminder: { [weak self] in self?.testReminder() },
             requestNotifications: { [weak self] in self?.reminders.requestIfNeeded() },
             panelHeight: panelHeight
-        ).onExitCommand { [weak self] in self?.hidePanel() })
+        ).onExitCommand { [weak self] in self?.hidePanel() }, size: NSSize(width: 420, height: panelHeight))
         hosting.wantsLayer = true
         hosting.layer?.cornerRadius = 16
         hosting.layer?.masksToBounds = true
@@ -85,6 +92,13 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
                                 sound: self.state.settings.soundEnabled,
                                 notification: self.state.settings.notificationsEnabled)
         }
+        state.onDailyReviewFinished = { [weak self] day, succeeded in
+            guard let self else { return }
+            self.reminders.send(title: succeeded ? "今天的 AI 回顾已整理好" : "今天的 AI 回顾需要重试",
+                                body: succeeded ? "点击查看今天做了什么、取得了什么成果。" : "记录和图片已保留，点击打开后可重试。",
+                                sound: self.state.settings.soundEnabled,
+                                notification: self.state.settings.notificationsEnabled, reviewDay: day)
+        }
         state.applyHotkeys = { [weak self] settings in self?.shortcuts.apply(settings) }
         shortcuts.onPress = { [weak self] id in
             guard let self, !self.state.deviceLocked else { return }
@@ -97,6 +111,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
         if let message = shortcuts.apply(state.settings) { state.feedback = message }
         reminders.onOpen = { [weak self] in self?.showPopover() }
+        reminders.onOpenReview = { [weak self] day in self?.hidePanel(); self?.work.open(.day(day)) }
         reminders.onStatus = { [weak self] message in self?.state.notificationStatus = message }
         reminders.refreshStatus()
 
@@ -109,8 +124,14 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         heartbeat = timer
         refreshStatusItem()
         notes.restore()
-        if ProcessInfo.processInfo.arguments.contains("--show-panel") {
-            DispatchQueue.main.async { [weak self] in self?.showPopover() }
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--show-panel") || arguments.contains("--show-ai-settings") {
+            DispatchQueue.main.async { [weak self] in
+                self?.showPopover()
+                if arguments.contains("--show-ai-settings") {
+                    NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showAISettings"), object: nil)
+                }
+            }
         }
     }
 
