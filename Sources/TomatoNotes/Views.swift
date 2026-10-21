@@ -15,7 +15,6 @@ enum PanelTab: String, CaseIterable {
 }
 
 struct MainPanel: View {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @ObservedObject var state: AppState
     var createNote: () -> Void
     var openNote: (UUID) -> Void
@@ -29,21 +28,7 @@ struct MainPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            HStack(spacing: 4) {
-                ForEach(PanelTab.allCases, id: \.self) { item in
-                    Button { tab = item } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: item.symbol).font(.system(size: 11, weight: .medium))
-                            Text(item.rawValue).font(.system(size: 12, weight: .medium))
-                        }
-                        .frame(maxWidth: .infinity).padding(.vertical, 9)
-                        .foregroundStyle(tab == item ? Theme.accent : Theme.secondary)
-                        .background(tab == item ? Theme.surface : .clear, in: RoundedRectangle(cornerRadius: 9))
-                        .contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                }
-            }
-            .padding(4).modifier(GlassControlSurface(cornerRadius: 12))
+            PanelNavigation(selection: $tab)
             .padding(.horizontal, 22).padding(.bottom, 12)
 
             if let error = state.errorMessage {
@@ -83,10 +68,11 @@ struct MainPanel: View {
             }
         }
         .frame(width: 420, height: panelHeight)
-        .background(Theme.background.opacity(reduceTransparency ? 1 : 0.22))
+        .background(Theme.background)
         .foregroundStyle(Theme.primary)
         .preferredColorScheme(.light)
         .environment(\.locale, Locale(identifier: "zh_CN"))
+        .environment(\.glassControlsEnabled, state.settings.glassControlsEnabled)
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("TomatoNotes.showAISettings"))) { _ in tab = .settings }
     }
 
@@ -504,6 +490,16 @@ private struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            PaperCard {
+                VStack(alignment: .leading, spacing: 11) {
+                    Text("外观").font(.system(size: 14, weight: .semibold))
+                    Toggle("按钮玻璃效果", isOn: settingBinding(\.glassControlsEnabled))
+                        .font(.system(size: 12)).tint(Theme.accent)
+                    Text("让按钮与顶部切换栏呈现流动玻璃。背景始终保留暖色纸感，关闭后按钮也使用纸感样式。")
+                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             ReviewSettingsSection(state: state, requestNotifications: requestNotifications)
             PaperCard {
                 VStack(alignment: .leading, spacing: 13) {

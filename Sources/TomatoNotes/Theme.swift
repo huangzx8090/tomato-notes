@@ -26,12 +26,22 @@ extension Color {
 }
 
 struct PaperCard<Content: View>: View {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @ViewBuilder var content: Content
     var body: some View {
         content.padding(18).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surface.opacity(reduceTransparency ? 1 : 0.78), in: RoundedRectangle(cornerRadius: 16))
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.border.opacity(0.6), lineWidth: 0.6))
+    }
+}
+
+private struct GlassControlsEnabledKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var glassControlsEnabled: Bool {
+        get { self[GlassControlsEnabledKey.self] }
+        set { self[GlassControlsEnabledKey.self] = newValue }
     }
 }
 
@@ -62,11 +72,13 @@ struct GlassControlSurface: ViewModifier {
     var tint: Color = Theme.surface.opacity(0.3)
     var prominent = false
     var pressed = false
+    @Environment(\.glassControlsEnabled) private var glassControlsEnabled
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     @ViewBuilder func body(content: Content) -> some View {
-        if reduceTransparency {
+        if !glassControlsEnabled || reduceTransparency {
             content.background(prominent ? tint : Theme.surface, in: RoundedRectangle(cornerRadius: cornerRadius))
+                .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(prominent ? .clear : Theme.border, lineWidth: 0.7))
                 .opacity(pressed ? 0.8 : 1)
         } else if #available(macOS 26.0, *) {
             content.glassEffect(.regular.tint(tint).interactive(), in: RoundedRectangle(cornerRadius: cornerRadius))
@@ -80,28 +92,15 @@ struct GlassControlSurface: ViewModifier {
 }
 
 @MainActor
-func makeGlassHostingView<Content: View>(rootView: Content, size: NSSize, cornerRadius: CGFloat = 16) -> NSView {
+func makePaperHostingView<Content: View>(rootView: Content, size: NSSize, cornerRadius: CGFloat = 16) -> NSView {
     let frame = NSRect(origin: .zero, size: size)
     let hosting = InteractiveHostingView(rootView: rootView)
     hosting.frame = frame
     hosting.autoresizingMask = [.width, .height]
-    if #available(macOS 26.0, *) {
-        let glass = NSGlassEffectView(frame: frame)
-        glass.style = .regular
-        glass.cornerRadius = cornerRadius
-        glass.tintColor = NSColor(srgbRed: 0.96, green: 0.94, blue: 0.90, alpha: 0.25)
-        glass.contentView = hosting
-        return glass
-    }
-    let material = NSVisualEffectView(frame: frame)
-    material.material = .popover
-    material.blendingMode = .behindWindow
-    material.state = .active
-    material.wantsLayer = true
-    material.layer?.cornerRadius = cornerRadius
-    material.layer?.masksToBounds = true
-    material.addSubview(hosting)
-    return material
+    hosting.wantsLayer = true
+    hosting.layer?.cornerRadius = cornerRadius
+    hosting.layer?.masksToBounds = true
+    return hosting
 }
 
 final class InteractiveHostingView<Content: View>: NSHostingView<Content> {

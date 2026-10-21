@@ -64,7 +64,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         panel.isOpaque = false
         panel.hasShadow = true
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        let hosting = makeGlassHostingView(rootView: MainPanel(
+        let hosting = makePaperHostingView(rootView: MainPanel(
             state: state,
             createNote: { [weak self] in self?.hidePanel(); self?.notes.create() },
             openNote: { [weak self] id in self?.hidePanel(); self?.notes.open(id) },

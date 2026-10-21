@@ -7,7 +7,8 @@
 - 用户设定每天一个时间点，由 AI 汇总当天所有工作与成果。
 - 第一家接入 DeepSeek，用户配置 API Key 即可使用。
 - 计时参数改为可拖动、可精确微调的仿真旋钮。
-- 主面板、成果窗口和交互按钮适配 macOS 原生玻璃；旧系统与减少透明度设置具有回退样式。
+- 主面板和成果窗口保留温暖的纸感背景，仅按钮与顶部四项切换栏使用玻璃效果。
+- 设置提供“按钮玻璃效果”开关，立即生效并保存；页面选择使用类似 App Store 底栏的流动玻璃胶囊。
 
 ## 实现
 
@@ -23,6 +24,8 @@ API Key 仅存在本机钥匙串或当前进程环境，固定发送至 `https:/
 
 图片导入复制到本机附件目录，限制数量与大小、校正方向并缩小为 JPEG。备份同时复制关联图片。数据 v1 升级前保留原始字节，v2 增加成果资料与定时状态。
 
+外观设置 `glassControlsEnabled` 随原有设置保存在本机；旧资料缺少该字段时默认开启。该开关通过 SwiftUI Environment 同时影响主面板与所有已打开的成果窗口，切换时无需重建窗口。窗口背景和纸感卡片始终不透明。顶部导航使用单个持续存在的胶囊形状，通过可动画位置连续移动；途中轻微拉长、到位后收圆，再将原生 Liquid Glass 应用到该形状。文字与图标放在整个玻璃容器外的上层，避免被玻璃采样而模糊。关闭玻璃或旧系统时保留纸感 / 材质与滑动过渡。系统要求减少透明度时使用纸感；减少动态效果时停用流动动画。
+
 ## 验证
 
 - 26 项自动化测试：原有计时与数据保护 16 项，回顾日期边界、资料隔离与升级 4 项，DeepSeek 请求/错误/响应 5 项，图片缩放、元数据移除及附件备份 1 项。
@@ -35,4 +38,4 @@ API Key 仅存在本机钥匙串或当前进程环境，固定发送至 `https:/
 - [DeepSeek 首次调用](https://api-docs.deepseek.com/zh-cn/)：默认接口、当前模型名称与鉴权方式。
 - [DeepSeek 模型说明](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)：`deepseek-flash` 支持图片理解，`deepseek-v4-pro` 当前不支持图片。
 - [DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)：文字/图片内容、JSON 格式、完成状态及非思考模式。
-- [Apple 原生玻璃视图](https://developer.apple.com/documentation/appkit/nsglasseffectview)：外层采用 `NSGlassEffectView`；控件使用 SwiftUI `glassEffect`。实际 API 可用性同时核对本机 macOS SDK 头文件。
+- [Apple 自定义 Liquid Glass](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views)：按钮使用 `glassEffect`，导航胶囊在 `GlassEffectContainer` 内应用该材质。实际 API 可用性同时核对本机 macOS SDK 接口。

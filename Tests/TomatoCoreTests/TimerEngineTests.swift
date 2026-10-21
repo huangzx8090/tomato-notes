@@ -174,7 +174,13 @@ struct TimerEngineTests {
         expectEqual(settings.focusMinutes, 40)
         expectTrue(settings.allowClamshellWithExternalDisplay)
         expectFalse(settings.showDockIcon)
+        expectTrue(settings.glassControlsEnabled)
         expectEqual(settings.timerHotkey.letter, "P")
+        var paperSettings = settings
+        paperSettings.glassControlsEnabled = false
+        let reopened = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(paperSettings))
+        expectFalse(reopened.glassControlsEnabled)
+        expectEqual(reopened.focusMinutes, 40)
     }
 }
 

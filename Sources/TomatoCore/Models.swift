@@ -38,6 +38,7 @@ public struct AppSettings: Codable, Sendable {
     public var recordingEnabled = true
     public var allowClamshellWithExternalDisplay = true
     public var showDockIcon = false
+    public var glassControlsEnabled = true
     public var review = ReviewSettings()
     public var timerHotkey = Hotkey(letter: "P")
     public var todoHotkey = Hotkey(letter: "T")
@@ -48,7 +49,7 @@ public struct AppSettings: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakEvery
         case soundEnabled, notificationsEnabled, recordingEnabled, allowClamshellWithExternalDisplay
-        case showDockIcon, review
+        case showDockIcon, glassControlsEnabled, review
         case timerHotkey, todoHotkey, noteHotkey
     }
 
@@ -63,6 +64,7 @@ public struct AppSettings: Codable, Sendable {
         recordingEnabled = try values.decodeIfPresent(Bool.self, forKey: .recordingEnabled) ?? true
         allowClamshellWithExternalDisplay = try values.decodeIfPresent(Bool.self, forKey: .allowClamshellWithExternalDisplay) ?? true
         showDockIcon = try values.decodeIfPresent(Bool.self, forKey: .showDockIcon) ?? false
+        glassControlsEnabled = try values.decodeIfPresent(Bool.self, forKey: .glassControlsEnabled) ?? true
         review = try values.decodeIfPresent(ReviewSettings.self, forKey: .review) ?? ReviewSettings()
         timerHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .timerHotkey) ?? Hotkey(letter: "P")
         todoHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .todoHotkey) ?? Hotkey(letter: "T")

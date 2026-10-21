@@ -4,7 +4,6 @@ import TomatoCore
 import UniformTypeIdentifiers
 
 struct WorkReportView: View {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @ObservedObject var state: AppState
     let scope: WorkScope
     var configureAI: () -> Void
@@ -110,9 +109,10 @@ struct WorkReportView: View {
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineSpacing(4)
                 }
             }.padding(25)
-        }.background(Theme.background.opacity(reduceTransparency ? 1 : 0.22)).foregroundStyle(Theme.primary).preferredColorScheme(.light)
+        }.background(Theme.background).foregroundStyle(Theme.primary).preferredColorScheme(.light)
             .frame(minWidth: 540, minHeight: 500)
             .environment(\.locale, Locale(identifier: "zh_CN"))
+            .environment(\.glassControlsEnabled, state.settings.glassControlsEnabled)
     }
 
     private var subtitle: String {
@@ -279,10 +279,10 @@ private final class WorkWindowController: NSWindowController, NSWindowDelegate {
                               styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
         super.init(window: window)
         window.title = { if case .day = scope { return "每日 AI 回顾" }; return "本轮 AI 成果" }()
-        window.backgroundColor = .clear
-        window.isOpaque = false
+        window.backgroundColor = NSColor(srgbRed: 246 / 255, green: 242 / 255, blue: 234 / 255, alpha: 1)
+        window.isOpaque = true
         window.titlebarAppearsTransparent = true
-        window.contentView = makeGlassHostingView(rootView: WorkReportView(state: state, scope: scope, configureAI: configureAI),
+        window.contentView = makePaperHostingView(rootView: WorkReportView(state: state, scope: scope, configureAI: configureAI),
                                                   size: NSSize(width: 630, height: height))
         window.minSize = NSSize(width: 560, height: 540)
         window.isReleasedWhenClosed = false
