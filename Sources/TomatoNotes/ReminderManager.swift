@@ -5,6 +5,7 @@ import UserNotifications
 final class ReminderManager: NSObject, UNUserNotificationCenterDelegate {
     var onOpen: (() -> Void)?
     var onStatus: ((String) -> Void)?
+    var onOpenReview: ((String) -> Void)?
     private let center = UNUserNotificationCenter.current()
 
     override init() {
@@ -38,28 +39,29 @@ final class ReminderManager: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    func send(title: String, body: String, sound: Bool, notification: Bool) {
+    func send(title: String, body: String, sound: Bool, notification: Bool, reviewDay: String? = nil) {
         if sound { NSSound(named: "Tink")?.play() }
         guard notification else { return }
         center.getNotificationSettings { [weak self] settings in
             guard let self else { return }
             if settings.authorizationStatus == .notDetermined {
                 UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { allowed, _ in
-                    if allowed { self.enqueue(title: title, body: body) }
+                    if allowed { self.enqueue(title: title, body: body, reviewDay: reviewDay) }
                     DispatchQueue.main.async { self.refreshStatus() }
                 }
             } else if settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional {
-                self.enqueue(title: title, body: body)
+                self.enqueue(title: title, body: body, reviewDay: reviewDay)
             } else {
                 DispatchQueue.main.async { self.refreshStatus() }
             }
         }
     }
 
-    nonisolated private func enqueue(title: String, body: String) {
+    nonisolated private func enqueue(title: String, body: String, reviewDay: String?) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
+        if let reviewDay { content.userInfo["reviewDay"] = reviewDay }
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { [weak self] error in
             guard let error else { return }
@@ -77,7 +79,11 @@ final class ReminderManager: NSObject, UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
-        Task { @MainActor in self.onOpen?() }
+        let reviewDay = response.notification.request.content.userInfo["reviewDay"] as? String
+        Task { @MainActor in
+            if let reviewDay { self.onOpenReview?(reviewDay) }
+            else { self.onOpen?() }
+        }
         completionHandler()
     }
 }

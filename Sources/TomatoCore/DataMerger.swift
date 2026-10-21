@@ -21,15 +21,17 @@ public enum DataMerger {
         result.usage = []
         result.todos = []
         result.notes = []
+        result.workRecords = []
         for source in [primary] + sources {
-            guard source.schemaVersion == 1 else { throw RepositoryError.unsupportedVersion(source.schemaVersion) }
+            guard (1...AppData.currentSchemaVersion).contains(source.schemaVersion) else { throw RepositoryError.unsupportedVersion(source.schemaVersion) }
             result.sessions = try combine(result.sessions, source.sessions, name: "专注轮次")
             result.intervals = try combine(result.intervals, source.intervals, name: "专注分段")
             result.usage = try combine(result.usage, source.usage, name: "App 分段")
             result.todos = try combine(result.todos, source.todos, name: "待办")
             result.notes = try combine(result.notes, source.notes, name: "便签")
+            result.workRecords = try combine(result.workRecords, source.workRecords, name: "成果记录")
         }
-        guard result.schemaVersion == 1 else { throw RepositoryError.unsupportedVersion(result.schemaVersion) }
+        result.schemaVersion = AppData.currentSchemaVersion
         let sessionIDs = Set(result.sessions.map(\.id))
         guard result.intervals.allSatisfy({ sessionIDs.contains($0.sessionID) && $0.seconds.isFinite && $0.seconds >= 0 }),
               result.usage.allSatisfy({ sessionIDs.contains($0.sessionID) && $0.seconds.isFinite && $0.seconds >= 0 }) else {

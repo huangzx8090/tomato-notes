@@ -1,5 +1,6 @@
 import Foundation
 import TomatoCore
+import TomatoSystem
 
 enum ToolError: LocalizedError {
     case usage
@@ -16,6 +17,14 @@ enum ToolError: LocalizedError {
 
 do {
     let args = Array(CommandLine.arguments.dropFirst())
+    if args.first == "import-deepseek-key" {
+        guard let key = DeepSeekCredentials.environmentKey else {
+            throw NSError(domain: "TomatoDataTool", code: 1, userInfo: [NSLocalizedDescriptionKey: "当前终端未设置 deepseek 或 DEEPSEEK_API_KEY 环境变量。"])
+        }
+        try DeepSeekCredentials().save(key)
+        print("DeepSeek 环境变量已导入本机钥匙串；未输出密钥。")
+        exit(0)
+    }
     guard args.first == "merge" else { throw ToolError.usage }
     var primaryPath: String?
     var sourcePaths: [String] = []
@@ -64,6 +73,21 @@ do {
             .appendingPathComponent("Backups/migration-\(UUID().uuidString)", isDirectory: true)
         for (offset, source) in sources.enumerated() {
             try source.backup(to: backupRoot.appendingPathComponent("source-\(offset)", isDirectory: true))
+        }
+        let targetImages = WorkImageStore(repository: destination)
+        for image in merged.workRecords.flatMap(\.images) {
+            let candidates = sources.map { WorkImageStore(repository: $0).url(for: image) }
+                .filter { FileManager.default.fileExists(atPath: $0.path) }
+            guard let first = candidates.first else { throw DeepSeekError.missingImage }
+            let bytes = try Data(contentsOf: first)
+            for candidate in candidates.dropFirst() where try Data(contentsOf: candidate) != bytes {
+                throw DataMergeError.conflict("成果图片", image.id)
+            }
+            try FileManager.default.createDirectory(at: targetImages.directory, withIntermediateDirectories: true)
+            let target = targetImages.url(for: image)
+            if FileManager.default.fileExists(atPath: target.path) {
+                guard try Data(contentsOf: target) == bytes else { throw DataMergeError.conflict("成果图片", image.id) }
+            } else { try bytes.write(to: target, options: .atomic) }
         }
         try destination.save(merged)
         print("已合并：\(merged.sessions.count) 轮记录、\(merged.todos.count) 条待办、\(merged.notes.count) 张便签；计时状态 \(merged.timer.phase.rawValue)")
