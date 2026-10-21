@@ -34,14 +34,25 @@ struct PaperCard<Content: View>: View {
     }
 }
 
+private struct GlassControlsEnabledKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var glassControlsEnabled: Bool {
+        get { self[GlassControlsEnabledKey.self] }
+        set { self[GlassControlsEnabledKey.self] = newValue }
+    }
+}
+
 struct PrimaryButtonStyle: ButtonStyle {
     var green = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 14, weight: .semibold))
             .frame(maxWidth: .infinity).frame(height: 43)
             .foregroundStyle(.white)
-            .background((green ? Theme.green : Theme.accent).opacity(configuration.isPressed ? 0.8 : 1),
-                        in: RoundedRectangle(cornerRadius: 12))
+            .modifier(GlassControlSurface(cornerRadius: 12, tint: green ? Theme.green : Theme.accent,
+                                         prominent: true, pressed: configuration.isPressed))
             .contentShape(RoundedRectangle(cornerRadius: 12))
     }
 }
@@ -49,12 +60,47 @@ struct PrimaryButtonStyle: ButtonStyle {
 struct SubtleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Theme.secondary).padding(.horizontal, 11).padding(.vertical, 8)
-            .background(configuration.isPressed ? Theme.border : Theme.surface,
-                        in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border, lineWidth: 0.7))
+            .foregroundStyle(Theme.primary).padding(.horizontal, 11).padding(.vertical, 8)
+            .modifier(GlassControlSurface(cornerRadius: 9, tint: Theme.surface.opacity(0.35),
+                                         pressed: configuration.isPressed))
             .contentShape(Rectangle())
     }
+}
+
+struct GlassControlSurface: ViewModifier {
+    let cornerRadius: CGFloat
+    var tint: Color = Theme.surface.opacity(0.3)
+    var prominent = false
+    var pressed = false
+    @Environment(\.glassControlsEnabled) private var glassControlsEnabled
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if !glassControlsEnabled || reduceTransparency {
+            content.background(prominent ? tint : Theme.surface, in: RoundedRectangle(cornerRadius: cornerRadius))
+                .overlay(RoundedRectangle(cornerRadius: cornerRadius).stroke(prominent ? .clear : Theme.border, lineWidth: 0.7))
+                .opacity(pressed ? 0.8 : 1)
+        } else if #available(macOS 26.0, *) {
+            content.glassEffect(.regular.tint(tint).interactive(), in: RoundedRectangle(cornerRadius: cornerRadius))
+                .opacity(pressed ? 0.84 : 1)
+        } else {
+            content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius))
+                .background(prominent ? tint : Color.clear, in: RoundedRectangle(cornerRadius: cornerRadius))
+                .opacity(pressed ? 0.8 : 1)
+        }
+    }
+}
+
+@MainActor
+func makePaperHostingView<Content: View>(rootView: Content, size: NSSize, cornerRadius: CGFloat = 16) -> NSView {
+    let frame = NSRect(origin: .zero, size: size)
+    let hosting = InteractiveHostingView(rootView: rootView)
+    hosting.frame = frame
+    hosting.autoresizingMask = [.width, .height]
+    hosting.wantsLayer = true
+    hosting.layer?.cornerRadius = cornerRadius
+    hosting.layer?.masksToBounds = true
+    return hosting
 }
 
 final class InteractiveHostingView<Content: View>: NSHostingView<Content> {

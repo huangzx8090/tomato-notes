@@ -3,6 +3,7 @@ import CoreGraphics
 import Foundation
 import IOKit
 import TomatoCore
+import TomatoSystem
 
 @MainActor
 final class AppState: ObservableObject {
@@ -11,12 +12,19 @@ final class AppState: ObservableObject {
     @Published var feedback: String?
     @Published var notificationStatus = "首次开始或测试提醒时申请通知权限"
     @Published private(set) var calendarDay = LocalTime.dayKey(Date())
+    @Published private(set) var generatingScopes: Set<String> = []
+    @Published private(set) var reviewErrors: [String: String] = [:]
+    @Published private(set) var hasAPIKey = false
+    @Published var aiStatus = "尚未配置 DeepSeek API Key"
+    @Published private(set) var testingAI = false
 
     let repository: LocalRepository
+    let workImages: WorkImageStore
     var onDataChanged: (() -> Void)?
     var onStageCompleted: ((TimerStage) -> Void)?
     var onStarted: (() -> Void)?
     var applyHotkeys: ((AppSettings) -> String?)?
+    var onDailyReviewFinished: ((String, Bool) -> Void)?
     var deviceLocked = false
     private var engine: TimerEngine
     private var lastUptime: TimeInterval?
@@ -25,9 +33,14 @@ final class AppState: ObservableObject {
     private var lidClosed = false
     private var currentApp: AppIdentity?
     private var lastConversion: (UUID, String, Date)?
+    private let credentials = DeepSeekCredentials()
+    private let ai = DeepSeekClient()
+    private var workSaveTask: DispatchWorkItem?
+    private var lastReviewCheck: TimeInterval = 0
 
     init(repository: LocalRepository = LocalRepository()) {
         self.repository = repository
+        self.workImages = WorkImageStore(repository: repository)
         do {
             var loaded = try repository.load()
             var recovered = TimerEngine(data: loaded)
@@ -46,6 +59,8 @@ final class AppState: ObservableObject {
         let session = CGSessionCopyCurrentDictionary() as? [String: Any]
         deviceLocked = session?["CGSSessionScreenIsLocked"] as? Bool ?? false
         currentApp = Self.frontmostApp()
+        if let day = data.lastReviewAttemptDay, let error = data.lastReviewError { reviewErrors[WorkScope.day(day).key] = error }
+        refreshCredentialStatus()
     }
 
     var canWrite: Bool { errorMessage == nil }
@@ -111,6 +126,10 @@ final class AppState: ObservableObject {
             return
         }
         advanceToNow()
+        if uptime - lastReviewCheck >= 15, !deviceLocked {
+            lastReviewCheck = uptime
+            checkDailyReviewSchedule()
+        }
     }
 
     func pauseForSystem(_ reason: String) {
@@ -142,6 +161,21 @@ final class AppState: ObservableObject {
         advanceToNow()
         if timer.phase == .running { engine.pause(reason: "应用退出已暂停", at: Date()) }
         publish()
+    }
+
+    func backupData() -> URL? {
+        guard canWrite else { return nil }
+        advanceToNow()
+        publish()
+        guard canWrite else { return nil }
+        do {
+            let url = try repository.backup()
+            feedback = "本地数据已备份"
+            return url
+        } catch {
+            feedback = "备份失败：\(error.localizedDescription)"
+            return nil
+        }
     }
 
     func updateSettings(_ value: AppSettings) -> Bool {
@@ -257,6 +291,179 @@ final class AppState: ObservableObject {
     }
 
     func summary(for day: String) -> DailySummary { DailySummary.build(day: day, from: data) }
+
+    func workRecord(for scope: WorkScope) -> WorkRecord? { ReviewContextBuilder.record(for: scope, in: data) }
+
+    @discardableResult
+    func ensureWorkRecord(for scope: WorkScope) -> UUID {
+        if let record = workRecord(for: scope) { return record.id }
+        let record: WorkRecord
+        switch scope {
+        case .session(let id): record = WorkRecord(localDay: data.sessions.first { $0.id == id }?.endedLocalDay ?? todayKey, sessionID: id)
+        case .day(let day): record = WorkRecord(localDay: day)
+        }
+        guard canWrite else { return record.id }
+        var next = data
+        next.workRecords.append(record)
+        engine.replaceData(next)
+        publish()
+        return record.id
+    }
+
+    func updateWorkText(_ text: String, for scope: WorkScope) {
+        guard canWrite else { return }
+        let id = ensureWorkRecord(for: scope)
+        var next = data
+        guard let index = next.workRecords.firstIndex(where: { $0.id == id }) else { return }
+        next.workRecords[index].userText = text
+        next.workRecords[index].updatedAt = Date()
+        engine.replaceData(next)
+        publish(persist: false)
+        workSaveTask?.cancel()
+        let task = DispatchWorkItem { [weak self] in self?.publish() }
+        workSaveTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: task)
+    }
+
+    func flushWorkChanges() { workSaveTask?.cancel(); if canWrite { publish() } }
+
+    func importWorkImages(_ urls: [URL], for scope: WorkScope) {
+        guard canWrite, !generatingScopes.contains(scope.key) else { return }
+        let id = ensureWorkRecord(for: scope)
+        guard (workRecord(for: scope)?.images.count ?? 0) + urls.count <= 6 else { feedback = "每条成果记录最多添加 6 张图片"; return }
+        let store = workImages
+        generatingScopes.insert(scope.key)
+        Task {
+            defer { generatingScopes.remove(scope.key) }
+            do {
+                let imported = try await Task.detached(priority: .userInitiated) { try store.importImages(at: urls) }.value
+                var next = data
+                guard let index = next.workRecords.firstIndex(where: { $0.id == id }) else { return }
+                next.workRecords[index].images.append(contentsOf: imported)
+                next.workRecords[index].updatedAt = Date()
+                engine.replaceData(next)
+                publish()
+                reviewErrors[scope.key] = nil
+            } catch { reviewErrors[scope.key] = error.localizedDescription }
+        }
+    }
+
+    func removeWorkImage(_ imageID: UUID, from scope: WorkScope) {
+        guard canWrite, !generatingScopes.contains(scope.key), let record = workRecord(for: scope) else { return }
+        var next = data
+        guard let index = next.workRecords.firstIndex(where: { $0.id == record.id }) else { return }
+        next.workRecords[index].images.removeAll { $0.id == imageID }
+        next.workRecords[index].updatedAt = Date()
+        engine.replaceData(next)
+        publish()
+    }
+
+    func refreshCredentialStatus() {
+        do {
+            hasAPIKey = try credentials.isConfigured()
+            aiStatus = hasAPIKey ? "DeepSeek 已配置，可生成文字和图片成果总结" : "尚未配置 DeepSeek API Key"
+        } catch { hasAPIKey = false; aiStatus = error.localizedDescription }
+    }
+
+    func saveAPIKey(_ value: String) {
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        do { try credentials.save(value); refreshCredentialStatus(); feedback = "DeepSeek API Key 已保存到本机钥匙串" }
+        catch { aiStatus = error.localizedDescription }
+    }
+
+    func removeAPIKey() {
+        do { try credentials.remove(); refreshCredentialStatus() }
+        catch { aiStatus = error.localizedDescription }
+    }
+
+    func testAIConnection() {
+        guard !testingAI else { return }
+        testingAI = true
+        Task {
+            defer { testingAI = false }
+            do {
+                guard let key = try credentials.read() else { throw DeepSeekError.missingKey }
+                try await ai.testConnection(apiKey: key)
+                hasAPIKey = true
+                aiStatus = "DeepSeek 连接成功，支持文字与图片总结"
+            } catch { aiStatus = error.localizedDescription }
+        }
+    }
+
+    func generateReview(for scope: WorkScope, scheduled: Bool = false) {
+        guard canWrite, !generatingScopes.contains(scope.key) else { return }
+        advanceToNow()
+        ensureWorkRecord(for: scope)
+        generatingScopes.insert(scope.key)
+        reviewErrors[scope.key] = nil
+        Task {
+            defer { generatingScopes.remove(scope.key) }
+            do {
+                guard let key = try credentials.read() else { throw DeepSeekError.missingKey }
+                hasAPIKey = true
+                if case .day(let day) = scope {
+                    // 先理解尚未总结的各轮文字和图片，再综合全天，避免每天重复上传相同图片。
+                    let rounds = data.workRecords.filter { $0.localDay == day && $0.sessionID != nil && (!$0.userText.isEmpty || !$0.images.isEmpty) }
+                    for round in rounds {
+                        let roundScope = WorkScope.session(round.sessionID!)
+                        let context = ReviewContextBuilder.build(for: roundScope, from: data)
+                        if round.summary?.contextDigest != context.digest {
+                            guard !generatingScopes.contains(roundScope.key) else {
+                                throw NSError(domain: "TomatoNotes", code: 1, userInfo: [NSLocalizedDescriptionKey: "有一轮成果正在生成，请稍后重新汇总当天。"])
+                            }
+                            generatingScopes.insert(roundScope.key)
+                            defer { generatingScopes.remove(roundScope.key) }
+                            try await generateAndStore(roundScope, apiKey: key)
+                        }
+                    }
+                }
+                try await generateAndStore(scope, apiKey: key)
+                feedback = "AI 总结已保存"
+                if scheduled, case .day(let day) = scope {
+                    finishScheduledReview(day: day, error: nil)
+                    onDailyReviewFinished?(day, true)
+                }
+            } catch {
+                reviewErrors[scope.key] = error.localizedDescription
+                if scheduled, case .day(let day) = scope {
+                    finishScheduledReview(day: day, error: error.localizedDescription)
+                    onDailyReviewFinished?(day, false)
+                }
+            }
+        }
+    }
+
+    private func generateAndStore(_ scope: WorkScope, apiKey: String) async throws {
+        let context = ReviewContextBuilder.build(for: scope, from: data)
+        let images = try context.images.map { image -> Data in
+            guard let bytes = try? Data(contentsOf: workImages.url(for: image)) else { throw DeepSeekError.missingImage }
+            return bytes
+        }
+        let content = try await ai.summarize(context: context, images: images, apiKey: apiKey)
+        guard canWrite else { return }
+        let id = ensureWorkRecord(for: scope)
+        var next = data
+        guard let index = next.workRecords.firstIndex(where: { $0.id == id }) else { return }
+        next.workRecords[index].summary = AISummary(content: content, model: DeepSeekClient.model,
+                                                   contextDigest: context.digest, imageIDs: context.images.map(\.id))
+        engine.replaceData(next)
+        publish()
+    }
+
+    private func checkDailyReviewSchedule() {
+        guard let day = ReviewSchedule.dueDay(at: Date(), settings: settings.review, lastAttemptDay: data.lastReviewAttemptDay),
+              !generatingScopes.contains(WorkScope.day(day).key) else { return }
+        generateReview(for: .day(day), scheduled: true)
+    }
+
+    private func finishScheduledReview(day: String, error: String?) {
+        guard canWrite else { return }
+        var next = data
+        next.lastReviewAttemptDay = day
+        next.lastReviewError = error
+        engine.replaceData(next)
+        publish()
+    }
 
     private func advanceToNow() {
         guard timer.phase == .running, let previous = lastUptime else { return }

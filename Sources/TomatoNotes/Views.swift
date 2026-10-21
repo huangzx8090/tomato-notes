@@ -18,6 +18,7 @@ struct MainPanel: View {
     @ObservedObject var state: AppState
     var createNote: () -> Void
     var openNote: (UUID) -> Void
+    var openWork: (WorkScope) -> Void
     var testReminder: () -> Void
     var requestNotifications: () -> Void
     var panelHeight: CGFloat = 660
@@ -27,21 +28,7 @@ struct MainPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            HStack(spacing: 4) {
-                ForEach(PanelTab.allCases, id: \.self) { item in
-                    Button { tab = item } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: item.symbol).font(.system(size: 11, weight: .medium))
-                            Text(item.rawValue).font(.system(size: 12, weight: .medium))
-                        }
-                        .frame(maxWidth: .infinity).padding(.vertical, 9)
-                        .foregroundStyle(tab == item ? Theme.accent : Theme.secondary)
-                        .background(tab == item ? Theme.surface : .clear, in: RoundedRectangle(cornerRadius: 9))
-                        .contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                }
-            }
-            .padding(4).background(Theme.border.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+            PanelNavigation(selection: $tab)
             .padding(.horizontal, 22).padding(.bottom, 12)
 
             if let error = state.errorMessage {
@@ -59,7 +46,7 @@ struct MainPanel: View {
                     VStack(spacing: 18) {
                         switch tab {
                         case .focus: focus
-                        case .today: TodayView(state: state, startFocus: { tab = .focus })
+                        case .today: TodayView(state: state, startFocus: { tab = .focus }, openWork: openWork)
                         case .notes: NotesListView(state: state, createNote: createNote, openNote: openNote)
                         case .settings:
                             SettingsView(state: state, testReminder: testReminder,
@@ -85,6 +72,8 @@ struct MainPanel: View {
         .foregroundStyle(Theme.primary)
         .preferredColorScheme(.light)
         .environment(\.locale, Locale(identifier: "zh_CN"))
+        .environment(\.glassControlsEnabled, state.settings.glassControlsEnabled)
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("TomatoNotes.showAISettings"))) { _ in tab = .settings }
     }
 
     private var header: some View {
@@ -135,6 +124,11 @@ struct MainPanel: View {
                 } else if state.timer.phase == .completed && state.timer.nextStage != .focus {
                     Button("跳过这次休息", action: state.endEarlyOrSkip)
                         .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                }
+                if let id = state.timer.sessionID ?? state.data.sessions.last?.id {
+                    Button { openWork(.session(id)) } label: {
+                        Label("记录本轮工作与成果", systemImage: "sparkles")
+                    }.buttonStyle(SubtleButtonStyle()).padding(.top, 5)
                 }
             }.frame(maxWidth: .infinity).padding(.vertical, 14)
 
@@ -245,6 +239,7 @@ private struct TodoRow: View {
 private struct TodayView: View {
     @ObservedObject var state: AppState
     var startFocus: () -> Void
+    var openWork: (WorkScope) -> Void
     @ViewState private var selectedDate = Date()
     @ViewState private var showAllApps = false
 
@@ -268,6 +263,30 @@ private struct TodayView: View {
             if !Calendar.current.isDateInToday(selectedDate) {
                 Button("回到今天") { selectedDate = Date() }.buttonStyle(.plain)
                     .font(.system(size: 11)).foregroundStyle(Theme.accent).frame(maxWidth: .infinity)
+            }
+            PaperCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Label("AI 每日回顾", systemImage: "sparkles").font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                        if state.generatingScopes.contains(WorkScope.day(day).key) { ProgressView().controlSize(.small) }
+                    }
+                    if let review = state.workRecord(for: .day(day))?.summary {
+                        Text((review.content.activities + review.content.outcomes).prefix(3).joined(separator: "\n"))
+                            .font(.system(size: 12)).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+                        Text("\(review.generatedAt.formatted(date: .omitted, time: .shortened)) 生成")
+                            .font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                    } else {
+                        Text("让 AI 把这一天做过的事、各轮成果和待继续事项整理出来。")
+                            .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let error = state.reviewErrors[WorkScope.day(day).key] {
+                        Text(error).font(.system(size: 11)).foregroundStyle(Theme.accent)
+                    }
+                    Button { openWork(.day(day)) } label: {
+                        Label(state.workRecord(for: .day(day))?.summary == nil ? "补充记录并让 AI 汇总" : "查看完整 AI 回顾", systemImage: "arrow.up.right")
+                    }.buttonStyle(SubtleButtonStyle())
+                }
             }
             PaperCard {
                 VStack(alignment: .leading, spacing: 16) {
@@ -358,6 +377,9 @@ private struct TodayView: View {
                                     Text(session.endedAt == nil ? "进行中 · 本日 \(durationLabel(seconds))" :
                                             "\(session.completed ? "完整番茄" : "提前结束") · 本日 \(durationLabel(seconds))")
                                         .font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                                    Button { openWork(.session(session.id)) } label: {
+                                        Label(state.workRecord(for: .session(session.id))?.summary == nil ? "记录这轮成果" : "查看 AI 成果", systemImage: "sparkles")
+                                    }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.accent)
                                 }
                             }
                         }
@@ -457,10 +479,10 @@ private struct SettingsView: View {
     @ObservedObject var state: AppState
     var testReminder: () -> Void
     var requestNotifications: () -> Void
-    @ViewState private var focus = ""
-    @ViewState private var shortBreak = ""
-    @ViewState private var longBreak = ""
-    @ViewState private var every = ""
+    @ViewState private var focus = 25
+    @ViewState private var shortBreak = 5
+    @ViewState private var longBreak = 15
+    @ViewState private var every = 4
     @ViewState private var timerKey = Hotkey(letter: "P")
     @ViewState private var todoKey = Hotkey(letter: "T")
     @ViewState private var noteKey = Hotkey(letter: "N")
@@ -469,12 +491,27 @@ private struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             PaperCard {
+                VStack(alignment: .leading, spacing: 11) {
+                    Text("外观").font(.system(size: 14, weight: .semibold))
+                    Toggle("按钮玻璃效果", isOn: settingBinding(\.glassControlsEnabled))
+                        .font(.system(size: 12)).tint(Theme.accent)
+                    Text("让按钮与顶部切换栏呈现流动玻璃。背景始终保留暖色纸感，关闭后按钮也使用纸感样式。")
+                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            ReviewSettingsSection(state: state, requestNotifications: requestNotifications)
+            PaperCard {
                 VStack(alignment: .leading, spacing: 13) {
                     Text("专注的节奏").font(.system(size: 14, weight: .semibold))
-                    numberRow("专注", value: $focus, hint: "1–180 分钟")
-                    numberRow("短休息", value: $shortBreak, hint: "1–60 分钟")
-                    numberRow("长休息", value: $longBreak, hint: "1–120 分钟")
-                    numberRow("长休息间隔", value: $every, hint: "2–8 轮")
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 18) {
+                        RotaryDial(title: "专注", unit: "分钟", bounds: 1...180, tint: Theme.accent, value: $focus)
+                        RotaryDial(title: "短休息", unit: "分钟", bounds: 1...60, tint: Theme.green, value: $shortBreak)
+                        RotaryDial(title: "长休息", unit: "分钟", bounds: 1...120, tint: Theme.green, value: $longBreak)
+                        RotaryDial(title: "长休息间隔", unit: "轮", bounds: 2...8, tint: Color(hex: 0x9A7D54), value: $every)
+                    }.padding(.vertical, 6)
+                    Text("转动旋钮调节，− / ＋ 精确微调。")
+                        .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                     if let validation { Text(validation).font(.system(size: 11)).foregroundStyle(Theme.accent) }
                     Button("保存计时参数", action: saveDurations).buttonStyle(SubtleButtonStyle())
                     Text("当前阶段保持原时长，新参数从后续阶段生效。")
@@ -497,6 +534,15 @@ private struct SettingsView: View {
                             NSWorkspace.shared.open(url)
                         }
                     }.buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(Theme.accent)
+                }
+            }
+            PaperCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("打开番茄小记").font(.system(size: 14, weight: .semibold))
+                    Toggle("在 Dock 中显示图标", isOn: settingBinding(\.showDockIcon)).font(.system(size: 12))
+                    Text("菜单栏始终可用；开启后也可点击 Dock 图标打开面板。")
+                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             PaperCard {
@@ -525,17 +571,20 @@ private struct SettingsView: View {
                     HotkeyRow(title: "快速待办", value: $todoKey)
                     HotkeyRow(title: "呼出便签", value: $noteKey)
                     Button("保存快捷键", action: saveHotkeys).buttonStyle(SubtleButtonStyle())
-                    Text("使用 A–Z 字母键。在其他 App 中也可使用；占用或重复时会提示换键。")
+                    Text("使用 A–Z 字母键。在其他 App 中也可使用；检测到占用或重复时会提示。部分应用监听的组合无法由系统查询，冲突时请手动换键。")
                         .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                 }
             }
             VStack(alignment: .leading, spacing: 10) {
-                Text("番茄小记 1.0 · macOS 14+")
+                Text("番茄小记 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版") · macOS 14+")
                     .font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.secondary)
                 Text("锁屏与睡眠时暂停，回来后由你继续。")
                     .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                 HStack {
                     Button("查看本地数据") { NSWorkspace.shared.activateFileViewerSelecting([state.repository.fileURL]) }
+                    Button("备份数据") {
+                        if let url = state.backupData() { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    }
                     Spacer()
                     Button("退出番茄小记") { NSApp.terminate(nil) }
                 }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.accent)
@@ -543,24 +592,13 @@ private struct SettingsView: View {
         }
         .toggleStyle(.switch).tint(Theme.green)
         .onAppear {
-            focus = String(state.settings.focusMinutes)
-            shortBreak = String(state.settings.shortBreakMinutes)
-            longBreak = String(state.settings.longBreakMinutes)
-            every = String(state.settings.longBreakEvery)
+            focus = state.settings.focusMinutes
+            shortBreak = state.settings.shortBreakMinutes
+            longBreak = state.settings.longBreakMinutes
+            every = state.settings.longBreakEvery
             timerKey = state.settings.timerHotkey
             todoKey = state.settings.todoHotkey
             noteKey = state.settings.noteHotkey
-        }
-    }
-
-    private func numberRow(_ title: String, value: Binding<String>, hint: String) -> some View {
-        HStack {
-            Text(title).font(.system(size: 12))
-            Spacer()
-            TextField("", text: value).textFieldStyle(.plain).multilineTextAlignment(.trailing)
-                .font(.system(size: 12).monospacedDigit()).frame(width: 39).padding(7)
-                .background(Theme.background, in: RoundedRectangle(cornerRadius: 7))
-            Text(hint).font(.system(size: 10)).foregroundStyle(Theme.secondary).frame(width: 85, alignment: .leading)
         }
     }
 
@@ -573,18 +611,11 @@ private struct SettingsView: View {
     }
 
     private func saveDurations() {
-        guard let focusValue = Int(focus), (1...180).contains(focusValue),
-              let shortValue = Int(shortBreak), (1...60).contains(shortValue),
-              let longValue = Int(longBreak), (1...120).contains(longValue),
-              let everyValue = Int(every), (2...8).contains(everyValue) else {
-            validation = "请填写范围内的整数，不能留空。"
-            return
-        }
         var settings = state.settings
-        settings.focusMinutes = focusValue
-        settings.shortBreakMinutes = shortValue
-        settings.longBreakMinutes = longValue
-        settings.longBreakEvery = everyValue
+        settings.focusMinutes = focus
+        settings.shortBreakMinutes = shortBreak
+        settings.longBreakMinutes = longBreak
+        settings.longBreakEvery = every
         if state.updateSettings(settings) { validation = nil }
     }
 
