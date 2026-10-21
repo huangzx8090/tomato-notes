@@ -501,6 +501,15 @@ private struct SettingsView: View {
             }
             PaperCard {
                 VStack(alignment: .leading, spacing: 12) {
+                    Text("打开番茄小记").font(.system(size: 14, weight: .semibold))
+                    Toggle("在 Dock 中显示图标", isOn: settingBinding(\.showDockIcon)).font(.system(size: 12))
+                    Text("菜单栏始终可用；开启后也可点击 Dock 图标打开面板。")
+                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            PaperCard {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("合盖与外接屏").font(.system(size: 14, weight: .semibold))
                     Toggle("合盖外接屏时继续计时", isOn: settingBinding(\.allowClamshellWithExternalDisplay))
                         .font(.system(size: 12))
@@ -525,7 +534,7 @@ private struct SettingsView: View {
                     HotkeyRow(title: "快速待办", value: $todoKey)
                     HotkeyRow(title: "呼出便签", value: $noteKey)
                     Button("保存快捷键", action: saveHotkeys).buttonStyle(SubtleButtonStyle())
-                    Text("使用 A–Z 字母键。在其他 App 中也可使用；占用或重复时会提示换键。")
+                    Text("使用 A–Z 字母键。在其他 App 中也可使用；检测到占用或重复时会提示。部分应用监听的组合无法由系统查询，冲突时请手动换键。")
                         .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                 }
             }
@@ -536,6 +545,9 @@ private struct SettingsView: View {
                     .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                 HStack {
                     Button("查看本地数据") { NSWorkspace.shared.activateFileViewerSelecting([state.repository.fileURL]) }
+                    Button("备份数据") {
+                        if let url = state.backupData() { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    }
                     Spacer()
                     Button("退出番茄小记") { NSApp.terminate(nil) }
                 }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.accent)

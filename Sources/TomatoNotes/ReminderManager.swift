@@ -61,7 +61,11 @@ final class ReminderManager: NSObject, UNUserNotificationCenterDelegate {
         content.title = title
         content.body = body
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        UNUserNotificationCenter.current().add(request) { [weak self] error in
+            guard let error else { return }
+            let message = "通知未能发送：\(error.localizedDescription)；计时记录已保留"
+            DispatchQueue.main.async { self?.onStatus?(message) }
+        }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,

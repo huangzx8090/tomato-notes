@@ -59,7 +59,8 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
         self.id = note.id
         self.state = state
         let size = NSSize(width: note.width, height: note.height)
-        let origin = NSPoint(x: note.x ?? 180, y: note.y ?? 240)
+        let offset = Double(state.data.notes.filter { $0.isOpen }.count % 8) * 24
+        let origin = NSPoint(x: note.x ?? (180 + offset), y: note.y ?? (240 + offset))
         let panel = NSPanel(contentRect: NSRect(origin: origin, size: size),
                             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         super.init(window: panel)
@@ -70,7 +71,7 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
         panel.level = .floating
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .canJoinAllApplications]
         panel.minSize = NSSize(width: 240, height: 200)
         panel.isReleasedWhenClosed = false
         panel.delegate = self

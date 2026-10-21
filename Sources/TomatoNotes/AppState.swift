@@ -144,6 +144,21 @@ final class AppState: ObservableObject {
         publish()
     }
 
+    func backupData() -> URL? {
+        guard canWrite else { return nil }
+        advanceToNow()
+        publish()
+        guard canWrite else { return nil }
+        do {
+            let url = try repository.backup()
+            feedback = "本地数据已备份"
+            return url
+        } catch {
+            feedback = "备份失败：\(error.localizedDescription)"
+            return nil
+        }
+    }
+
     func updateSettings(_ value: AppSettings) -> Bool {
         guard canWrite else { return false }
         let keysChanged = value.timerHotkey != settings.timerHotkey || value.todoHotkey != settings.todoHotkey || value.noteHotkey != settings.noteHotkey
