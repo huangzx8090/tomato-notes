@@ -15,7 +15,7 @@ public struct LocalRepository {
 
     public init(fileURL: URL? = nil) {
         if let fileURL {
-            self.fileURL = fileURL
+            self.fileURL = fileURL.standardizedFileURL.resolvingSymlinksInPath()
         } else {
             let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             self.fileURL = root.appendingPathComponent("TomatoNotes", isDirectory: true)
@@ -36,5 +36,17 @@ public struct LocalRepository {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(data).write(to: fileURL, options: .atomic)
+    }
+
+    /// 复制磁盘上的原始字节，不用重新编码覆盖备份，便于恢复和核对。
+    @discardableResult
+    public func backup(to directory: URL? = nil) throws -> URL? {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        let root = directory ?? fileURL.deletingLastPathComponent().appendingPathComponent("Backups", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let destination = root.appendingPathComponent("data-\(stamp)-\(UUID().uuidString.prefix(8)).json")
+        try FileManager.default.copyItem(at: fileURL, to: destination)
+        return destination
     }
 }
