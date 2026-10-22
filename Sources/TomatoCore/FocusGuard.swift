@@ -110,6 +110,12 @@ public struct FocusGuardPlan: Sendable {
         self.pages = pages
         self.allowAIClosing = allowAIClosing
     }
+    public var applicationWhitelistBundleIDs: [String] {
+        var ids = appIDs
+        // 统计粒度是应用；存在 Chrome 页面白名单时，Chrome 整体算白名单应用。
+        if !pages.isEmpty { ids.insert("com.google.Chrome") }
+        return ids.sorted()
+    }
     public func allows(appID: String, url: String? = nil) -> Bool {
         if appID.hasPrefix("com.zixuan.TomatoNotes") { return true }
         if appID == "com.google.Chrome" { return url.map { address in pages.contains { $0.matches(address) } } ?? false }

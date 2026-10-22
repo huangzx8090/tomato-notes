@@ -29,6 +29,14 @@ struct FocusGuardTests {
         #expect(watch.update(identity: "tab", at: 900, settings: settings, mayAssess: true) == .none)
         #expect(watch.update(identity: "tab", at: 901, settings: settings, mayAssess: true) == .none)
     }
+
+    @Test func applicationWhitelistDoesNotDependOnAIClosePermission() {
+        let pages = [FocusPageRule(kind: .site, value: "example.test", title: "课程")]
+        let remindersOnly = FocusGuardPlan(goal: "学习", appIDs: ["test.editor"], pages: pages, allowAIClosing: false)
+        let aiClosing = FocusGuardPlan(goal: "学习", appIDs: ["test.editor"], pages: pages, allowAIClosing: true)
+        #expect(remindersOnly.applicationWhitelistBundleIDs == ["com.google.Chrome", "test.editor"])
+        #expect(aiClosing.applicationWhitelistBundleIDs == remindersOnly.applicationWhitelistBundleIDs)
+    }
     @Test func reminderOnlyNeverAsksAI() {
         var watch = GuardDwellMonitor()
         var reminders = 0

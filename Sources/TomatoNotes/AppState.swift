@@ -133,10 +133,12 @@ final class AppState: ObservableObject {
             else { openGuardSetup(startAfter: true); return }
         }
         let previousSessionID = timer.sessionID
-        engine.start(at: Date(), goal: pendingGuardPlan?.goal ?? focusGoalDraft)
+        engine.start(at: Date(), goal: pendingGuardPlan?.goal ?? focusGoalDraft,
+                     whitelistedBundleIDs: pendingGuardPlan?.applicationWhitelistBundleIDs)
         if engine.data.timer.stage == .focus, engine.data.timer.sessionID != previousSessionID { focusGoalDraft = "" }
         if let plan = pendingGuardPlan, let id = engine.data.timer.sessionID {
             guardController.configure(plan, sessionID: id)
+            engine.setWhitelistBundleIDs(plan.applicationWhitelistBundleIDs, for: id)
             var next = engine.data
             if let index = next.sessions.firstIndex(where: { $0.id == id }) { next.sessions[index].goal = plan.goal }
             next.settings.focusGuard.rememberDraft(plan)
@@ -145,6 +147,7 @@ final class AppState: ObservableObject {
         } else if pendingTimerOnly, let id = engine.data.timer.sessionID {
             timerOnlySessionID = id
             guardController.disableForRound()
+            engine.setWhitelistBundleIDs(nil, for: id)
         }
         pendingGuardPlan = nil
         pendingTimerOnly = false
@@ -239,7 +242,8 @@ final class AppState: ObservableObject {
         } else if let id = timer.sessionID, timer.stage == .focus,
                   timer.phase == .running || timer.phase == .paused {
             guardController.configure(plan, sessionID: id)
-            var next = data
+            engine.setWhitelistBundleIDs(plan.applicationWhitelistBundleIDs, for: id)
+            var next = engine.data
             if let index = next.sessions.firstIndex(where: { $0.id == id }) { next.sessions[index].goal = plan.goal }
             engine.replaceData(next)
             publish()
@@ -260,6 +264,8 @@ final class AppState: ObservableObject {
                   timer.phase == .running || timer.phase == .paused {
             timerOnlySessionID = id
             guardController.disableForRound()
+            engine.setWhitelistBundleIDs(nil, for: id)
+            publish()
         }
     }
 
@@ -695,6 +701,10 @@ final class AppState: ObservableObject {
         lastUptime = uptime
         guard delta > 0 else { return }
         let sessionID = timer.sessionID
+        if let sessionID, let plan = guardController.plan,
+           guardController.sessionID == sessionID {
+            engine.setWhitelistBundleIDs(plan.applicationWhitelistBundleIDs, for: sessionID)
+        }
         let completed = engine.advance(seconds: delta, endingAt: Date(), app: currentApp,
                                        recordingEnabled: settings.recordingEnabled)
         let next = engine.data.timer.nextStage
