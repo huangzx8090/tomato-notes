@@ -62,6 +62,11 @@ struct SessionProgressCard: View {
                         Label("完成 \(progress.completedTodos.count) 项待办", systemImage: "checkmark.circle")
                     }
                 }.font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                if progress.session.endedAt != nil,
+                   let seconds = progress.session.outsideWhitelistSeconds {
+                    Text("白名单外应用停留 \(durationLabel(seconds))")
+                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                }
                 if !outcomes.isEmpty {
                     ForEach(Array(outcomes.prefix(2).enumerated()), id: \.offset) { _, line in
                         Text(line).font(.system(size: 12)).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
@@ -114,6 +119,11 @@ struct ProgressTimeline: View {
                                         .fixedSize(horizontal: false, vertical: true)
                                     Text("\(session.startedAt.formatted(date: .omitted, time: .shortened)) · 本日投入 \(durationLabel(progress.focusSeconds)) · \(session.endedAt == nil ? "进行中" : (session.completed ? "完整番茄" : "提前结束"))")
                                         .font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                                    if session.endedAt != nil,
+                                       let seconds = session.outsideWhitelistSeconds {
+                                        Text("本轮白名单外应用停留 \(durationLabel(seconds))")
+                                            .font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                                    }
                                     if !progress.completedTodos.isEmpty {
                                         Text("勾选完成：" + progress.completedTodos.map(\.text).joined(separator: "、"))
                                             .font(.system(size: 11)).foregroundStyle(Theme.green).lineLimit(2)

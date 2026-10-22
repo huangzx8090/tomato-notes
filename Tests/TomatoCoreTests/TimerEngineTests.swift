@@ -79,6 +79,51 @@ struct TimerEngineTests {
         expectEqual(summary.completedSessions, 1)
     }
 
+    @Test func outsideWhitelistTimeIsIndependentOfAppRecordingAndPauses() throws {
+        var data = AppData()
+        data.settings.focusMinutes = 1
+        var engine = TimerEngine(data: data)
+        engine.start(at: start, whitelistedBundleIDs: [appA.bundleID])
+        _ = engine.advance(seconds: 10, endingAt: start.addingTimeInterval(10), app: appA,
+                           recordingEnabled: false)
+        _ = engine.advance(seconds: 12, endingAt: start.addingTimeInterval(22), app: appB,
+                           recordingEnabled: false)
+        expectEqual(engine.data.sessions[0].outsideWhitelistSeconds ?? -1, 12, accuracy: 0.0001)
+        engine.pause(reason: "手动暂停", at: start.addingTimeInterval(22))
+        engine.start(at: start.addingTimeInterval(120))
+        _ = engine.advance(seconds: 5, endingAt: start.addingTimeInterval(125), app: appB,
+                           recordingEnabled: false)
+        expectEqual(engine.data.sessions[0].outsideWhitelistSeconds ?? -1, 17, accuracy: 0.0001)
+        #expect(engine.data.sessions[0].whitelistedBundleIDs == [appA.bundleID])
+        expectEqual(engine.data.usage.filter { $0.kind == .disabled }.reduce(0) { $0 + $1.seconds }, 27, accuracy: 0.0001)
+        let restored = try JSONDecoder().decode(AppData.self, from: JSONEncoder().encode(engine.data))
+        expectEqual(restored.sessions[0].outsideWhitelistSeconds ?? -1, 17, accuracy: 0.0001)
+        #expect(restored.sessions[0].whitelistedBundleIDs == [appA.bundleID])
+        let tomatoNotes = AppIdentity(name: "番茄小记", bundleID: "com.zixuan.TomatoNotes")
+        _ = engine.advance(seconds: 4, endingAt: start.addingTimeInterval(129), app: tomatoNotes,
+                           recordingEnabled: false)
+        expectEqual(engine.data.sessions[0].outsideWhitelistSeconds ?? -1, 17, accuracy: 0.0001)
+    }
+
+    @Test func endedSessionKeepsOnlyTheOutsideWhitelistTotal() {
+        var engine = TimerEngine(data: AppData())
+        engine.start(at: start, whitelistedBundleIDs: [appA.bundleID])
+        _ = engine.advance(seconds: 9, endingAt: start.addingTimeInterval(9), app: appB,
+                           recordingEnabled: true)
+        engine.endEarly(at: start.addingTimeInterval(9))
+        #expect(engine.data.sessions[0].outsideWhitelistSeconds == 9)
+        #expect(engine.data.sessions[0].whitelistedBundleIDs == nil)
+    }
+
+    @Test func sessionsWithoutAWhitelistDoNotClaimOutsideTime() {
+        var engine = TimerEngine(data: AppData())
+        engine.start(at: start)
+        _ = engine.advance(seconds: 10, endingAt: start.addingTimeInterval(10), app: appB,
+                           recordingEnabled: true)
+        #expect(engine.data.sessions[0].outsideWhitelistSeconds == nil)
+        #expect(engine.data.sessions[0].whitelistedBundleIDs == nil)
+    }
+
     @Test func testCrossMidnightAndTimeZoneChangePreserveHistory() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!

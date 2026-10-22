@@ -54,6 +54,7 @@ public struct AppSettings: Codable, Sendable {
     public var appearance: AppAppearance = .system
     public var focusGuard = FocusGuardSettings()
     public var review = ReviewSettings()
+    public var ai = AISettings()
     public var timerHotkey = Hotkey(letter: "P")
     public var todoHotkey = Hotkey(letter: "T")
     public var noteHotkey = Hotkey(letter: "N")
@@ -63,7 +64,7 @@ public struct AppSettings: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakEvery
         case soundEnabled, notificationsEnabled, recordingEnabled, allowClamshellWithExternalDisplay
-        case showDockIcon, glassControlsEnabled, appearance, focusGuard, review
+        case showDockIcon, glassControlsEnabled, appearance, focusGuard, review, ai
         case timerHotkey, todoHotkey, noteHotkey
     }
 
@@ -82,6 +83,7 @@ public struct AppSettings: Codable, Sendable {
         appearance = AppAppearance(rawValue: try values.decodeIfPresent(String.self, forKey: .appearance) ?? "") ?? .system
         focusGuard = try values.decodeIfPresent(FocusGuardSettings.self, forKey: .focusGuard) ?? FocusGuardSettings()
         review = try values.decodeIfPresent(ReviewSettings.self, forKey: .review) ?? ReviewSettings()
+        ai = try values.decodeIfPresent(AISettings.self, forKey: .ai) ?? AISettings()
         timerHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .timerHotkey) ?? Hotkey(letter: "P")
         todoHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .todoHotkey) ?? Hotkey(letter: "T")
         noteHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .noteHotkey) ?? Hotkey(letter: "N")
@@ -119,8 +121,11 @@ public struct FocusSession: Codable, Identifiable, Sendable {
     public var completed: Bool
     public var endReason: String?
     public var goal: String?
+    public var whitelistedBundleIDs: [String]?
+    public var outsideWhitelistSeconds: Double?
 
-    public init(id: UUID = UUID(), startedAt: Date, goal: String? = nil) {
+    public init(id: UUID = UUID(), startedAt: Date, goal: String? = nil,
+                whitelistedBundleIDs: [String]? = nil) {
         self.id = id
         self.startedAt = startedAt
         self.endedAt = nil
@@ -128,6 +133,8 @@ public struct FocusSession: Codable, Identifiable, Sendable {
         self.endTimeZoneID = nil
         self.completed = false
         self.endReason = nil
+        self.whitelistedBundleIDs = whitelistedBundleIDs?.sorted()
+        self.outsideWhitelistSeconds = whitelistedBundleIDs == nil ? nil : 0
         let trimmed = goal?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.goal = trimmed.isEmpty ? nil : String(trimmed.prefix(300))
     }
@@ -218,7 +225,7 @@ public struct StickyNote: Codable, Identifiable, Sendable {
 }
 
 public struct AppData: Codable, Sendable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
     public var schemaVersion = currentSchemaVersion
     public var settings = AppSettings()
     public var timer = TimerSnapshot()

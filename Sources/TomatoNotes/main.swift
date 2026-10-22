@@ -36,6 +36,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
             self?.showPopover()
             NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showAISettings"), object: nil)
         }
+        state.onOpenSharedLibrary = { [weak self] in self?.openSharedLibrary() }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -112,8 +113,10 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
         state.onStageCompleted = { [weak self] next in
             guard let self else { return }
+            let outsideWhitelist = next == .focus ? nil : self.state.data.sessions.last(where: { $0.endedAt != nil })?.outsideWhitelistSeconds
+            let outsideDetail = outsideWhitelist.map { "白名单外应用停留 \(durationLabel($0))。" } ?? ""
             self.reminders.send(title: next == .focus ? "休息结束了" : "这一轮完成了",
-                                body: next == .focus ? "准备好后，开始下一轮专注。" : "这一轮的投入已记录，先休息一下。点击打开面板可查看进展，或开始\(next.label)。",
+                                body: next == .focus ? "准备好后，开始下一轮专注。" : "\(outsideDetail)这一轮的投入已记录，先休息一下。点击打开面板可查看进展，或开始\(next.label)。",
                                 sound: self.state.settings.soundEnabled,
                                 notification: self.state.settings.notificationsEnabled)
         }
@@ -150,11 +153,13 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         refreshStatusItem()
         notes.restore()
         let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains("--show-panel") || arguments.contains("--show-ai-settings") {
+        if arguments.contains("--show-panel") || arguments.contains("--show-ai-settings") || arguments.contains("--show-settings") {
             DispatchQueue.main.async { [weak self] in
                 self?.showPopover()
                 if arguments.contains("--show-ai-settings") {
                     NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showAISettings"), object: nil)
+                } else if arguments.contains("--show-settings") {
+                    NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showSettings"), object: nil)
                 }
             }
         }
@@ -204,13 +209,40 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         return false
     }
 
+    private func openSharedLibrary() {
+        notes.flushAll()
+        state.flushWorkChanges()
+        guard state.canWrite else { return }
+        let shared = LocalRepository()
+        do {
+            let probe = try RepositoryLock(repository: shared)
+            withExtendedLifetime(probe) {}
+        } catch RepositoryLockError.inUse(let processID) {
+            activateExistingInstance(repository: shared, processID: processID, arguments: [])
+            NSApp.terminate(nil)
+            return
+        } catch {
+            state.feedback = "打开共用资料失败：\(error.localizedDescription)"
+            return
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        configuration.arguments = ["--shared-data", "--show-panel"]
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { [weak self] _, error in
+            Task { @MainActor in
+                if let error { self?.state.feedback = "打开共用资料失败：\(error.localizedDescription)" }
+                else { NSApp.terminate(nil) }
+            }
+        }
+    }
+
     private func refreshStatusItem() {
         applyAppearance()
         updateDockVisibility()
         updateTimerActivity()
         let symbol: String
         switch state.timer.phase {
-        case .paused: symbol = "pause.circle"
+        case .paused: symbol = "play.fill"
         case .completed: symbol = "checkmark.circle"
         case .idle, .running: symbol = state.timer.stage == .focus ? "timer" : "cup.and.saucer"
         }
@@ -297,7 +329,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         workspace.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.willSleepNotification, object: nil)
         workspace.addObserver(self, selector: #selector(sessionResigned), name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
         let distributed = DistributedNotificationCenter.default()
-        distributed.addObserver(self, selector: #selector(showExistingInstance), name: NSNotification.Name("com.zixuan.TomatoNotes.showPanel"),
+        distributed.addObserver(self, selector: #selector(receiveInstanceRequest(_:)), name: NSNotification.Name("com.zixuan.TomatoNotes.showPanel"),
                                 object: state.repository.fileURL.path)
         distributed.addObserver(self, selector: #selector(screenLocked), name: NSNotification.Name("com.apple.screenIsLocked"), object: nil)
         distributed.addObserver(self, selector: #selector(screenUnlocked), name: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil)
@@ -315,7 +347,22 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         closeQuickTodo()
     }
     @objc private func screenUnlocked() { state.deviceLocked = false }
+    @objc private func receiveInstanceRequest(_ notification: Notification) {
+        showPopover()
+        if notification.userInfo?["showAISettings"] as? Bool == true {
+            NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showAISettings"), object: nil)
+        }
+        if let requestID = notification.userInfo?["requestID"] as? String {
+            DistributedNotificationCenter.default().postNotificationName(
+                NSNotification.Name("com.zixuan.TomatoNotes.instanceReady"), object: requestID,
+                userInfo: nil, deliverImmediately: true)
+        }
+    }
     @objc private func showExistingInstance() { showPopover() }
+    @objc private func showSettings() {
+        showPopover()
+        NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showSettings"), object: nil)
+    }
     @objc private func closeCurrentWindow() {
         guard let window = NSApp.keyWindow else { return }
         if window === mainPanel { hidePanel() }
@@ -329,6 +376,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "打开番茄小记", action: #selector(showExistingInstance), keyEquivalent: "0").target = self
+        appMenu.addItem(withTitle: "设置…", action: #selector(showSettings), keyEquivalent: ",").target = self
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出番茄小记", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
@@ -359,29 +407,44 @@ private final class MainPanelWindow: NSPanel {
 MainActor.assumeIsolated {
     let application = NSApplication.shared
     let args = ProcessInfo.processInfo.arguments
-    let repository: LocalRepository
-    if let index = args.firstIndex(of: "--data-dir"), args.indices.contains(index + 1) {
-        repository = LocalRepository(fileURL: URL(fileURLWithPath: args[index + 1], isDirectory: true).appendingPathComponent("data.json"))
-    } else if Bundle.main.bundleIdentifier == "com.zixuan.TomatoNotes.QA" || Bundle.main.bundleIdentifier == "com.zixuan.TomatoNotes.GuardQA" {
-        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let name = Bundle.main.bundleIdentifier == "com.zixuan.TomatoNotes.GuardQA" ? "TomatoNotes-GuardQA" : "TomatoNotes-QA"
-        repository = LocalRepository(fileURL: root.appendingPathComponent("\(name)/data.json"))
-    } else { repository = LocalRepository() }
     do {
-        let lock = try RepositoryLock(repository: repository)
-        let coordinator = AppCoordinator(repository: repository, dataLock: lock)
-        application.delegate = coordinator
-        application.finishLaunching()
-        coordinator.start()
-        withExtendedLifetime(coordinator) { application.run() }
-    } catch RepositoryLockError.inUse(let pid) {
-        DistributedNotificationCenter.default().postNotificationName(NSNotification.Name("com.zixuan.TomatoNotes.showPanel"),
-                                                                     object: repository.fileURL.path, userInfo: nil, deliverImmediately: true)
-        if let pid { NSRunningApplication(processIdentifier: pid)?.activate(options: []) }
+        let repository = try RepositoryLocation.resolve(arguments: args, bundleIdentifier: Bundle.main.bundleIdentifier)
+        do {
+            let lock = try RepositoryLock(repository: repository)
+            let coordinator = AppCoordinator(repository: repository, dataLock: lock)
+            application.delegate = coordinator
+            application.finishLaunching()
+            coordinator.start()
+            withExtendedLifetime(coordinator) { application.run() }
+        } catch RepositoryLockError.inUse(let pid) {
+            // LaunchServices 需要启动完成信号，否则等待唤出结果的原实例无法结束切换。
+            application.finishLaunching()
+            activateExistingInstance(repository: repository, processID: pid, arguments: args)
+        }
     } catch {
         let alert = NSAlert()
         alert.messageText = "无法打开番茄小记"
         alert.informativeText = error.localizedDescription
         alert.runModal()
     }
+}
+
+@MainActor
+private func activateExistingInstance(repository: LocalRepository, processID: Int32?, arguments: [String]) {
+    let center = DistributedNotificationCenter.default()
+    let requestID = UUID().uuidString
+    var acknowledged = false
+    let observer = center.addObserver(forName: NSNotification.Name("com.zixuan.TomatoNotes.instanceReady"),
+                                      object: requestID, queue: .main) { _ in acknowledged = true }
+    defer { center.removeObserver(observer) }
+    if let processID { NSRunningApplication(processIdentifier: processID)?.activate(options: []) }
+    let deadline = Date().addingTimeInterval(2)
+    // 持锁后 UI 可能仍在初始化，等待接收端确认，避免同时双击时唤出消息丢失。
+    repeat {
+        center.postNotificationName(NSNotification.Name("com.zixuan.TomatoNotes.showPanel"),
+                                    object: repository.fileURL.path,
+                                    userInfo: ["requestID": requestID, "showAISettings": arguments.contains("--show-ai-settings")],
+                                    deliverImmediately: true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    } while !acknowledged && Date() < deadline
 }
