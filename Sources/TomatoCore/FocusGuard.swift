@@ -7,7 +7,7 @@ public struct FocusGuardSettings: Codable, Sendable {
     public var maxChecks = 3
     public var reuseLastPlan = false
     public init() {}
-    private enum CodingKeys: String, CodingKey { case enabled, remindAfterSeconds, graceSeconds, maxChecks, reuseLastPlan, lastGoal, lastAppIDs, lastPages, lastAllowAIClosing }
+    private enum CodingKeys: String, CodingKey { case enabled, remindAfterSeconds, graceSeconds, maxChecks, reuseLastPlan, lastGoal, lastAppIDs, lastPages, lastAllowAIClosing, favoritePages }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
@@ -19,6 +19,7 @@ public struct FocusGuardSettings: Codable, Sendable {
         lastAppIDs = try values.decodeIfPresent(Set<String>.self, forKey: .lastAppIDs) ?? []
         lastPages = try values.decodeIfPresent([FocusPageRule].self, forKey: .lastPages) ?? []
         lastAllowAIClosing = try values.decodeIfPresent(Bool.self, forKey: .lastAllowAIClosing) ?? false
+        favoritePages = try values.decodeIfPresent([FocusPageRule].self, forKey: .favoritePages) ?? []
     }
     public func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
@@ -31,12 +32,15 @@ public struct FocusGuardSettings: Codable, Sendable {
         try values.encode(lastAppIDs, forKey: .lastAppIDs)
         try values.encode(lastPages, forKey: .lastPages)
         try values.encode(false, forKey: .lastAllowAIClosing)
+        try values.encode(favoritePages, forKey: .favoritePages)
     }
+    /// 跨轮次保留的常用白名单；由用户在设置弹窗里显式保存或清除。
     /// 仅在用户开启沿用时保存候选名单；生效计划绑定新一轮，不带关闭授权。
     public var lastGoal = ""
     public var lastAppIDs: Set<String> = []
     public var lastPages: [FocusPageRule] = []
     public var lastAllowAIClosing = false
+    public var favoritePages: [FocusPageRule] = []
     public var hasLastPlan: Bool { !lastGoal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     public var reusablePlan: FocusGuardPlan? {
         guard reuseLastPlan, hasLastPlan else { return nil }

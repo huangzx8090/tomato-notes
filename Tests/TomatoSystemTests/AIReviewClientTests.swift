@@ -20,11 +20,11 @@ private final class StubProtocol: URLProtocol, @unchecked Sendable {
 }
 
 @Suite(.serialized)
-struct DeepSeekTests {
-    private func client() -> DeepSeekClient {
+struct AIReviewClientTests {
+    private func client(provider: AIProviderConfig = AIProviderCatalog.deepseek) -> AIReviewClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubProtocol.self]
-        return DeepSeekClient(session: URLSession(configuration: configuration))
+        return AIReviewClient(provider: provider, session: URLSession(configuration: configuration))
     }
 
     private func context(images: [WorkImage] = []) -> ReviewContext {
@@ -41,23 +41,9 @@ struct DeepSeekTests {
         StubProtocol.handler = { request in
             #expect(request.url?.absoluteString == "https://api.deepseek.com/chat/completions")
             #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer fake-test-key")
-            let body: Data
-            if let bytes = request.httpBody { body = bytes }
-            else {
-                let stream = try #require(request.httpBodyStream)
-                stream.open()
-                defer { stream.close() }
-                var bytes = Data()
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while stream.hasBytesAvailable {
-                    let count = stream.read(&buffer, maxLength: buffer.count)
-                    guard count > 0 else { break }
-                    bytes.append(contentsOf: buffer.prefix(count))
-                }
-                body = bytes
-            }
+            let body = try Self.requestBody(request)
             let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
-            #expect(json["model"] as? String == DeepSeekClient.model)
+            #expect(json["model"] as? String == "deepseek-chat")
             #expect((json["thinking"] as? [String: String])?["type"] == "disabled")
             let messages = try #require(json["messages"] as? [[String: Any]])
             let parts = try #require(messages[1]["content"] as? [[String: Any]])
@@ -68,6 +54,35 @@ struct DeepSeekTests {
         }
         let summary = try await client().summarize(context: context(images: [WorkImage(name: "测试.jpg")]), images: [Data([1, 2, 3])], apiKey: "fake-test-key")
         #expect(summary == expected)
+    }
+
+    @Test func usesProviderEndpointModelAndOmitsThinkingFlag() async throws {
+        let provider = AIProviderConfig(id: "openai", name: "OpenAI", baseURL: "https://api.openai.com/v1/",
+                                        defaultModel: "gpt-4o-mini", sendsThinkingFlag: false)
+        StubProtocol.handler = { request in
+            #expect(request.url?.absoluteString == "https://api.openai.com/v1/chat/completions")
+            let body = try Self.requestBody(request)
+            let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+            #expect(json["model"] as? String == "gpt-4o-mini")
+            #expect(json["thinking"] == nil)
+            let result = String(data: try JSONEncoder().encode(WorkSummary(activities: ["工作"], outcomes: [], nextSteps: [], uncertainties: [])), encoding: .utf8)!
+            return (200, try JSONSerialization.data(withJSONObject: ["choices": [["finish_reason": "stop", "message": ["content": result]]]]))
+        }
+        _ = try await client(provider: provider).summarize(context: context(), images: [], apiKey: "fake-test-key")
+    }
+
+    @Test func rejectsMissingModelAndInvalidCustomBaseURL() async throws {
+        StubProtocol.handler = { _ in Issue.record("无效配置不应发出请求"); return (200, Data()) }
+        let emptyModel = AIProviderConfig(id: "custom", name: "自定义", baseURL: "https://gateway.test/v1", defaultModel: " ", sendsThinkingFlag: false)
+        do {
+            _ = try await client(provider: emptyModel).summarize(context: context(), images: [], apiKey: "fake-test-key")
+            Issue.record("缺少模型名应阻止请求")
+        } catch is AIReviewError {}
+        let noURL = AIProviderConfig(id: "custom", name: "自定义", baseURL: "", defaultModel: "m", sendsThinkingFlag: false)
+        do {
+            _ = try await client(provider: noURL).summarize(context: context(), images: [], apiKey: "fake-test-key")
+            Issue.record("缺少接口地址应阻止请求")
+        } catch is AIReviewError {}
     }
 
     @Test func authorizationFailureDoesNotExposeServerBodyOrKey() async throws {
@@ -91,7 +106,7 @@ struct DeepSeekTests {
             do {
                 _ = try await client().summarize(context: context(), images: [], apiKey: "fake-test-key")
                 Issue.record("不完整或错误结果不能覆盖已保存的总结")
-            } catch is DeepSeekError {}
+            } catch is AIReviewError {}
         }
     }
 
@@ -100,11 +115,21 @@ struct DeepSeekTests {
         do {
             _ = try await client().summarize(context: context(images: [WorkImage(name: "missing.jpg")]), images: [], apiKey: "fake-test-key")
             Issue.record("缺少图片应阻止生成")
-        } catch is DeepSeekError {}
+        } catch is AIReviewError {}
         do {
             _ = try await client().summarize(context: context(), images: [], apiKey: "")
             Issue.record("缺少密钥应阻止生成")
-        } catch is DeepSeekError {}
+        } catch is AIReviewError {}
+    }
+
+    @Test func fetchModelsReturnsProviderCatalog() async throws {
+        StubProtocol.handler = { request in
+            #expect(request.httpMethod == "GET")
+            #expect(request.url?.path == "/v1/models")
+            return (200, Data("{\"data\":[{\"id\":\"gpt-4o\"},{\"id\":\"gpt-4o-mini\"},{\"id\":\"gpt-4o\"}]}".utf8))
+        }
+        let models = try await client(provider: AIProviderConfig(id: "openai", name: "OpenAI", baseURL: "https://api.openai.com/v1", defaultModel: "", sendsThinkingFlag: false)).fetchModels(apiKey: "fake-test-key")
+        #expect(models == ["gpt-4o", "gpt-4o-mini"])
     }
 
     @Test func testConnectionOnlyChecksModelEndpoint() async throws {
@@ -186,5 +211,62 @@ struct DeepSeekTests {
             result.append(contentsOf: buffer.prefix(count))
         }
         return result
+    }
+}
+
+@Suite struct AIProviderSettingsTests {
+    @Test func resolvedUsesPresetDefaults() {
+        let settings = AISettings()
+        let resolved = settings.resolved()
+        #expect(resolved.id == "deepseek")
+        #expect(resolved.baseURL == "https://api.deepseek.com")
+        #expect(resolved.defaultModel == "deepseek-chat")
+        #expect(resolved.sendsThinkingFlag)
+    }
+
+    @Test func resolvedAppliesModelOverride() {
+        var settings = AISettings()
+        settings.providerID = "openai"
+        settings.modelOverride = "gpt-4o"
+        let resolved = settings.resolved()
+        #expect(resolved.defaultModel == "gpt-4o")
+        #expect(resolved.baseURL == "https://api.openai.com/v1")
+        #expect(!resolved.sendsThinkingFlag)
+    }
+
+    @Test func resolvedCustomProviderUsesCustomFields() {
+        var settings = AISettings()
+        settings.providerID = "custom"
+        settings.customBaseURL = "https://my-gateway.example/v1"
+        settings.modelOverride = "my-model"
+        let resolved = settings.resolved()
+        #expect(resolved.defaultModel == "my-model")
+        #expect(resolved.apiURL?.absoluteString == "https://my-gateway.example/v1/chat/completions")
+    }
+
+    @Test func customBaseURLGetsHTTPSWhenSchemeMissing() {
+        let provider = AIProviderConfig(id: "custom", name: "自定义", baseURL: "my-host.test/v1",
+                                        defaultModel: "m", sendsThinkingFlag: false)
+        #expect(provider.apiURL?.absoluteString == "https://my-host.test/v1/chat/completions")
+    }
+
+    @Test func settingsDecodeFromLegacyJSONWithoutAIField() throws {
+        let legacy = "{}".data(using: .utf8)!
+        let settings = try JSONDecoder().decode(AISettings.self, from: legacy)
+        #expect(settings.resolved() == AIProviderCatalog.deepseek)
+    }
+
+    @Test func appSettingsDecodeWithoutAIFieldKeepsDeepSeek() throws {
+        let legacy = "{\"focusMinutes\": 30}".data(using: .utf8)!
+        let settings = try JSONDecoder().decode(AppSettings.self, from: legacy)
+        #expect(settings.ai.resolved() == AIProviderCatalog.deepseek)
+    }
+
+    @Test func environmentNamesCoverGenericProviderAndDeepSeekLegacy() {
+        #expect(AIProviderCredentials.environmentNames(for: "deepseek").contains("DEEPSEEK_API_KEY"))
+        #expect(AIProviderCredentials.environmentNames(for: "deepseek").contains("deepseek"))
+        #expect(AIProviderCredentials.environmentNames(for: "zhipu").contains("ZHIPU_API_KEY"))
+        #expect(AIProviderCredentials.environmentNames(for: "openai").contains("OPENAI_API_KEY"))
+        #expect(AIProviderCredentials.environmentNames(for: "custom").contains("AI_API_KEY"))
     }
 }

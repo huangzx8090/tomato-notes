@@ -89,10 +89,10 @@ struct WorkReportView: View {
                             if !busy { Image(systemName: "sparkles") }
                         }
                     }.buttonStyle(PrimaryButtonStyle()).disabled(busy || !state.canWrite)
-                    Text("生成时会将本轮或当天的记录、补充文字及所选图片发送给 DeepSeek。")
+                    Text("生成时会将本轮或当天的记录、补充文字及所选图片发送给当前配置的 AI 服务商。")
                         .font(.system(size: 11)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
                     if !state.hasAPIKey {
-                        Button("先配置 DeepSeek API Key", action: configureAI).buttonStyle(.plain)
+                        Button("先配置 AI 服务商", action: configureAI).buttonStyle(.plain)
                             .font(.system(size: 12)).foregroundStyle(Theme.accent)
                     }
                     if let error = state.reviewErrors[scope.key] {
@@ -196,26 +196,68 @@ struct ReviewSettingsSection: View {
     @ObservedObject var state: AppState
     var requestNotifications: () -> Void
     @ViewState private var apiKey = ""
+    @ViewState private var customURL = ""
+    @ViewState private var modelOverride = ""
     @ViewState private var hour = "21"
     @ViewState private var minute = "30"
     @ViewState private var validation: String?
 
+    private var provider: AIProviderConfig { state.aiProvider }
+    private var isCustom: Bool { provider.id == "custom" }
+    private var availableModels: [String] {
+        var models = state.aiModels
+        if !modelOverride.isEmpty && !models.contains(modelOverride) { models.insert(modelOverride, at: 0) }
+        return models
+    }
+
+    private func selectProvider(_ id: String) {
+        state.updateAIProvider { $0.providerID = id; $0.modelOverride = "" }
+        if id == "custom" { customURL = state.settings.ai.customBaseURL }
+        modelOverride = ""
+        apiKey = ""
+    }
     var body: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 14) {
                 Label("AI 工作与成果回顾", systemImage: "sparkles").font(.system(size: 14, weight: .semibold))
-                Text("DeepSeek · 支持文字与图片理解")
-                    .font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                SecureField(state.hasAPIKey ? "已配置，输入可更换" : "填写 DeepSeek API Key", text: $apiKey)
-                    .textFieldStyle(.roundedBorder).accessibilityLabel("DeepSeek API Key")
                 HStack(spacing: 8) {
-                    Button("保存密钥") { state.saveAPIKey(apiKey); apiKey = "" }.disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Text("AI 服务商").font(.system(size: 12))
+                    Picker("", selection: Binding(get: { state.settings.ai.providerID }, set: selectProvider)) {
+                        ForEach(AIProviderCatalog.presets) { preset in
+                            Text(preset.name).tag(preset.id)
+                        }
+                    }.labelsHidden().frame(maxWidth: 220)
+                }
+                Text("当前模型：\(provider.defaultModel.isEmpty ? "未填写" : provider.defaultModel) · 支持文字与图片理解，需视觉模型")
+                    .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                if isCustom {
+                    TextField("接口地址，如 https://your-gateway.com/v1", text: $customURL)
+                        .textFieldStyle(.roundedBorder).accessibilityLabel("自定义接口地址")
+                }
+                if availableModels.isEmpty {
+                    Text("请先保存服务商、API Key 和接口地址，再获取可用模型")
+                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                } else {
+                    Picker("模型", selection: $modelOverride) {
+                        ForEach(availableModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                    .accessibilityLabel("AI 模型")
+                }
+                SecureField(state.hasAPIKey ? "\(provider.name) 已配置，输入可更换" : "填写 \(provider.name) API Key", text: $apiKey)
+                    .textFieldStyle(.roundedBorder).accessibilityLabel("\(provider.name) API Key")
+                HStack(spacing: 8) {
+                    Button("保存设置") { saveSettings() }
+                        .disabled((isCustom && customURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || modelOverride.isEmpty)
+                    Button(state.loadingAIModels ? "获取中…" : "获取模型", action: saveAndFetchModels)
+                        .disabled(state.loadingAIModels || (isCustom && customURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
                     Button(state.testingAI ? "连接中…" : "测试连接", action: state.testAIConnection).disabled(state.testingAI)
                     Button("刷新", action: state.refreshCredentialStatus)
                 }.buttonStyle(SubtleButtonStyle())
                 Text(state.aiStatus).font(.system(size: 11)).foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("密钥保存在本机钥匙串；支持导入 deepseek / DEEPSEEK_API_KEY 环境变量。")
+                Text("各服务商密钥分别保存在本机钥匙串，切换时无需重新填写；支持 AI_API_KEY 或 <服务商>_API_KEY 环境变量（DeepSeek 兼容旧名 deepseek / DEEPSEEK_API_KEY）。")
                     .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Divider()
@@ -245,18 +287,32 @@ struct ReviewSettingsSection: View {
                 Text("应用运行时，每天 \(state.settings.review.timeLabel) 汇总当天所有专注成果。当天错过时间，启动或解锁后补生成；生成失败可手动重试。")
                     .font(.system(size: 11)).foregroundStyle(Theme.secondary).lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("定时汇总会将当天的记录、补充文字和待解析图片发送给 DeepSeek。")
+                Text("定时汇总会将当天的记录、补充文字和待解析图片发送给 \(provider.name)。")
                     .font(.system(size: 10)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
                 if state.hasAPIKey {
-                    Button("移除已保存的密钥", action: state.removeAPIKey).buttonStyle(.plain)
+                    Button("移除已保存的密钥（\(provider.name)）", action: state.removeAPIKey).buttonStyle(.plain)
                         .font(.system(size: 10)).foregroundStyle(Theme.accent)
                 }
             }
         }.onAppear {
+            customURL = state.settings.ai.customBaseURL
+            modelOverride = state.settings.ai.modelOverride
             hour = String(format: "%02d", state.settings.review.hour)
             minute = String(format: "%02d", state.settings.review.minute)
             state.refreshCredentialStatus()
         }
+    }
+
+    private func saveSettings() {
+        if isCustom { state.updateAIProvider { $0.customBaseURL = customURL } }
+        state.updateAIProvider { $0.modelOverride = modelOverride }
+        if !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { state.saveAPIKey(apiKey) }
+        apiKey = ""
+    }
+
+    private func saveAndFetchModels() {
+        saveSettings()
+        state.fetchAIModels()
     }
 
     private func timeField(_ value: Binding<String>, label: String) -> some View {

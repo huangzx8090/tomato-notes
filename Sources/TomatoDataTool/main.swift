@@ -18,10 +18,10 @@ enum ToolError: LocalizedError {
 do {
     let args = Array(CommandLine.arguments.dropFirst())
     if args.first == "import-deepseek-key" {
-        guard let key = DeepSeekCredentials.environmentKey else {
+        guard let key = AIProviderCredentials.environmentKey else {
             throw NSError(domain: "TomatoDataTool", code: 1, userInfo: [NSLocalizedDescriptionKey: "当前终端未设置 deepseek 或 DEEPSEEK_API_KEY 环境变量。"])
         }
-        try DeepSeekCredentials().save(key)
+        try AIProviderCredentials().save(key, providerID: AIProviderCatalog.deepseek.id)
         print("DeepSeek 环境变量已导入本机钥匙串；未输出密钥。")
         exit(0)
     }
@@ -78,7 +78,7 @@ do {
         for image in merged.workRecords.flatMap(\.images) {
             let candidates = sources.map { WorkImageStore(repository: $0).url(for: image) }
                 .filter { FileManager.default.fileExists(atPath: $0.path) }
-            guard let first = candidates.first else { throw DeepSeekError.missingImage }
+            guard let first = candidates.first else { throw AIReviewError.missingImage }
             let bytes = try Data(contentsOf: first)
             for candidate in candidates.dropFirst() where try Data(contentsOf: candidate) != bytes {
                 throw DataMergeError.conflict("成果图片", image.id)
