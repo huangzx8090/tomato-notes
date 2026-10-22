@@ -40,7 +40,7 @@ struct MainPanel: View {
                         case .todos:
                             TodoPage(todos: state.summary(for: state.todayKey).todos, day: state.todayKey,
                                      draft: $todoDraft, addTodo: state.addTodo, toggleTodo: state.toggleTodo,
-                                     updateTodo: state.updateTodo)
+                                     updateTodo: state.updateTodo, deleteTodo: state.deleteTodo)
                         case .today: TodayView(state: state, startFocus: { tab = .focus }, openWork: openWork)
                         case .notes:
                             NotesListView(notes: state.data.notes, today: state.todayKey,
@@ -53,12 +53,20 @@ struct MainPanel: View {
                     }.padding(.horizontal, 22).padding(.top, 6).padding(.bottom, 22)
                 }.scrollIndicators(.hidden).id(tab == .notes && showsNoteHistory ? "notes.history" : tab.rawValue)
             }
-            if let message = state.feedback {
+            if let message = state.lastDeletedTodo.map({ "已删除：\($0.text)" }) ?? state.feedback {
                 HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "info.circle")
-                    Text(message).fixedSize(horizontal: false, vertical: true)
+                    Image(systemName: state.lastDeletedTodo == nil ? "info.circle" : "trash")
+                    Text(message).lineLimit(state.lastDeletedTodo == nil ? nil : 2)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
-                    Button { state.feedback = nil } label: { Image(systemName: "xmark") }
+                    if let deleted = state.lastDeletedTodo {
+                        Button("撤销", action: state.undoTodoDeletion)
+                            .buttonStyle(.plain).fontWeight(.semibold).foregroundStyle(Theme.accent)
+                            .help("撤销删除：\(deleted.text)")
+                            .accessibilityLabel("撤销删除：\(deleted.text)")
+                            .accessibilityIdentifier("todos.undoDelete")
+                    }
+                    Button(action: state.dismissFeedback) { Image(systemName: "xmark") }
                         .buttonStyle(.plain).accessibilityLabel("关闭提示")
                 }
                 .font(.system(size: 11)).foregroundStyle(Theme.primary)

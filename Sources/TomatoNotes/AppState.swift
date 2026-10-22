@@ -10,6 +10,7 @@ final class AppState: ObservableObject {
     @Published private(set) var data: AppData
     @Published private(set) var errorMessage: String?
     @Published var feedback: String?
+    @Published private(set) var lastDeletedTodo: TodoItem?
     @Published var notificationStatus = "首次开始或测试提醒时申请通知权限"
     @Published private(set) var calendarDay = LocalTime.dayKey(Date())
     @Published private(set) var generatingScopes: Set<String> = []
@@ -41,6 +42,7 @@ final class AppState: ObservableObject {
     private var lidClosed = false
     private var currentApp: AppIdentity?
     private var lastConversion: (UUID, String, Date)?
+    private var todoDeletionHistory = TodoDeletionHistory()
     private let credentials = DeepSeekCredentials()
     private let ai = DeepSeekClient()
     private var workSaveTask: DispatchWorkItem?
@@ -323,6 +325,40 @@ final class AppState: ObservableObject {
         next.todos[index].text = trimmed
         engine.replaceData(next)
         publish()
+    }
+
+    func deleteTodo(_ id: UUID) {
+        guard canWrite else { return }
+        var next = data
+        var history = todoDeletionHistory
+        guard history.remove(id, on: todayKey, from: &next.todos) else { return }
+        engine.replaceData(next)
+        publish()
+        guard canWrite else { return }
+        todoDeletionHistory = history
+        lastDeletedTodo = history.lastDeleted
+        feedback = nil
+    }
+
+    func undoTodoDeletion() {
+        guard canWrite else { return }
+        var next = data
+        var history = todoDeletionHistory
+        let restored = history.restoreLast(in: &next.todos)
+        if restored != nil {
+            engine.replaceData(next)
+            publish()
+            guard canWrite else { return }
+        }
+        todoDeletionHistory = history
+        lastDeletedTodo = history.lastDeleted
+        feedback = restored == nil ? "这条待办已存在，未重复恢复" : "待办已恢复"
+    }
+
+    func dismissFeedback() {
+        todoDeletionHistory.discard()
+        lastDeletedTodo = nil
+        feedback = nil
     }
 
     func createNote() -> UUID? {
