@@ -8,7 +8,7 @@
 
 首次打开
 当前版本为 ad-hoc 签名，未使用 Apple Developer ID 签名，也未经过 Apple 公证。
-若系统阻止打开，请先确认文件来自本项目的 GitHub Release；可用附件 SHA256SUMS.txt 校验。
+若系统阻止打开，请先确认文件来自本项目的 GitHub Release；可用附件 SHA256SUMS.txt 校验（下载附件中的安装说明名为 INSTALL.txt）。
 尝试打开后，在“系统设置 → 隐私与安全性”中按系统提示选择“仍要打开”。
 详细说明：https://support.apple.com/zh-cn/102445
 
