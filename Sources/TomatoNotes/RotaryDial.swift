@@ -80,7 +80,8 @@ struct RotaryDial: View {
                 let startY = size / 2 - event.startLocation.y
                 if dragStartValue == nil {
                     dragStartValue = value
-                    previousAngle = atan2(startX, startY) * 180 / .pi
+                    // 统一为 Double，避免不同 Swift 工具链在 CGFloat / Double 之间推断歧义。
+                    previousAngle = atan2(Double(startX), Double(startY)) * 180 / Double.pi
                     accumulatedAngle = 0
                 }
                 isDragging = true
@@ -88,7 +89,7 @@ struct RotaryDial: View {
                     // 表盘中心难以确定旋转角度，改用上下拖动，避免数值跳变。
                     set((dragStartValue ?? value) + Int((-event.translation.height / 3).rounded()))
                 } else {
-                    let current = atan2(event.location.x - size / 2, size / 2 - event.location.y) * 180 / .pi
+                    let current = atan2(Double(event.location.x - size / 2), Double(size / 2 - event.location.y)) * 180 / Double.pi
                     var delta = current - (previousAngle ?? current)
                     if delta > 180 { delta -= 360 }
                     if delta < -180 { delta += 360 }

@@ -4,17 +4,20 @@ set -euo pipefail
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$project_root"
 configuration="${1:-release}"
-swift build -c "$configuration"
-binary_dir="$(swift build -c "$configuration" --show-bin-path)"
 app_name="番茄小记"
 bundle_id="com.zixuan.TomatoNotes"
-if [[ "${2:-}" == "--qa" ]]; then
-    app_name="番茄小记验证"
-    bundle_id="com.zixuan.TomatoNotes.QA"
-fi
-if [[ "${2:-}" == "--guard-qa" ]]; then
-    app_name="番茄小记守护验证"
-    bundle_id="com.zixuan.TomatoNotes.GuardQA"
+universal=false
+for option in "${@:2}"; do
+    case "$option" in
+        --qa) app_name="番茄小记验证"; bundle_id="com.zixuan.TomatoNotes.QA" ;;
+        --guard-qa) app_name="番茄小记守护验证"; bundle_id="com.zixuan.TomatoNotes.GuardQA" ;;
+        --universal) universal=true ;;
+        *) printf '未知打包选项：%s\n' "$option" >&2; exit 1 ;;
+    esac
+done
+if [[ "$configuration" != release && "$configuration" != debug ]]; then
+    printf '构建配置必须为 release 或 debug。\n' >&2
+    exit 1
 fi
 app_path="$project_root/build/$app_name.app"
 mkdir -p "$project_root/build"
@@ -22,7 +25,27 @@ staging="$(mktemp -d "$project_root/build/package.XXXXXX")"
 trap 'rm -rf "$staging"' EXIT
 staged_app="$staging/$app_name.app"
 mkdir -p "$staged_app/Contents/MacOS" "$staged_app/Contents/Resources"
-cp "$binary_dir/TomatoNotes" "$staged_app/Contents/MacOS/TomatoNotes"
+if [[ "$universal" == true ]]; then
+    # 两种架构都固定最低 macOS 版本，再合并；不依赖构建机的 CPU 类型。
+    binaries=()
+    for architecture in arm64 x86_64; do
+        triple="$architecture-apple-macosx14.0"
+        swift build -c "$configuration" --product TomatoNotes --triple "$triple"
+        binary_dir="$(swift build -c "$configuration" --triple "$triple" --show-bin-path)"
+        # 部分 SwiftPM 工具链复用 Products/Release 路径，下一次构建前先留存当前架构。
+        cp "$binary_dir/TomatoNotes" "$staging/TomatoNotes-$architecture"
+        lipo "$staging/TomatoNotes-$architecture" -verify_arch "$architecture"
+        binaries+=("$staging/TomatoNotes-$architecture")
+    done
+    lipo -create "${binaries[@]}" -output "$staged_app/Contents/MacOS/TomatoNotes"
+    for architecture in arm64 x86_64; do
+        lipo "$staged_app/Contents/MacOS/TomatoNotes" -verify_arch "$architecture"
+    done
+else
+    swift build -c "$configuration" --product TomatoNotes
+    binary_dir="$(swift build -c "$configuration" --show-bin-path)"
+    cp "$binary_dir/TomatoNotes" "$staged_app/Contents/MacOS/TomatoNotes"
+fi
 cp Packaging/Info.plist "$staged_app/Contents/Info.plist"
 plutil -replace CFBundleIdentifier -string "$bundle_id" "$staged_app/Contents/Info.plist"
 plutil -replace CFBundleName -string "$app_name" "$staged_app/Contents/Info.plist"

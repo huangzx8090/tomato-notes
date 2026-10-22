@@ -1,0 +1,49 @@
+name: macOS CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-package:
+    name: 测试与双架构打包
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: 显示工具链
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: 检查脚本与数据格式
+        run: |
+          for script in Scripts/*.sh; do bash -n "$script"; done
+          plutil -lint Packaging/Info.plist
+          git diff --check
+      - name: 运行规则与接口测试
+        run: Scripts/test.sh
+      - name: 构建并验证 Universal ZIP 与 DMG
+        run: Scripts/package-release.sh
+      - name: 保存安装包
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: TomatoNotes-macOS-universal
+          path: build/releases/*/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

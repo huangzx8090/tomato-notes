@@ -1,0 +1,88 @@
+name: 发布 macOS 应用
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已存在并已合入 main 的版本标签，例如 v1.3.1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: 验证标签并构建安装包
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - name: 检出标签与完整历史
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 核对标签、版本与主分支
+        run: Scripts/validate-release.sh "$RELEASE_TAG"
+      - name: 运行规则与接口测试
+        run: Scripts/test.sh
+      - name: 构建并校验发布文件
+        run: |
+          Scripts/package-release.sh "$RELEASE_TAG"
+          cp "docs/releases/$RELEASE_TAG.md" build/release-notes.md
+      - name: 保存发布文件
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-files
+          path: |
+            build/releases/*/*
+            build/release-notes.md
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  publish:
+    name: 上传并发布 GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: 获取已验证的安装包
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-files
+          path: release-files
+      - name: 发布版本与附件
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd "release-files/releases/$RELEASE_TAG"
+          sha256sum -c SHA256SUMS.txt
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > release-state.txt 2>/dev/null; then
+            if [ "$(cat release-state.txt)" != true ]; then
+              echo '此版本已正式发布；请创建新版本，避免覆盖已有下载。' >&2
+              exit 1
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "番茄小记 $RELEASE_TAG" \
+              --notes-file ../../release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" ./*.dmg ./*.zip SHA256SUMS.txt 安装说明.txt --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest \
+            --notes-file ../../release-notes.md
