@@ -534,18 +534,21 @@ final class AppState: ObservableObject {
     private func rebuildAIClient() {
         let resolved = settings.ai.resolved()
         guard resolved != aiProvider else { return }
+        let catalogChanged = resolved.id != aiProvider.id || resolved.baseURL != aiProvider.baseURL
         aiProvider = resolved
         ai = AIReviewClient(provider: resolved)
-        aiModels = []
+        if catalogChanged { aiModels = [] }
     }
 
-    func saveAPIKey(_ value: String) {
-        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    @discardableResult
+    func saveAPIKey(_ value: String) -> Bool {
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         do {
             try credentials.save(value, providerID: aiProvider.id)
             refreshCredentialStatus()
             feedback = "\(aiProvider.name) 的 API Key 已保存到本机钥匙串"
-        } catch { aiStatus = error.localizedDescription }
+            return true
+        } catch { aiStatus = error.localizedDescription; return false }
     }
 
     func removeAPIKey() {
