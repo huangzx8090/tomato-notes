@@ -2,28 +2,19 @@ import AppKit
 import SwiftUI
 import TomatoCore
 
-enum PanelTab: String, CaseIterable {
-    case focus = "专注", today = "今日", notes = "便签", settings = "设置"
-    var symbol: String {
-        switch self {
-        case .focus: "timer"
-        case .today: "sun.max"
-        case .notes: "note.text"
-        case .settings: "slider.horizontal.3"
-        }
-    }
-}
-
 struct MainPanel: View {
     @ObservedObject var state: AppState
     var createNote: () -> Void
     var openNote: (UUID) -> Void
+    var continueNote: (UUID) -> Void
+    var deleteNote: (UUID) -> Void
     var openWork: (WorkScope) -> Void
     var testReminder: () -> Void
     var requestNotifications: () -> Void
     var panelHeight: CGFloat = 660
     @ViewState private var tab: PanelTab = .focus
     @ViewState private var todoDraft = ""
+    @ViewState private var showsNoteHistory = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,14 +37,21 @@ struct MainPanel: View {
                     VStack(spacing: 18) {
                         switch tab {
                         case .focus: focus
+                        case .todos:
+                            TodoPage(todos: state.summary(for: state.todayKey).todos, day: state.todayKey,
+                                     draft: $todoDraft, addTodo: state.addTodo, toggleTodo: state.toggleTodo,
+                                     updateTodo: state.updateTodo)
                         case .today: TodayView(state: state, startFocus: { tab = .focus }, openWork: openWork)
-                        case .notes: NotesListView(state: state, createNote: createNote, openNote: openNote)
+                        case .notes:
+                            NotesListView(notes: state.data.notes, today: state.todayKey,
+                                          showsHistory: $showsNoteHistory, createNote: createNote,
+                                          openNote: openNote, continueNote: continueNote, deleteNote: deleteNote)
                         case .settings:
                             SettingsView(state: state, testReminder: testReminder,
                                          requestNotifications: requestNotifications)
                         }
                     }.padding(.horizontal, 22).padding(.top, 6).padding(.bottom, 22)
-                }.scrollIndicators(.hidden)
+                }.scrollIndicators(.hidden).id(tab == .notes && showsNoteHistory ? "notes.history" : tab.rawValue)
             }
             if let message = state.feedback {
                 HStack(alignment: .top, spacing: 8) {
@@ -73,6 +71,9 @@ struct MainPanel: View {
         .preferredColorScheme(state.settings.appearance.colorScheme)
         .environment(\.locale, Locale(identifier: "zh_CN"))
         .environment(\.glassControlsEnabled, state.settings.glassControlsEnabled)
+        .onChange(of: tab) { _, newTab in
+            if newTab == .notes { showsNoteHistory = false }
+        }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("TomatoNotes.showAISettings"))) { _ in tab = .settings }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("TomatoNotes.showFocus"))) { _ in tab = .focus }
     }
@@ -146,7 +147,6 @@ struct MainPanel: View {
                 MetricView(value: "\(state.summary(for: state.todayKey).completedSessions)", label: "完整番茄 / 轮")
             }.padding(.vertical, 15).background(Theme.surface, in: RoundedRectangle(cornerRadius: 14))
 
-            TodoSection(state: state, draft: $todoDraft)
             FocusGuardCard(state: state, controller: state.guardController)
         }
     }
@@ -169,79 +169,6 @@ private struct MetricView: View {
             Text(value).font(.system(size: 25, weight: .medium, design: .rounded).monospacedDigit())
             Text(label).font(.system(size: 10)).foregroundStyle(Theme.secondary)
         }.frame(maxWidth: .infinity)
-    }
-}
-
-private struct TodoSection: View {
-    @ObservedObject var state: AppState
-    @Binding var draft: String
-
-    var body: some View {
-        let todos = state.summary(for: state.todayKey).todos
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("今日待办").font(.system(size: 14, weight: .semibold))
-                Spacer()
-                Text("\(todos.filter(\.isCompleted).count) / \(todos.count)")
-                    .font(.system(size: 11).monospacedDigit()).foregroundStyle(Theme.secondary)
-            }
-            if todos.isEmpty {
-                Text("随手记一件小事。")
-                    .font(.system(size: 12)).foregroundStyle(Theme.secondary).padding(.vertical, 6)
-            }
-            ForEach(todos) { todo in TodoRow(todo: todo, state: state) }
-            HStack(spacing: 8) {
-                Image(systemName: "plus").foregroundStyle(Theme.accent).font(.system(size: 12))
-                TextField("输入一件小事，按回车保存", text: $draft)
-                    .textFieldStyle(.plain).font(.system(size: 12)).onSubmit(save)
-                if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Button(action: save) { Image(systemName: "arrow.turn.down.left") }
-                        .buttonStyle(.plain).foregroundStyle(Theme.accent).accessibilityLabel("保存待办")
-                }
-            }.padding(12).background(Theme.surface, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border, lineWidth: 0.7))
-        }
-    }
-
-    private func save() {
-        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        state.addTodo(draft)
-        draft = ""
-    }
-}
-
-private struct TodoRow: View {
-    let todo: TodoItem
-    @ObservedObject var state: AppState
-    @ViewState private var editing = false
-    @ViewState private var draft = ""
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            if editing {
-                TextField("待办文字", text: $draft).textFieldStyle(.plain).font(.system(size: 13))
-                    .onSubmit { state.updateTodo(todo.id, text: draft); editing = false }
-                    .onExitCommand { editing = false }
-            } else {
-                Text(todo.text).font(.system(size: 13))
-                    .strikethrough(todo.isCompleted, color: Theme.secondary)
-                    .foregroundStyle(todo.isCompleted ? Theme.secondary : Theme.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
-                    .onTapGesture(count: 2) { draft = todo.text; editing = true }
-            }
-            Spacer(minLength: 0)
-            Button { state.toggleTodo(todo.id) } label: {
-                Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 19, weight: .light))
-                    .foregroundStyle(todo.isCompleted ? Theme.green : Theme.secondary)
-                    .frame(width: 30, height: 30)
-                    .contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityLabel(todo.isCompleted ? "取消完成：\(todo.text)" : "完成：\(todo.text)")
-        }
-        .padding(.vertical, 2)
-        .contextMenu {
-            Button("修改文字") { draft = todo.text; editing = true }
-        }
     }
 }
 
@@ -403,57 +330,6 @@ private struct AppUsageRow: View {
                 Capsule().fill(Theme.green.opacity(0.7))
                     .frame(width: max(2, geometry.size.width * min(1, app.seconds / max(1, total))))
             }.frame(height: 3)
-        }
-    }
-}
-
-private struct NotesListView: View {
-    @ObservedObject var state: AppState
-    var createNote: () -> Void
-    var openNote: (UUID) -> Void
-    var body: some View {
-        VStack(alignment: .leading, spacing: 17) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("桌边的便签").font(.system(size: 19, weight: .semibold))
-                    Text("记下想法，让它留在眼前。")
-                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                }
-                Spacer()
-                Button(action: createNote) { Image(systemName: "plus").frame(width: 28, height: 28) }
-                    .buttonStyle(SubtleButtonStyle()).accessibilityLabel("新建便签")
-            }
-            if state.data.notes.isEmpty {
-                VStack(spacing: 16) {
-                    Image(systemName: "note.text").font(.system(size: 42, weight: .ultraLight)).foregroundStyle(Theme.accent)
-                    Text("给零散的想法，一张小小的纸。")
-                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                    Button("新建第一张便签", action: createNote).buttonStyle(SubtleButtonStyle())
-                }.frame(maxWidth: .infinity).padding(.vertical, 50)
-            }
-            ForEach(state.data.notes.sorted { $0.updatedAt > $1.updatedAt }) { note in
-                Button { openNote(note.id) } label: {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text(note.title).font(.system(size: 14, weight: .medium)).lineLimit(1)
-                            Spacer()
-                            Image(systemName: note.isOpen ? "pin.fill" : "arrow.up.right")
-                                .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                        }
-                        Text(note.text.isEmpty ? "一张等待落笔的纸。" : note.text)
-                            .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(3)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        HStack {
-                            Text(note.isOpen ? "已在桌面打开" : "已收起 · 点击恢复")
-                            Spacer()
-                            Text(note.updatedAt, format: .dateTime.month().day())
-                        }.font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                    }.padding(17).background(Color(nsColor: Theme.notePaper), in: RoundedRectangle(cornerRadius: 13))
-                }.buttonStyle(.plain)
-            }
-            Text("便签自动保存、跨日保留。关闭窗口后可在这里重新打开；选中文字或全文可按行转为今天的待办。")
-                .font(.system(size: 11)).foregroundStyle(Theme.secondary).lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

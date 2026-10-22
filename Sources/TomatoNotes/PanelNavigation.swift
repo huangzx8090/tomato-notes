@@ -1,5 +1,19 @@
 import SwiftUI
 
+enum PanelTab: String, CaseIterable {
+    case focus = "专注", todos = "待办", today = "今日", notes = "便签", settings = "设置"
+
+    var symbol: String {
+        switch self {
+        case .focus: "timer"
+        case .todos: "checklist"
+        case .today: "sun.max"
+        case .notes: "note.text"
+        case .settings: "slider.horizontal.3"
+        }
+    }
+}
+
 struct PanelNavigation: View {
     @Binding var selection: PanelTab
     @Environment(\.glassControlsEnabled) private var glassControlsEnabled
@@ -53,9 +67,9 @@ struct PanelNavigation: View {
         HStack(spacing: 4) {
             ForEach(PanelTab.allCases, id: \.self) { item in
                 Button { selection = item } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Image(systemName: item.symbol).font(.system(size: 12, weight: .medium))
-                        Text(item.rawValue).font(.system(size: 12, weight: .semibold))
+                        Text(item.rawValue).font(.system(size: 12, weight: .semibold)).fixedSize()
                     }
                     .frame(maxWidth: .infinity).frame(height: 36)
                     .foregroundStyle(selection == item ? Theme.accent : Theme.secondary)
