@@ -13,14 +13,30 @@ public enum RepositoryError: LocalizedError {
 public struct LocalRepository {
     public let fileURL: URL
 
+    public static var sharedFileURL: URL {
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return root.appendingPathComponent("TomatoNotes/data.json")
+    }
+
+    public var isSharedLibrary: Bool {
+        fileURL == Self.canonicalURL(Self.sharedFileURL)
+    }
+
     public init(fileURL: URL? = nil) {
-        if let fileURL {
-            self.fileURL = fileURL.standardizedFileURL.resolvingSymlinksInPath()
-        } else {
-            let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            self.fileURL = root.appendingPathComponent("TomatoNotes", isDirectory: true)
-                .appendingPathComponent("data.json")
+        self.fileURL = Self.canonicalURL(fileURL ?? Self.sharedFileURL)
+    }
+
+    private static func canonicalURL(_ url: URL) -> URL {
+        var ancestor = url.standardizedFileURL
+        var missingComponents: [String] = []
+        // 新资料文件尚不存在时，Foundation 不一定会解析父目录的符号链接。
+        while !FileManager.default.fileExists(atPath: ancestor.path), ancestor.path != "/" {
+            missingComponents.append(ancestor.lastPathComponent)
+            ancestor.deleteLastPathComponent()
         }
+        return missingComponents.reversed().reduce(ancestor.resolvingSymlinksInPath()) {
+            $0.appendingPathComponent($1)
+        }.standardizedFileURL
     }
 
     public func load() throws -> AppData {
