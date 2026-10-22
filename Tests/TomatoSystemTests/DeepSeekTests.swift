@@ -116,4 +116,75 @@ struct DeepSeekTests {
         }
         try await client().testConnection(apiKey: "fake-test-key")
     }
+
+    @Test func focusAssessmentSendsOneImageWithoutURLSecretsAndReturnsUsage() async throws {
+        StubProtocol.handler = { request in
+            let data = try Self.requestBody(request)
+            let raw = String(decoding: data, as: UTF8.self)
+            #expect(!raw.contains("private-query-value"))
+            let body = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(body["max_tokens"] as? Int == 400)
+            let messages = try #require(body["messages"] as? [[String: Any]])
+            let parts = try #require(messages[1]["content"] as? [[String: Any]])
+            #expect(parts.count == 2)
+            let relevance = FocusRelevance(verdict: .unrelated, confidence: 0.97, reason: "截图显示与数学无关的游戏页面")
+            let content = String(decoding: try JSONEncoder().encode(relevance), as: UTF8.self)
+            return (200, try JSONSerialization.data(withJSONObject: ["choices": [["finish_reason": "stop", "message": ["content": content]]],
+                                                                    "usage": ["prompt_tokens": 1300, "completion_tokens": 50]]))
+        }
+        let result = try await client().assessFocus(goal: "微积分", page: testPage(), image: Data([1, 2, 3]), apiKey: "fake-test-key")
+        #expect(result.relevance.permitsClosing)
+        #expect(result.inputTokens == 1300 && result.outputTokens == 50)
+    }
+
+    @Test func invalidOrUncertainFocusResultsNeverAuthorizeClosing() async throws {
+        for content in ["{\"verdict\":\"unrelated\",\"confidence\":2,\"reason\":\"错误置信度\"}", "not json"] {
+            StubProtocol.handler = { _ in (200, try JSONSerialization.data(withJSONObject: ["choices": [["finish_reason": "stop", "message": ["content": content]]]])) }
+            do {
+                _ = try await client().assessFocus(goal: "微积分", page: testPage(), image: Data([1]), apiKey: "fake-test-key")
+                Issue.record("非法 AI 结果应拒绝关闭")
+            } catch is FocusAssessmentError {}
+        }
+        StubProtocol.handler = { _ in
+            let content = "{\"verdict\":\"uncertain\",\"confidence\":0.95,\"reason\":\"可能是课程视频\"}"
+            return (200, try JSONSerialization.data(withJSONObject: ["choices": [["finish_reason": "stop", "message": ["content": content]]]]))
+        }
+        let result = try await client().assessFocus(goal: "微积分", page: testPage(), image: Data([1]), apiKey: "fake-test-key")
+        #expect(!result.relevance.permitsClosing)
+    }
+
+    @Test func privateInternalAndInvalidWindowsNeverSendFocusImage() async throws {
+        StubProtocol.handler = { _ in Issue.record("不可读取的页面不能发送截图"); return (200, Data()) }
+        var privatePage = testPage(); privatePage.isPrivate = true
+        var internalPage = testPage(); internalPage.url = "chrome://settings"
+        var filePage = testPage(); filePage.url = "file:///Users/example/private.html"
+        var invalid = testPage(); invalid.bounds.width = .nan
+        for page in [privatePage, internalPage, filePage, invalid] {
+            do {
+                _ = try await client().assessFocus(goal: "微积分", page: page, image: Data([1]), apiKey: "fake-test-key")
+                Issue.record("应拒绝无法可靠核对的页面")
+            } catch is FocusAssessmentError {}
+        }
+        do {
+            _ = try await client().assessFocus(goal: String(repeating: "学", count: 301), page: testPage(), image: Data([1]), apiKey: "fake-test-key")
+            Issue.record("不能截断学习目标后按不完整的目标关闭页面")
+        } catch is FocusAssessmentError {}
+    }
+
+    private func testPage() -> GuardPage {
+        .init(windowID: "w1", tabID: "t1", url: "https://example.test/watch?token=private-query-value", title: "休闲游戏",
+              isPrivate: false, bounds: .init(x: 0, y: 0, width: 1000, height: 700))
+    }
+    private static func requestBody(_ request: URLRequest) throws -> Data {
+        if let body = request.httpBody { return body }
+        let stream = try #require(request.httpBodyStream)
+        stream.open(); defer { stream.close() }
+        var result = Data(), buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            guard count > 0 else { break }
+            result.append(contentsOf: buffer.prefix(count))
+        }
+        return result
+    }
 }

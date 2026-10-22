@@ -175,12 +175,26 @@ struct TimerEngineTests {
         expectTrue(settings.allowClamshellWithExternalDisplay)
         expectFalse(settings.showDockIcon)
         expectTrue(settings.glassControlsEnabled)
+        expectEqual(settings.appearance, .system)
+        expectFalse(settings.focusGuard.enabled)
+        expectEqual(settings.focusGuard.maxChecks, 3)
+        expectFalse(settings.focusGuard.reuseLastPlan)
         expectEqual(settings.timerHotkey.letter, "P")
         var paperSettings = settings
         paperSettings.glassControlsEnabled = false
         let reopened = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(paperSettings))
         expectFalse(reopened.glassControlsEnabled)
         expectEqual(reopened.focusMinutes, 40)
+    }
+
+    @Test func appearancePersistsAndUnknownPreferenceFollowsSystem() throws {
+        var settings = AppSettings()
+        settings.appearance = .dark
+        settings.glassControlsEnabled = false
+        let reopened = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
+        #expect(reopened.appearance == .dark && !reopened.glassControlsEnabled)
+        let future = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"appearance":"future","focusMinutes":40}"#.utf8))
+        #expect(future.appearance == .system && future.focusMinutes == 40)
     }
 }
 

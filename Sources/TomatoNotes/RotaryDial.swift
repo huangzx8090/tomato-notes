@@ -28,17 +28,17 @@ struct RotaryDial: View {
                         .rotationEffect(.degrees(-135 + Double(index) * 7.5))
                 }
                 Circle()
-                    .fill(LinearGradient(colors: [Color.white, Color(hex: 0xD7D0C5), Color(hex: 0xF9F5ED)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .fill(LinearGradient(colors: [Theme.dialRimLight, Theme.dialRimShadow, Theme.dialRimEnd], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .padding(16)
-                    .shadow(color: Color(hex: 0xB1A391).opacity(isDragging ? 0.26 : 0.36), radius: isDragging ? 3 : 6, x: 0, y: isDragging ? 2 : 5)
+                    .shadow(color: Theme.dialShadow.opacity(isDragging ? 0.26 : 0.36), radius: isDragging ? 3 : 6, x: 0, y: isDragging ? 2 : 5)
                 ForEach(0..<60) { index in
                     Capsule().fill(Color(hex: 0xAFA69A).opacity(index % 2 == 0 ? 0.28 : 0.13))
                         .frame(width: 1, height: 3).offset(y: -size / 2 + 19)
                         .rotationEffect(.degrees(Double(index) * 6))
                 }
                 Circle()
-                    .fill(LinearGradient(colors: [Color(hex: 0xFFFEFA), Color(hex: 0xEEE7DB)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .overlay(Circle().stroke(Color.white.opacity(0.95), lineWidth: 1))
+                    .fill(LinearGradient(colors: [Theme.dialFaceLight, Theme.dialFaceShadow], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .overlay(Circle().stroke(Theme.dialHighlight.opacity(0.95), lineWidth: 1))
                     .padding(23)
                 Capsule().fill(tint).frame(width: 3, height: 10).offset(y: -size / 2 + 28)
                     .rotationEffect(.degrees(angle))

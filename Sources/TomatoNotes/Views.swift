@@ -70,10 +70,11 @@ struct MainPanel: View {
         .frame(width: 420, height: panelHeight)
         .background(Theme.background)
         .foregroundStyle(Theme.primary)
-        .preferredColorScheme(.light)
+        .preferredColorScheme(state.settings.appearance.colorScheme)
         .environment(\.locale, Locale(identifier: "zh_CN"))
         .environment(\.glassControlsEnabled, state.settings.glassControlsEnabled)
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("TomatoNotes.showAISettings"))) { _ in tab = .settings }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("TomatoNotes.showFocus"))) { _ in tab = .focus }
     }
 
     private var header: some View {
@@ -113,6 +114,13 @@ struct MainPanel: View {
                 }
                 Text(timerCaption).font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).padding(.top, 5)
+                if (state.timer.phase == .idle && state.timer.stage == .focus) ||
+                    (state.timer.phase == .completed && state.timer.nextStage == .focus) {
+                    FocusGoalPicker(state: state).padding(.top, 6)
+                } else if let id = state.timer.sessionID, let goal = state.data.sessions.first(where: { $0.id == id })?.goal {
+                    Text(goal).font(.system(size: 13, weight: .medium)).lineLimit(2)
+                        .multilineTextAlignment(.center).padding(.top, 4)
+                }
                 Button(action: state.startOrPause) {
                     Label(state.primaryAction, systemImage: state.timer.phase == .running ? "pause.fill" : "play.fill")
                 }
@@ -125,12 +133,12 @@ struct MainPanel: View {
                     Button("跳过这次休息", action: state.endEarlyOrSkip)
                         .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.secondary)
                 }
-                if let id = state.timer.sessionID ?? state.data.sessions.last?.id {
-                    Button { openWork(.session(id)) } label: {
-                        Label("记录本轮工作与成果", systemImage: "sparkles")
-                    }.buttonStyle(SubtleButtonStyle()).padding(.top, 5)
-                }
             }.frame(maxWidth: .infinity).padding(.vertical, 14)
+
+            if let id = state.timer.sessionID ?? state.data.sessions.last?.id,
+               let progress = SessionProgress.build(sessionID: id, from: state.data), progress.focusSeconds > 0 {
+                SessionProgressCard(state: state, progress: progress, openDetails: { openWork(.session(id)) })
+            }
 
             HStack(spacing: 0) {
                 MetricView(value: "\(Int(state.summary(for: state.todayKey).focusSeconds / 60))", label: "今日专注 / 分钟")
@@ -139,6 +147,7 @@ struct MainPanel: View {
             }.padding(.vertical, 15).background(Theme.surface, in: RoundedRectangle(cornerRadius: 14))
 
             TodoSection(state: state, draft: $todoDraft)
+            FocusGuardCard(state: state, controller: state.guardController)
         }
     }
 
@@ -317,6 +326,9 @@ private struct TodayView: View {
                     }
                 }
             }
+            if !summary.sessions.isEmpty {
+                ProgressTimeline(state: state, day: day, sessions: summary.sessions, openWork: openWork)
+            }
             PaperCard {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("专注时使用的 App").font(.system(size: 14, weight: .semibold))
@@ -354,35 +366,6 @@ private struct TodayView: View {
                         }
                         Text("历史日期只读，待办不会自动结转。")
                             .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                    }
-                }
-            }
-            if !summary.sessions.isEmpty {
-                PaperCard {
-                    VStack(alignment: .leading, spacing: 15) {
-                        Text("专注记录").font(.system(size: 14, weight: .semibold))
-                        ForEach(summary.sessions) { session in
-                            let seconds = state.data.intervals.filter { $0.sessionID == session.id && $0.localDay == day }
-                                .reduce(0) { $0 + $1.seconds }
-                            HStack(alignment: .top, spacing: 10) {
-                                Circle().fill(session.completed ? Theme.green : Theme.accentSoft)
-                                    .frame(width: 7, height: 7).padding(.top, 5)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Text(session.startedAt, style: .time)
-                                        Text("—")
-                                        if let end = session.endedAt { Text(end, style: .time) }
-                                        else { Text("进行中") }
-                                    }.font(.system(size: 12).monospacedDigit())
-                                    Text(session.endedAt == nil ? "进行中 · 本日 \(durationLabel(seconds))" :
-                                            "\(session.completed ? "完整番茄" : "提前结束") · 本日 \(durationLabel(seconds))")
-                                        .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                                    Button { openWork(.session(session.id)) } label: {
-                                        Label(state.workRecord(for: .session(session.id))?.summary == nil ? "记录这轮成果" : "查看 AI 成果", systemImage: "sparkles")
-                                    }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.accent)
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -493,6 +476,13 @@ private struct SettingsView: View {
             PaperCard {
                 VStack(alignment: .leading, spacing: 11) {
                     Text("外观").font(.system(size: 14, weight: .semibold))
+                    Picker("配色", selection: Binding(get: { state.settings.appearance }, set: { value in
+                        var settings = state.settings; settings.appearance = value; _ = state.updateSettings(settings)
+                    })) {
+                        ForEach(AppAppearance.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }.pickerStyle(.segmented).accessibilityLabel("外观模式")
+                    Text("浅色是暖纸，深色是夜色胡桃；跟随系统会自动切换。")
+                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
                     Toggle("按钮玻璃效果", isOn: settingBinding(\.glassControlsEnabled))
                         .font(.system(size: 12)).tint(Theme.accent)
                     Text("让按钮与顶部切换栏呈现流动玻璃。背景始终保留暖色纸感，关闭后按钮也使用纸感样式。")
@@ -501,6 +491,7 @@ private struct SettingsView: View {
                 }
             }
             ReviewSettingsSection(state: state, requestNotifications: requestNotifications)
+            FocusGuardSettingsSection(state: state)
             PaperCard {
                 VStack(alignment: .leading, spacing: 13) {
                     Text("专注的节奏").font(.system(size: 14, weight: .semibold))
@@ -576,7 +567,7 @@ private struct SettingsView: View {
                 }
             }
             VStack(alignment: .leading, spacing: 10) {
-                Text("番茄小记 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版") · macOS 14+")
+                Text("番茄小记 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0")) · macOS 14+")
                     .font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.secondary)
                 Text("锁屏与睡眠时暂停，回来后由你继续。")
                     .font(.system(size: 10)).foregroundStyle(Theme.secondary)
@@ -666,7 +657,7 @@ struct QuickTodoView: View {
                 }
             Text("Enter 保存到今天 · Esc 返回")
                 .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-        }.padding(22).frame(width: 380).background(Theme.background).preferredColorScheme(.light)
+        }.padding(22).frame(width: 380).background(Theme.background).foregroundStyle(Theme.primary)
             .onAppear { focused = true }.onExitCommand(perform: onClose)
     }
 }

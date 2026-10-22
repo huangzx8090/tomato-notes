@@ -17,9 +17,17 @@ final class AppState: ObservableObject {
     @Published private(set) var hasAPIKey = false
     @Published var aiStatus = "尚未配置 DeepSeek API Key"
     @Published private(set) var testingAI = false
+    @Published var guardSetupPresented = false
+    @Published var focusGoalDraft = ""
 
     let repository: LocalRepository
     let workImages: WorkImageStore
+    let guardController = FocusGuardController()
+    var onGuardSetupRequired: (() -> Void)?
+    private var guardSetupStartsTimer = false
+    private var pendingGuardPlan: FocusGuardPlan?
+    private var pendingTimerOnly = false
+    private var timerOnlySessionID: UUID?
     var onDataChanged: (() -> Void)?
     var onStageCompleted: ((TimerStage) -> Void)?
     var onStarted: (() -> Void)?
@@ -37,6 +45,7 @@ final class AppState: ObservableObject {
     private let ai = DeepSeekClient()
     private var workSaveTask: DispatchWorkItem?
     private var lastReviewCheck: TimeInterval = 0
+    private var pendingSessionReviews: [UUID] = []
 
     init(repository: LocalRepository = LocalRepository()) {
         self.repository = repository
@@ -61,12 +70,17 @@ final class AppState: ObservableObject {
         currentApp = Self.frontmostApp()
         if let day = data.lastReviewAttemptDay, let error = data.lastReviewError { reviewErrors[WorkScope.day(day).key] = error }
         refreshCredentialStatus()
+        guardController.currentSnapshot = { [weak self] in
+            guard let self else { return (TimerSnapshot(), true, FocusGuardSettings()) }
+            return (self.timer, self.deviceLocked, self.settings.focusGuard)
+        }
     }
 
     var canWrite: Bool { errorMessage == nil }
     var todayKey: String { LocalTime.dayKey(Date()) }
     var timer: TimerSnapshot { data.timer }
     var settings: AppSettings { data.settings }
+    var isTimerOnlyRound: Bool { timer.sessionID != nil && timerOnlySessionID == timer.sessionID }
 
     var remainingText: String {
         let seconds = Int(ceil(max(0, timer.remainingSeconds)))
@@ -102,7 +116,32 @@ final class AppState: ObservableObject {
         }
         guard !deviceLocked else { feedback = "设备仍处于锁屏状态"; return }
         guard !shouldPauseForLid(Self.isLidClosed()) else { feedback = "合盖已暂停；外接屏工作模式可在设置中允许"; return }
-        engine.start(at: Date())
+        let nextStage = timer.phase == .completed ? (timer.nextStage ?? .focus) : timer.stage
+        if nextStage == .focus, settings.focusGuard.enabled, pendingGuardPlan == nil, !pendingTimerOnly, !isTimerOnlyRound,
+           !(timer.phase == .paused && guardController.sessionID == timer.sessionID && guardController.plan != nil) {
+            if var reused = settings.focusGuard.reusablePlan {
+                let goal = focusGoalDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !goal.isEmpty { reused.goal = String(goal.prefix(300)) }
+                pendingGuardPlan = reused
+            }
+            else { openGuardSetup(startAfter: true); return }
+        }
+        let previousSessionID = timer.sessionID
+        engine.start(at: Date(), goal: pendingGuardPlan?.goal ?? focusGoalDraft)
+        if engine.data.timer.stage == .focus, engine.data.timer.sessionID != previousSessionID { focusGoalDraft = "" }
+        if let plan = pendingGuardPlan, let id = engine.data.timer.sessionID {
+            guardController.configure(plan, sessionID: id)
+            var next = engine.data
+            if let index = next.sessions.firstIndex(where: { $0.id == id }) { next.sessions[index].goal = plan.goal }
+            next.settings.focusGuard.rememberDraft(plan)
+            engine.replaceData(next)
+            timerOnlySessionID = nil
+        } else if pendingTimerOnly, let id = engine.data.timer.sessionID {
+            timerOnlySessionID = id
+            guardController.disableForRound()
+        }
+        pendingGuardPlan = nil
+        pendingTimerOnly = false
         lastUptime = ProcessInfo.processInfo.systemUptime
         currentApp = Self.frontmostApp()
         publish()
@@ -126,6 +165,11 @@ final class AppState: ObservableObject {
             return
         }
         advanceToNow()
+        if timerOnlySessionID != timer.sessionID || timer.phase == .completed || timer.phase == .idle {
+            timerOnlySessionID = nil
+        }
+        guardController.tick(timer: timer, locked: deviceLocked, settings: settings.focusGuard)
+        checkAutomaticSessionReviews()
         if uptime - lastReviewCheck >= 15, !deviceLocked {
             lastReviewCheck = uptime
             checkDailyReviewSchedule()
@@ -144,23 +188,73 @@ final class AppState: ObservableObject {
         guard canWrite else { return }
         advanceToNow()
         currentApp = Self.frontmostApp()
+        guardController.foregroundDidChange()
     }
 
     func endEarlyOrSkip() {
         guard canWrite else { return }
         advanceToNow()
+        let endingSessionID = timer.stage == .focus ? timer.sessionID : nil
         if timer.phase == .completed { engine.skipBreak(at: Date()) }
         else if timer.stage == .focus { engine.endEarly(at: Date()) }
         else { engine.skipBreak(at: Date()) }
         lastUptime = nil
         publish()
+        if let id = endingSessionID { recordEndedFocus(id) }
     }
 
     func prepareForQuit() {
+        guardController.stop()
         guard canWrite else { return }
         advanceToNow()
         if timer.phase == .running { engine.pause(reason: "应用退出已暂停", at: Date()) }
         publish()
+    }
+
+    var guardSetupActionTitle: String { guardSetupStartsTimer ? "设置并开始专注" : "保存本轮白名单" }
+
+    func openGuardSetup(startAfter: Bool) {
+        guard canWrite else { return }
+        guardSetupStartsTimer = startAfter
+        guardSetupPresented = true
+        onGuardSetupRequired?()
+    }
+
+    func saveGuardPlan(_ plan: FocusGuardPlan) {
+        guard canWrite else { return }
+        var settings = self.settings
+        settings.focusGuard.enabled = true
+        settings.focusGuard.rememberDraft(plan)
+        guard updateSettings(settings) else { return }
+        if guardSetupStartsTimer {
+            pendingGuardPlan = plan
+            guardSetupPresented = false
+            startOrPause()
+        } else if let id = timer.sessionID, timer.stage == .focus,
+                  timer.phase == .running || timer.phase == .paused {
+            guardController.configure(plan, sessionID: id)
+            var next = data
+            if let index = next.sessions.firstIndex(where: { $0.id == id }) { next.sessions[index].goal = plan.goal }
+            engine.replaceData(next)
+            publish()
+            timerOnlySessionID = nil
+            guardSetupPresented = false
+        } else { feedback = "本轮已经结束，请在开始下一轮时重新设置白名单。"; guardSetupPresented = false }
+    }
+
+    func useTimerOnlyForRound(goal: String? = nil) {
+        guard canWrite else { return }
+        guardSetupPresented = false
+        if guardSetupStartsTimer {
+            if let goal { focusGoalDraft = String(goal.prefix(300)) }
+            pendingGuardPlan = nil
+            pendingTimerOnly = true
+            startOrPause()
+        } else if let id = timer.sessionID, timer.stage == .focus,
+                  timer.phase == .running || timer.phase == .paused {
+            timerOnlySessionID = id
+            guardController.disableForRound()
+        }
     }
 
     func backupData() -> URL? {
@@ -210,6 +304,7 @@ final class AppState: ObservableObject {
 
     func toggleTodo(_ id: UUID) {
         guard canWrite else { return }
+        advanceToNow()
         var next = data
         guard let index = next.todos.firstIndex(where: { $0.id == id && $0.localDay == todayKey }) else { return }
         next.todos[index].completedAt = next.todos[index].completedAt == nil ? Date() : nil
@@ -390,7 +485,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    func generateReview(for scope: WorkScope, scheduled: Bool = false) {
+    func generateReview(for scope: WorkScope, scheduled: Bool = false, automatic: Bool = false) {
         guard canWrite, !generatingScopes.contains(scope.key) else { return }
         advanceToNow()
         ensureWorkRecord(for: scope)
@@ -418,7 +513,7 @@ final class AppState: ObservableObject {
                     }
                 }
                 try await generateAndStore(scope, apiKey: key)
-                feedback = "AI 总结已保存"
+                if !automatic { feedback = "AI 总结已保存" }
                 if scheduled, case .day(let day) = scope {
                     finishScheduledReview(day: day, error: nil)
                     onDailyReviewFinished?(day, true)
@@ -452,8 +547,36 @@ final class AppState: ObservableObject {
 
     private func checkDailyReviewSchedule() {
         guard let day = ReviewSchedule.dueDay(at: Date(), settings: settings.review, lastAttemptDay: data.lastReviewAttemptDay),
-              !generatingScopes.contains(WorkScope.day(day).key) else { return }
+              generatingScopes.isEmpty, pendingSessionReviews.isEmpty else { return }
         generateReview(for: .day(day), scheduled: true)
+    }
+
+    private func recordEndedFocus(_ id: UUID) {
+        guard let progress = SessionProgress.build(sessionID: id, from: data),
+              progress.session.endedAt != nil, progress.focusSeconds > 0 else { return }
+        ensureWorkRecord(for: .session(id))
+        if hasAPIKey, AutomaticSessionReview.shouldGenerate(sessionID: id, from: data), !pendingSessionReviews.contains(id) {
+            pendingSessionReviews.append(id)
+        }
+    }
+
+    private func checkAutomaticSessionReviews() {
+        guard settings.review.autoSummarizeSessions else { pendingSessionReviews.removeAll(); return }
+        guard !deviceLocked, hasAPIKey, generatingScopes.isEmpty else { return }
+        while !pendingSessionReviews.isEmpty {
+            let id = pendingSessionReviews.removeFirst()
+            guard AutomaticSessionReview.shouldGenerate(sessionID: id, from: data) else { continue }
+            let recordID = ensureWorkRecord(for: .session(id))
+            var next = data
+            guard let index = next.workRecords.firstIndex(where: { $0.id == recordID }) else { continue }
+            // 先落盘再发送，退出或断网后也不会悄悄重试同一轮。
+            next.workRecords[index].autoReviewAttemptedAt = Date()
+            engine.replaceData(next)
+            publish()
+            guard canWrite else { return }
+            generateReview(for: .session(id), automatic: true)
+            return
+        }
     }
 
     private func finishScheduledReview(day: String, error: String?) {
@@ -471,12 +594,14 @@ final class AppState: ObservableObject {
         let delta = max(0, uptime - previous)
         lastUptime = uptime
         guard delta > 0 else { return }
+        let sessionID = timer.sessionID
         let completed = engine.advance(seconds: delta, endingAt: Date(), app: currentApp,
                                        recordingEnabled: settings.recordingEnabled)
         let next = engine.data.timer.nextStage
         publish(persist: completed || uptime - lastSavedUptime >= 2)
         if completed {
             lastUptime = nil
+            if let id = sessionID { recordEndedFocus(id) }
             onStageCompleted?(next ?? .focus)
         }
     }

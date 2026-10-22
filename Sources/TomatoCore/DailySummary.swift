@@ -1,6 +1,6 @@
 import Foundation
 
-public struct AppTotal: Identifiable {
+public struct AppTotal: Identifiable, Sendable {
     public let bundleID: String
     public let name: String
     public let seconds: Double

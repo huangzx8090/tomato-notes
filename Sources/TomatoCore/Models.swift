@@ -16,6 +16,18 @@ public enum TimerPhase: String, Codable, Sendable {
     case idle, running, paused, completed
 }
 
+public enum AppAppearance: String, Codable, CaseIterable, Sendable {
+    case system, light, dark
+
+    public var label: String {
+        switch self {
+        case .system: "跟随系统"
+        case .light: "浅色"
+        case .dark: "深色"
+        }
+    }
+}
+
 public struct Hotkey: Codable, Equatable, Sendable {
     public var enabled: Bool
     public var letter: String
@@ -39,6 +51,8 @@ public struct AppSettings: Codable, Sendable {
     public var allowClamshellWithExternalDisplay = true
     public var showDockIcon = false
     public var glassControlsEnabled = true
+    public var appearance: AppAppearance = .system
+    public var focusGuard = FocusGuardSettings()
     public var review = ReviewSettings()
     public var timerHotkey = Hotkey(letter: "P")
     public var todoHotkey = Hotkey(letter: "T")
@@ -49,7 +63,7 @@ public struct AppSettings: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakEvery
         case soundEnabled, notificationsEnabled, recordingEnabled, allowClamshellWithExternalDisplay
-        case showDockIcon, glassControlsEnabled, review
+        case showDockIcon, glassControlsEnabled, appearance, focusGuard, review
         case timerHotkey, todoHotkey, noteHotkey
     }
 
@@ -65,6 +79,8 @@ public struct AppSettings: Codable, Sendable {
         allowClamshellWithExternalDisplay = try values.decodeIfPresent(Bool.self, forKey: .allowClamshellWithExternalDisplay) ?? true
         showDockIcon = try values.decodeIfPresent(Bool.self, forKey: .showDockIcon) ?? false
         glassControlsEnabled = try values.decodeIfPresent(Bool.self, forKey: .glassControlsEnabled) ?? true
+        appearance = AppAppearance(rawValue: try values.decodeIfPresent(String.self, forKey: .appearance) ?? "") ?? .system
+        focusGuard = try values.decodeIfPresent(FocusGuardSettings.self, forKey: .focusGuard) ?? FocusGuardSettings()
         review = try values.decodeIfPresent(ReviewSettings.self, forKey: .review) ?? ReviewSettings()
         timerHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .timerHotkey) ?? Hotkey(letter: "P")
         todoHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .todoHotkey) ?? Hotkey(letter: "T")
@@ -102,8 +118,9 @@ public struct FocusSession: Codable, Identifiable, Sendable {
     public var endTimeZoneID: String?
     public var completed: Bool
     public var endReason: String?
+    public var goal: String?
 
-    public init(id: UUID = UUID(), startedAt: Date) {
+    public init(id: UUID = UUID(), startedAt: Date, goal: String? = nil) {
         self.id = id
         self.startedAt = startedAt
         self.endedAt = nil
@@ -111,6 +128,8 @@ public struct FocusSession: Codable, Identifiable, Sendable {
         self.endTimeZoneID = nil
         self.completed = false
         self.endReason = nil
+        let trimmed = goal?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.goal = trimmed.isEmpty ? nil : String(trimmed.prefix(300))
     }
 }
 
