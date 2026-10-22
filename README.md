@@ -166,7 +166,7 @@ Scripts/check-integration.sh
 
 ### 开发分支
 
-`main` 保持稳定，`develop` 集成开发；功能分支命名为 `huangzx/<类型>-<描述>`，通过 PR 进入 develop，发布时再由 develop PR 到 main。参见 [开发与分支约定](CONTRIBUTING.md)。首次克隆执行 `Scripts/setup-dev.sh` 开启本地推送拦截。
+`main` 保持稳定，`develop` 集成开发；工作分支命名为 `<类型>/<描述>`，例如 `feat/progress-timeline`、`fix/timer-display`，通过 PR 进入 develop，发布时再由 develop PR 到 main。参见 [开发与分支约定](CONTRIBUTING.md)。首次克隆执行 `Scripts/setup-dev.sh` 开启本地推送拦截。
 
 当前私有仓库的 GitHub 分支保护受账号计划限制，CI 与本地 hook **不能替代服务端保护**。
 

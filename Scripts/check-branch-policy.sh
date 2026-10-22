@@ -10,8 +10,8 @@ case "$base" in
         fi
         ;;
     develop)
-        if [[ "$head" != main && ! "$head" =~ ^huangzx/(feat|fix|docs|chore|refactor|test|ci|release|hotfix)-[a-z0-9][a-z0-9.-]*$ ]]; then
-            printf '开发分支应命名为 huangzx/<类型>-<简短英文描述>；仅允许 main 作为回同步来源。\n' >&2
+        if [[ "$head" != main && ! "$head" =~ ^(feat|fix|docs|chore|refactor|test|ci|release|hotfix)/[a-z0-9][a-z0-9.-]*$ ]]; then
+            printf '开发分支应命名为 <类型>/<简短英文描述>，例如 feat/progress-timeline 或 fix/timer-display；仅允许 main 作为回同步来源。\n' >&2
             exit 1
         fi
         ;;

@@ -3,7 +3,7 @@
 ## 分支与交付
 
 - `main` 是稳定发布分支，`develop` 是日常集成分支；仓库默认分支保持 `main`。
-- 功能与修复从最新 `origin/develop` 建立短分支，使用 `huangzx/<类型>-<简短英文描述>`。
+- 功能与修复从最新 `origin/develop` 建立短分支，使用 `<类型>/<简短英文描述>`，例如 `feat/progress-timeline`、`fix/timer-display`，不加个人名前缀。
 - 类型为 `feat`、`fix`、`docs`、`chore`、`refactor`、`test`、`ci`、`release` 或 `hotfix`。
 - 普通 PR 进入 `develop`；发布 PR 为 `develop` → `main`；发布后的同步 PR 可为 `main` → `develop`。
 - 不直接推送 main / develop，不改写已发布标签，不绕过检查；提交信息使用中文。
