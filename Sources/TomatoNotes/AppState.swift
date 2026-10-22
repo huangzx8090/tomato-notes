@@ -302,14 +302,16 @@ final class AppState: ObservableObject {
         publish()
     }
 
-    func toggleTodo(_ id: UUID) {
-        guard canWrite else { return }
+    @discardableResult
+    func toggleTodo(_ id: UUID) -> Bool {
+        guard canWrite else { return false }
         advanceToNow()
         var next = data
-        guard let index = next.todos.firstIndex(where: { $0.id == id && $0.localDay == todayKey }) else { return }
+        guard let index = next.todos.firstIndex(where: { $0.id == id && $0.localDay == todayKey }) else { return false }
         next.todos[index].completedAt = next.todos[index].completedAt == nil ? Date() : nil
         engine.replaceData(next)
         publish()
+        return canWrite && next.todos[index].isCompleted
     }
 
     func updateTodo(_ id: UUID, text: String) {
@@ -334,6 +336,26 @@ final class AppState: ObservableObject {
     }
 
     func note(_ id: UUID) -> StickyNote? { data.notes.first { $0.id == id } }
+
+    func continueNote(_ id: UUID) -> UUID? {
+        guard canWrite else { return nil }
+        var next = data
+        guard let copyID = NoteLibrary.continueNote(id, in: &next.notes) else { return nil }
+        engine.replaceData(next)
+        publish()
+        return canWrite ? copyID : nil
+    }
+
+    @discardableResult
+    func deleteNote(_ id: UUID) -> Bool {
+        guard canWrite, data.notes.contains(where: { $0.id == id }) else { return false }
+        var next = data
+        next.notes.removeAll { $0.id == id }
+        engine.replaceData(next)
+        publish()
+        if canWrite { feedback = "便签已删除" }
+        return canWrite
+    }
 
     func updateNoteText(_ id: UUID, text: String) {
         guard canWrite else { return }

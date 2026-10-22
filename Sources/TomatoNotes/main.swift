@@ -73,6 +73,8 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
             state: state,
             createNote: { [weak self] in self?.hidePanel(); self?.notes.create() },
             openNote: { [weak self] id in self?.hidePanel(); self?.notes.open(id) },
+            continueNote: { [weak self] id in self?.hidePanel(); self?.notes.continueNote(id) },
+            deleteNote: { [weak self] id in self?.notes.delete(id) },
             openWork: { [weak self] scope in self?.hidePanel(); self?.work.open(scope) },
             testReminder: { [weak self] in self?.testReminder() },
             requestNotifications: { [weak self] in self?.reminders.requestIfNeeded() },

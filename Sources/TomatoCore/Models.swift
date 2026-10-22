@@ -196,6 +196,8 @@ public struct StickyNote: Codable, Identifiable, Sendable {
     public var width = 320.0
     public var height = 360.0
     public var isOpen = true
+    public var localDay: String?
+    public var continuedFromNoteID: UUID?
 
     public var title: String {
         let first = text.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? ""
@@ -203,7 +205,16 @@ public struct StickyNote: Codable, Identifiable, Sendable {
         return trimmed.isEmpty ? "新便签" : String(trimmed.prefix(24))
     }
 
-    public init() {}
+    public init(at date: Date = Date(), calendar: Calendar = .current) {
+        createdAt = date
+        updatedAt = date
+        localDay = LocalTime.dayKey(date, calendar: calendar)
+    }
+
+    public func dayKey(calendar: Calendar = .current) -> String {
+        // 老便签没有日期字段，按创建时间归档；打开和编辑不会改变所属日期。
+        localDay ?? LocalTime.dayKey(createdAt, calendar: calendar)
+    }
 }
 
 public struct AppData: Codable, Sendable {

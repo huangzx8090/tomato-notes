@@ -18,8 +18,20 @@ final class NoteWindows {
     }
 
     func openRecent() {
-        if let note = state.data.notes.max(by: { $0.updatedAt < $1.updatedAt }) { open(note.id) }
+        if let note = NoteLibrary.notes(on: state.todayKey, in: state.data.notes).first { open(note.id) }
         else { create() }
+    }
+
+    func continueNote(_ id: UUID) {
+        controllers[id]?.flush()
+        guard let copyID = state.continueNote(id) else { return }
+        open(copyID)
+    }
+
+    func delete(_ id: UUID) {
+        guard state.deleteNote(id) else { return }
+        // 先移除数据，再关闭窗口；关闭时的延迟保存只会忽略已删除的 ID。
+        controllers.removeValue(forKey: id)?.close()
     }
 
     func open(_ id: UUID, activate: Bool = true) {
