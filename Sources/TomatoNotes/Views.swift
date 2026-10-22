@@ -19,6 +19,7 @@ struct MainPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            LocalDataStatusView(state: state)
             PanelNavigation(selection: $tab)
             .padding(.horizontal, 22).padding(.bottom, 12)
 

@@ -45,6 +45,6 @@ DeepSeek 判断学习相关性（单张图片 + 目标 / 网站 / 标题）
 - 47 项自动化测试通过，其中守护测试包括网址域名边界、视频查询参数区分、停留提醒与单次判断、暂停 / 长间隔排除、保守关闭条件、Apple Event 矩形与错误解析、截图窗口唯一匹配、沿用名单不会继承关闭授权，以及图片请求和 Token 用量解析。
 - 原生自动化受 ScreenCaptureKit 截图错误影响，按用户要求停止重复实机操作。真实 Chrome 授权、截图与关闭仍待人工确认，构建通过不能替代这条实机链路。详见 [体验优化与验收顺序](体验优化与后续建议.md)。
 
-验证包 `Scripts/build-app.sh release --guard-qa` 使用独立 Bundle ID 与独立默认目录 `TomatoNotes-GuardQA`。专用参数 `--guard-check-url` 仅在该验证包且目标为 localhost / 127.0.0.1 时启用；它将守护限制在指定的本地验收页面，其他页面完全不触发守护，并只输出无页面内容的阶段与用量日志。
+验证包 `Scripts/build-app.sh release --guard-qa` 使用独立 Bundle ID；运行验证时必须带 `--ui-test`（默认使用 `TomatoNotes-GuardQA`），或显式提供 `--data-dir` 独立目录。普通打开应用包会使用日常共用资料。专用参数 `--guard-check-url` 仅在该验证包且目标为 localhost / 127.0.0.1 时启用；它将守护限制在指定的本地验收页面，其他页面完全不触发守护，并只输出无页面内容的阶段与用量日志。
 
 Chrome 控制接口以本机 `/Applications/Google Chrome.app/Contents/Resources/scripting.sdef` 为依据；单次截屏使用 [Apple SCScreenshotManager](https://developer.apple.com/documentation/screencapturekit/scscreenshotmanager)。权限未授权、页面改变或系统截图失败时不会执行关闭。

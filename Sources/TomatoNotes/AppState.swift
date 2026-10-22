@@ -22,6 +22,7 @@ final class AppState: ObservableObject {
     @Published var focusGoalDraft = ""
 
     let repository: LocalRepository
+    var onOpenSharedLibrary: (() -> Void)?
     let workImages: WorkImageStore
     let guardController = FocusGuardController()
     var onGuardSetupRequired: (() -> Void)?
