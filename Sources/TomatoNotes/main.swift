@@ -20,7 +20,11 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     private var panelPresented = false
     private var localMouseMonitor: Any?
     private var showingDock: Bool?
+    private var appliedAppearance: AppAppearance?
     private var timerActivity: NSObjectProtocol?
+    private let guardNotices = GuardNoticePresenter()
+    private var guardSetupWindow: FocusGuardSetupWindowController?
+    private var terminating = false
 
     init(repository: LocalRepository, dataLock: RepositoryLock) {
         self.dataLock = dataLock
@@ -41,6 +45,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     func start() {
         guard !didStart else { return }
         didStart = true
+        applyAppearance()
         updateDockVisibility()
         installEditingMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -68,6 +73,8 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
             state: state,
             createNote: { [weak self] in self?.hidePanel(); self?.notes.create() },
             openNote: { [weak self] id in self?.hidePanel(); self?.notes.open(id) },
+            continueNote: { [weak self] id in self?.hidePanel(); self?.notes.continueNote(id) },
+            deleteNote: { [weak self] id in self?.notes.delete(id) },
             openWork: { [weak self] scope in self?.hidePanel(); self?.work.open(scope) },
             testReminder: { [weak self] in self?.testReminder() },
             requestNotifications: { [weak self] in self?.reminders.requestIfNeeded() },
@@ -77,10 +84,28 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         hosting.layer?.cornerRadius = 16
         hosting.layer?.masksToBounds = true
         panel.contentView = hosting
-        panel.appearance = NSAppearance(named: .aqua)
         mainPanel = panel
 
         state.onDataChanged = { [weak self] in self?.refreshStatusItem() }
+        state.onGuardSetupRequired = { [weak self] in
+            guard let self else { return }
+            NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showFocus"), object: nil)
+            self.hidePanel()
+            if self.guardSetupWindow?.window?.isVisible != true {
+                let controller = FocusGuardSetupWindowController(state: self.state)
+                controller.onClosed = { [weak self] in if self?.terminating == false { self?.showPopover() } }
+                self.guardSetupWindow = controller
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            self.guardSetupWindow?.window?.makeKeyAndOrderFront(nil)
+        }
+        state.guardController.onNotice = { [weak self] title, message, allow in
+            guard let self else { return }
+            self.guardNotices.show(title: title, message: message, allow: allow,
+                                   glassEnabled: self.state.settings.glassControlsEnabled)
+            self.reminders.send(title: title, body: message, sound: self.state.settings.soundEnabled,
+                                notification: self.state.settings.notificationsEnabled)
+        }
         state.onStarted = { [weak self] in
             guard let self, self.state.settings.notificationsEnabled else { return }
             self.reminders.requestIfNeeded()
@@ -88,7 +113,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         state.onStageCompleted = { [weak self] next in
             guard let self else { return }
             self.reminders.send(title: next == .focus ? "休息结束了" : "这一轮完成了",
-                                body: next == .focus ? "准备好后，开始下一轮专注。" : "休息一下吧。点击打开面板，开始\(next.label)。",
+                                body: next == .focus ? "准备好后，开始下一轮专注。" : "这一轮的投入已记录，先休息一下。点击打开面板可查看进展，或开始\(next.label)。",
                                 sound: self.state.settings.soundEnabled,
                                 notification: self.state.settings.notificationsEnabled)
         }
@@ -142,6 +167,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        terminating = true
         notes.flushAll()
         state.prepareForQuit()
         return .terminateNow
@@ -153,6 +179,11 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     }
 
     private func showPopover() {
+        if state.guardSetupPresented, let setup = guardSetupWindow?.window, setup.isVisible {
+            NSApp.activate(ignoringOtherApps: true)
+            setup.makeKeyAndOrderFront(nil)
+            return
+        }
         guard let panel = mainPanel, let screen = statusItem.button?.window?.screen ?? NSScreen.main else { return }
         let available = screen.visibleFrame
         let anchorX = statusItem.button?.window?.frame.midX ?? available.maxX - 230
@@ -174,6 +205,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     }
 
     private func refreshStatusItem() {
+        applyAppearance()
         updateDockVisibility()
         updateTimerActivity()
         let symbol: String
@@ -192,6 +224,14 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         guard desired != showingDock else { return }
         showingDock = desired
         NSApp.setActivationPolicy(desired ? .regular : .accessory)
+    }
+
+    private func applyAppearance() {
+        let preference = state.settings.appearance
+        guard appliedAppearance != preference else { return }
+        appliedAppearance = preference
+        // AppKit 便签和 SwiftUI 窗口共用应用外观；nil 恢复系统实时跟随。
+        NSApp.appearance = preference.nativeAppearance
     }
 
     private func updateTimerActivity() {
@@ -276,6 +316,12 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     }
     @objc private func screenUnlocked() { state.deviceLocked = false }
     @objc private func showExistingInstance() { showPopover() }
+    @objc private func closeCurrentWindow() {
+        guard let window = NSApp.keyWindow else { return }
+        if window === mainPanel { hidePanel() }
+        else if window === quickPanel { closeQuickTodo() }
+        else { window.performClose(nil) }
+    }
     @objc private func screensChanged() { notes.fitToScreens() }
 
     private func installEditingMenu() {
@@ -296,6 +342,11 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
         editItem.submenu = editMenu
         main.addItem(editItem)
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "窗口")
+        windowMenu.addItem(withTitle: "关闭当前窗口", action: #selector(closeCurrentWindow), keyEquivalent: "w").target = self
+        windowItem.submenu = windowMenu
+        main.addItem(windowItem)
         NSApp.mainMenu = main
     }
 }
@@ -311,9 +362,10 @@ MainActor.assumeIsolated {
     let repository: LocalRepository
     if let index = args.firstIndex(of: "--data-dir"), args.indices.contains(index + 1) {
         repository = LocalRepository(fileURL: URL(fileURLWithPath: args[index + 1], isDirectory: true).appendingPathComponent("data.json"))
-    } else if Bundle.main.bundleIdentifier == "com.zixuan.TomatoNotes.QA" {
+    } else if Bundle.main.bundleIdentifier == "com.zixuan.TomatoNotes.QA" || Bundle.main.bundleIdentifier == "com.zixuan.TomatoNotes.GuardQA" {
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        repository = LocalRepository(fileURL: root.appendingPathComponent("TomatoNotes-QA/data.json"))
+        let name = Bundle.main.bundleIdentifier == "com.zixuan.TomatoNotes.GuardQA" ? "TomatoNotes-GuardQA" : "TomatoNotes-QA"
+        repository = LocalRepository(fileURL: root.appendingPathComponent("\(name)/data.json"))
     } else { repository = LocalRepository() }
     do {
         let lock = try RepositoryLock(repository: repository)

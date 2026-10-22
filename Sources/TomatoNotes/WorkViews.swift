@@ -7,6 +7,7 @@ struct WorkReportView: View {
     @ObservedObject var state: AppState
     let scope: WorkScope
     var configureAI: () -> Void
+    @ViewState private var supplementExpanded = false
 
     private var record: WorkRecord? { state.workRecord(for: scope) }
     private var busy: Bool { state.generatingScopes.contains(scope.key) }
@@ -25,6 +26,19 @@ struct WorkReportView: View {
                     Text(subtitle).font(.system(size: 12)).foregroundStyle(Theme.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if case .session(let id) = scope, let progress = SessionProgress.build(sessionID: id, from: state.data) {
+                    SessionProgressCard(state: state, progress: progress, showSummaryPreview: false)
+                    if !progress.apps.isEmpty {
+                        DisclosureGroup("这一轮的 App 投入记录") {
+                            VStack(spacing: 8) {
+                                ForEach(progress.apps) { app in
+                                    HStack { Text(app.name); Spacer(); Text(durationLabel(app.seconds)) }
+                                }
+                            }.font(.system(size: 12)).foregroundStyle(Theme.secondary).padding(.top, 8)
+                        }.font(.system(size: 12))
+                    }
+                }
+                DisclosureGroup(isExpanded: $supplementExpanded) {
                 PaperCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("补充工作和成果", systemImage: "square.and.pencil").font(.system(size: 14, weight: .semibold))
@@ -62,6 +76,10 @@ struct WorkReportView: View {
                             Text("文字自动保存").font(.system(size: 10)).foregroundStyle(Theme.secondary)
                         }
                     }
+                }
+                } label: {
+                    Label("补充一句或图片（可选）\((record?.images.isEmpty == false) ? " · 已有图片" : "")", systemImage: "square.and.pencil")
+                        .font(.system(size: 13, weight: .medium))
                 }
                 VStack(alignment: .leading, spacing: 10) {
                     Button { state.generateReview(for: scope) } label: {
@@ -109,7 +127,7 @@ struct WorkReportView: View {
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineSpacing(4)
                 }
             }.padding(25)
-        }.background(Theme.background).foregroundStyle(Theme.primary).preferredColorScheme(.light)
+        }.background(Theme.background).foregroundStyle(Theme.primary).preferredColorScheme(state.settings.appearance.colorScheme)
             .frame(minWidth: 540, minHeight: 500)
             .environment(\.locale, Locale(identifier: "zh_CN"))
             .environment(\.glassControlsEnabled, state.settings.glassControlsEnabled)
@@ -119,7 +137,7 @@ struct WorkReportView: View {
         switch scope {
         case .session(let id):
             let seconds = state.data.intervals.filter { $0.sessionID == id }.reduce(0) { $0 + $1.seconds }
-            return "本轮实际投入 \(durationLabel(seconds))。补充做过的事，让 AI 整理出更具体的成果。"
+            return "本轮实际投入 \(durationLabel(seconds))，已有记录会自动归集。想补充时，再留一句话或一张图。"
         case .day: return "结合当天各轮专注、成果图片、待办和你的补充，整理今天一整天的进展。"
         }
     }
@@ -201,6 +219,15 @@ struct ReviewSettingsSection: View {
                     .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Divider()
+                Toggle("专注结束后自动整理 AI 回顾", isOn: Binding(get: { state.settings.review.autoSummarizeSessions }, set: { value in
+                    var settings = state.settings
+                    settings.review.autoSummarizeSessions = value
+                    _ = state.updateSettings(settings)
+                })).font(.system(size: 12))
+                Text("默认关闭。开启后，新结束且投入至少 1 分钟的每轮专注会在后台整理一次；发送本轮目标、App 时长、完成待办及主动添加的文字和图片。无需填写，不额外弹窗；失败不自动重试，也不补跑历史。")
+                    .font(.system(size: 10)).foregroundStyle(Theme.secondary).lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                Divider()
                 Toggle("每天定时生成 AI 回顾", isOn: Binding(get: { state.settings.review.scheduleEnabled }, set: { value in
                     var settings = state.settings
                     settings.review.scheduleEnabled = value
@@ -279,14 +306,13 @@ private final class WorkWindowController: NSWindowController, NSWindowDelegate {
                               styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
         super.init(window: window)
         window.title = { if case .day = scope { return "每日 AI 回顾" }; return "本轮 AI 成果" }()
-        window.backgroundColor = NSColor(srgbRed: 246 / 255, green: 242 / 255, blue: 234 / 255, alpha: 1)
+        window.backgroundColor = Theme.backgroundNS
         window.isOpaque = true
         window.titlebarAppearsTransparent = true
         window.contentView = makePaperHostingView(rootView: WorkReportView(state: state, scope: scope, configureAI: configureAI),
                                                   size: NSSize(width: 630, height: height))
         window.minSize = NSSize(width: 560, height: 540)
         window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
         window.delegate = self
         window.center()
     }

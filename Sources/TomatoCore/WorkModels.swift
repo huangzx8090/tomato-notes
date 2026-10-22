@@ -2,10 +2,20 @@ import Foundation
 
 public struct ReviewSettings: Codable, Sendable, Equatable {
     public var scheduleEnabled = false
+    public var autoSummarizeSessions = false
     public var hour = 21
     public var minute = 30
     public init() {}
     public var timeLabel: String { String(format: "%02d:%02d", hour, minute) }
+
+    private enum CodingKeys: String, CodingKey { case scheduleEnabled, autoSummarizeSessions, hour, minute }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        scheduleEnabled = try values.decodeIfPresent(Bool.self, forKey: .scheduleEnabled) ?? false
+        autoSummarizeSessions = try values.decodeIfPresent(Bool.self, forKey: .autoSummarizeSessions) ?? false
+        hour = try values.decodeIfPresent(Int.self, forKey: .hour) ?? 21
+        minute = try values.decodeIfPresent(Int.self, forKey: .minute) ?? 30
+    }
 }
 
 public struct WorkImage: Codable, Identifiable, Sendable, Equatable {
@@ -59,6 +69,7 @@ public struct WorkRecord: Codable, Identifiable, Sendable {
     public var userText = ""
     public var images: [WorkImage] = []
     public var summary: AISummary?
+    public var autoReviewAttemptedAt: Date?
     public var updatedAt = Date()
 
     public init(localDay: String, sessionID: UUID? = nil) {

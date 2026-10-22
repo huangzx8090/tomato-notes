@@ -18,8 +18,20 @@ final class NoteWindows {
     }
 
     func openRecent() {
-        if let note = state.data.notes.max(by: { $0.updatedAt < $1.updatedAt }) { open(note.id) }
+        if let note = NoteLibrary.notes(on: state.todayKey, in: state.data.notes).first { open(note.id) }
         else { create() }
+    }
+
+    func continueNote(_ id: UUID) {
+        controllers[id]?.flush()
+        guard let copyID = state.continueNote(id) else { return }
+        open(copyID)
+    }
+
+    func delete(_ id: UUID) {
+        guard state.deleteNote(id) else { return }
+        // 先移除数据，再关闭窗口；关闭时的延迟保存只会忽略已删除的 ID。
+        controllers.removeValue(forKey: id)?.close()
     }
 
     func open(_ id: UUID, activate: Bool = true) {
@@ -75,7 +87,6 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
         panel.minSize = NSSize(width: 240, height: 200)
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        panel.appearance = NSAppearance(named: .aqua)
         panel.setFrame(NSRect(origin: origin, size: size), display: false)
 
         let content = NSView()
@@ -83,7 +94,7 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
         let convert = NSButton(title: "按行转待办", target: self, action: #selector(convertToTodos))
         convert.bezelStyle = .inline
         convert.font = .systemFont(ofSize: 11, weight: .medium)
-        convert.contentTintColor = NSColor(srgbRed: 0.48, green: 0.30, blue: 0.18, alpha: 1)
+        convert.contentTintColor = Theme.noteAction
         convert.toolTip = "将选中文字（没有选区时使用全文）的非空行添加为今天的待办"
         feedbackLabel.font = .systemFont(ofSize: 10)
         feedbackLabel.textColor = .secondaryLabelColor
@@ -98,7 +109,8 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
         editor.allowsUndo = true
         editor.drawsBackground = true
         editor.backgroundColor = Theme.notePaper
-        editor.textColor = NSColor(srgbRed: 0.19, green: 0.18, blue: 0.17, alpha: 1)
+        editor.textColor = Theme.noteInk
+        editor.insertionPointColor = Theme.noteInk
         editor.font = .systemFont(ofSize: 15)
         editor.isVerticallyResizable = true
         editor.isHorizontallyResizable = false
@@ -215,6 +227,10 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
 }
 
 private final class LinedTextView: NSTextView {
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         Theme.noteRule.setStroke()

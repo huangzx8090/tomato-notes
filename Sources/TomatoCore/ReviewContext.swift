@@ -28,15 +28,11 @@ public enum ReviewContextBuilder {
             let usage = data.usage.filter { $0.sessionID == id }
             facts["范围"] = "一轮番茄钟的工作与成果"
             facts["开始时间"] = session.map { ISO8601DateFormatter().string(from: $0.startedAt) }
+            facts["用户设定的本轮目标（不代表完成）"] = session?.goal ?? ""
             facts["状态"] = session?.endedAt == nil ? "进行中，尚未结束" : (session!.completed ? "完整专注" : "提前结束")
             facts["实际专注秒数"] = Int(intervals.reduce(0) { $0 + $1.seconds }.rounded())
             facts["专注期间前台App"] = appFacts(usage)
-            if let session {
-                facts["此时间段勾选完成的待办"] = data.todos.filter {
-                    guard let completed = $0.completedAt else { return false }
-                    return completed >= session.startedAt && completed <= (session.endedAt ?? Date())
-                }.map(\.text)
-            }
+            facts["此时间段勾选完成的待办"] = SessionProgress.build(sessionID: id, from: data)?.completedTodos.map(\.text) ?? []
         case .day(let day):
             let summary = DailySummary.build(day: day, from: data)
             facts["范围"] = "\(day) 一整天的工作与成果"
@@ -46,6 +42,15 @@ public enum ReviewContextBuilder {
             facts["完成的待办"] = summary.completedTodos.map(\.text)
             facts["尚未完成的待办"] = summary.todos.filter { !$0.isCompleted }.map(\.text)
             facts["专注期间前台App"] = appFacts(data.usage.filter { $0.localDay == day })
+            let dayIDs = Set(data.intervals.filter { $0.localDay == day }.map(\.sessionID))
+            facts["各轮投入与目标"] = data.sessions.filter { dayIDs.contains($0.id) }
+                .sorted { $0.startedAt < $1.startedAt }.compactMap { session -> [String: Any]? in
+                    guard let progress = SessionProgress.build(sessionID: session.id, from: data, day: day) else { return nil }
+                    return ["开始时间": ISO8601DateFormatter().string(from: session.startedAt),
+                            "目标（不代表完成）": session.goal ?? "",
+                            "当日实际专注秒数": Int(progress.focusSeconds.rounded()),
+                            "专注期间勾选完成的待办": progress.completedTodos.map(\.text)]
+                }
             facts["各轮工作与AI成果"] = data.workRecords.filter { $0.localDay == day && $0.sessionID != nil }
                 .sorted { $0.updatedAt < $1.updatedAt }.map { item -> [String: Any] in
                     var entry: [String: Any] = ["用户描述": item.userText, "图片数量": item.images.count]
@@ -53,13 +58,16 @@ public enum ReviewContextBuilder {
                         entry["开始时间"] = ISO8601DateFormatter().string(from: session.startedAt)
                         entry["实际专注秒数"] = Int(data.intervals.filter { $0.sessionID == session.id && $0.localDay == day }.reduce(0) { $0 + $1.seconds }.rounded())
                     }
-                    if let summary = item.summary { entry["已有AI总结"] = summary.content.markdown }
+                    if let summary = item.summary, let id = item.sessionID,
+                       summary.contextDigest == build(for: .session(id), from: data).digest {
+                        entry["已有AI总结"] = summary.content.markdown
+                    }
                     return entry
                 }
         }
         facts["用户补充的工作与成果"] = record?.userText ?? ""
         facts["当前附图名称"] = record?.images.map(\.name) ?? []
-        facts["记录边界"] = "App 时长仅覆盖专注期间，不能证明完成了什么；无文字或图片依据的成果必须标为待确认。"
+        facts["记录边界"] = "目标是计划，App 时长是投入，二者都不能证明任务完成；具体成果仅依据勾选完成的待办、用户描述或图片。材料不足时只记录投入，待确认最多提示一句，不要反复要求用户填写。"
         let bytes = (try? JSONSerialization.data(withJSONObject: facts, options: [.sortedKeys, .prettyPrinted])) ?? Data()
         var text = String(data: bytes, encoding: .utf8) ?? "{}"
         if text.count > 40_000 { text = String(text.prefix(40_000)) + "\n记录过长，后续已截断；不得猜测未显示内容。" }

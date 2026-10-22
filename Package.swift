@@ -12,7 +12,7 @@ let package = Package(
     targets: [
         .target(name: "TomatoCore"),
         .target(name: "TomatoSystem", dependencies: ["TomatoCore"],
-                linkerSettings: [.linkedFramework("Carbon"), .linkedFramework("Security"), .linkedFramework("ImageIO")]),
+                linkerSettings: [.linkedFramework("Carbon"), .linkedFramework("Security"), .linkedFramework("ImageIO"), .linkedFramework("ScreenCaptureKit")]),
         .executableTarget(name: "TomatoDataTool", dependencies: ["TomatoCore", "TomatoSystem"]),
         .executableTarget(name: "TomatoDiagnostics", dependencies: ["TomatoCore", "TomatoSystem"],
                           linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("Carbon")]),

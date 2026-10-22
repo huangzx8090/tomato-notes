@@ -15,7 +15,7 @@ public struct TimerEngine {
         }
     }
 
-    public mutating func start(at now: Date) {
+    public mutating func start(at now: Date, goal: String? = nil) {
         switch data.timer.phase {
         case .running: return
         case .paused:
@@ -31,7 +31,7 @@ public struct TimerEngine {
             data.timer.phase = .running
             data.timer.pauseReason = nil
             if data.timer.stage == .focus {
-                let session = FocusSession(startedAt: now)
+                let session = FocusSession(startedAt: now, goal: goal)
                 data.timer.sessionID = session.id
                 data.sessions.append(session)
             } else {

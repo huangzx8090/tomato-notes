@@ -12,6 +12,10 @@ if [[ "${2:-}" == "--qa" ]]; then
     app_name="番茄小记验证"
     bundle_id="com.zixuan.TomatoNotes.QA"
 fi
+if [[ "${2:-}" == "--guard-qa" ]]; then
+    app_name="番茄小记守护验证"
+    bundle_id="com.zixuan.TomatoNotes.GuardQA"
+fi
 app_path="$project_root/build/$app_name.app"
 mkdir -p "$project_root/build"
 staging="$(mktemp -d "$project_root/build/package.XXXXXX")"
