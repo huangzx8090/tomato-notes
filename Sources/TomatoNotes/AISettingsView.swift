@@ -157,13 +157,13 @@ struct ReviewSettingsSection: View {
                 SettingsToggleRow(title: "每轮专注后整理成果", detail: "投入至少 1 分钟后，在后台整理这一轮。失败时保留记录，可手动重试。",
                                   value: Binding(get: { state.settings.review.autoSummarizeSessions }, set: { value in
                     var next = state.settings; next.review.autoSummarizeSessions = value; _ = state.updateSettings(next)
-                })).disabled(!state.hasAPIKey)
+                })).disabled(!state.hasAPIKey && !state.settings.review.autoSummarizeSessions)
                 Divider()
                 SettingsToggleRow(title: "每天定时生成回顾", detail: "把当天的专注成果整理成一份回顾。",
                                   value: Binding(get: { state.settings.review.scheduleEnabled }, set: { value in
                     var next = state.settings; next.review.scheduleEnabled = value
                     if state.updateSettings(next), value { requestNotifications() }
-                })).disabled(!state.hasAPIKey)
+                })).disabled(!state.hasAPIKey && !state.settings.review.scheduleEnabled)
                 if state.settings.review.scheduleEnabled {
                     HStack(spacing: 7) {
                         Text("每天").font(.system(size: 12))
