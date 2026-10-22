@@ -9,6 +9,7 @@ struct TodoPage: View {
     var addTodo: (String) -> Void
     var toggleTodo: (UUID) -> Bool
     var updateTodo: (UUID, String) -> Void
+    var deleteTodo: (UUID) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ViewState private var lastCompletedID: UUID?
     @ViewState private var feedbackGeneration = 0
@@ -61,7 +62,8 @@ struct TodoPage: View {
                     }.frame(maxWidth: .infinity).padding(.vertical, 30)
                 } else {
                     ForEach(todos) { todo in
-                        NotebookTodoRow(todo: todo, update: updateTodo) { complete(todo) }
+                        NotebookTodoRow(todo: todo, update: updateTodo, remove: { remove(todo) }) { complete(todo) }
+                            .transition(.opacity)
                     }
                 }
 
@@ -70,11 +72,12 @@ struct TodoPage: View {
             .background { NotebookPaper() }
             .padding(.bottom, 5)
 
-            Text("轻点勾选 · 双击改字 · 再点勾选可撤回")
+            Text("轻点勾选 · 双击改字 · 右侧删除可撤销")
                 .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
         .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.8), value: completed)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: todos.map(\.id))
         .onChange(of: day) { _, _ in lastCompletedID = nil }
         .task(id: feedbackGeneration) {
             guard lastCompletedID != nil else { return }
@@ -123,6 +126,11 @@ struct TodoPage: View {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
         } else if lastCompletedID == todo.id { lastCompletedID = nil }
     }
+
+    private func remove(_ todo: TodoItem) {
+        deleteTodo(todo.id)
+        if lastCompletedID == todo.id { lastCompletedID = nil }
+    }
 }
 
 private struct TodoProgressRing: View {
@@ -147,10 +155,12 @@ private struct TodoProgressRing: View {
 private struct NotebookTodoRow: View {
     let todo: TodoItem
     var update: (UUID, String) -> Void
+    var remove: () -> Void
     var toggle: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ViewState private var editing = false
     @ViewState private var draft = ""
+    @ViewState private var deleteHovered = false
     @FocusState private var editingFocused: Bool
 
     var body: some View {
@@ -197,16 +207,38 @@ private struct NotebookTodoRow: View {
                     .contentShape(Rectangle()).onTapGesture(count: 2, perform: beginEditing)
             }
             Spacer(minLength: 0)
+            Button(role: .destructive, action: removeTodo) {
+                Image(systemName: "trash")
+                    .font(.system(size: 12))
+                    .foregroundStyle(deleteHovered ? Theme.accent : Theme.secondary)
+                    .frame(width: 30, height: 30)
+                    .background(deleteHovered ? Theme.accentSoft.opacity(0.5) : .clear,
+                                in: RoundedRectangle(cornerRadius: 7))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PaperCheckStyle())
+            .onHover { deleteHovered = $0 }
+            .help("删除待办，删除后可在底部撤销")
+            .accessibilityLabel("删除待办：\(todo.text)")
+            .accessibilityIdentifier("todos.delete.\(todo.id)")
         }
         .padding(.leading, 18).padding(.trailing, 22).padding(.vertical, 11)
         .frame(minHeight: 60)
         .background(alignment: .bottom) { Rectangle().fill(Theme.border.opacity(0.55)).frame(height: 0.5).padding(.horizontal, 20) }
-        .contextMenu { Button("修改文字", action: beginEditing) }
+        .contextMenu {
+            Button("修改文字", action: beginEditing)
+            Divider()
+            Button("删除待办", role: .destructive, action: removeTodo)
+        }
         .onChange(of: editing) { _, value in editingFocused = value }
     }
 
     private func beginEditing() { draft = todo.text; editing = true }
     private func finishEditing() { update(todo.id, draft); editing = false }
+    private func removeTodo() {
+        if editing { finishEditing() }
+        remove()
+    }
 }
 
 private struct PaperCheckStyle: ButtonStyle {
