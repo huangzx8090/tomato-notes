@@ -152,11 +152,13 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         refreshStatusItem()
         notes.restore()
         let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains("--show-panel") || arguments.contains("--show-ai-settings") {
+        if arguments.contains("--show-panel") || arguments.contains("--show-ai-settings") || arguments.contains("--show-settings") {
             DispatchQueue.main.async { [weak self] in
                 self?.showPopover()
                 if arguments.contains("--show-ai-settings") {
                     NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showAISettings"), object: nil)
+                } else if arguments.contains("--show-settings") {
+                    NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showSettings"), object: nil)
                 }
             }
         }
@@ -318,6 +320,10 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     }
     @objc private func screenUnlocked() { state.deviceLocked = false }
     @objc private func showExistingInstance() { showPopover() }
+    @objc private func showSettings() {
+        showPopover()
+        NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showSettings"), object: nil)
+    }
     @objc private func closeCurrentWindow() {
         guard let window = NSApp.keyWindow else { return }
         if window === mainPanel { hidePanel() }
@@ -331,6 +337,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "打开番茄小记", action: #selector(showExistingInstance), keyEquivalent: "0").target = self
+        appMenu.addItem(withTitle: "设置…", action: #selector(showSettings), keyEquivalent: ",").target = self
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出番茄小记", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu

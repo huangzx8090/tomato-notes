@@ -15,11 +15,16 @@ struct MainPanel: View {
     @ViewState private var tab: PanelTab = .focus
     @ViewState private var todoDraft = ""
     @ViewState private var showsNoteHistory = false
+    @ViewState private var settingsPage: SettingsPage = .overview
+    @ViewState private var settingsHaveUnsavedChanges = false
+    @ViewState private var showingDiscardSettings = false
+    @ViewState private var pendingTab: PanelTab?
+    @ViewState private var pendingSettingsPage: SettingsPage?
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            PanelNavigation(selection: $tab)
+            PanelNavigation(selection: Binding(get: { tab }, set: requestTab))
             .padding(.horizontal, 22).padding(.bottom, 12)
 
             if let error = state.errorMessage {
@@ -33,25 +38,29 @@ struct MainPanel: View {
                 }.padding(24)
                 Spacer()
             } else {
-                ScrollView {
-                    VStack(spacing: 18) {
-                        switch tab {
-                        case .focus: focus
-                        case .todos:
-                            TodoPage(todos: state.summary(for: state.todayKey).todos, day: state.todayKey,
-                                     draft: $todoDraft, addTodo: state.addTodo, toggleTodo: state.toggleTodo,
-                                     updateTodo: state.updateTodo, deleteTodo: state.deleteTodo)
-                        case .today: TodayView(state: state, startFocus: { tab = .focus }, openWork: openWork)
-                        case .notes:
-                            NotesListView(notes: state.data.notes, today: state.todayKey,
-                                          showsHistory: $showsNoteHistory, createNote: createNote,
-                                          openNote: openNote, continueNote: continueNote, deleteNote: deleteNote)
-                        case .settings:
-                            SettingsView(state: state, testReminder: testReminder,
-                                         requestNotifications: requestNotifications)
-                        }
-                    }.padding(.horizontal, 22).padding(.top, 6).padding(.bottom, 22)
-                }.scrollIndicators(.hidden).id(tab == .notes && showsNoteHistory ? "notes.history" : tab.rawValue)
+                ScrollViewReader { scroll in
+                    ScrollView {
+                        VStack(spacing: 18) {
+                            switch tab {
+                            case .focus: focus
+                            case .todos:
+                                TodoPage(todos: state.summary(for: state.todayKey).todos, day: state.todayKey,
+                                         draft: $todoDraft, addTodo: state.addTodo, toggleTodo: state.toggleTodo,
+                                         updateTodo: state.updateTodo, deleteTodo: state.deleteTodo)
+                            case .today: TodayView(state: state, startFocus: { tab = .focus }, openWork: openWork)
+                            case .notes:
+                                NotesListView(notes: state.data.notes, today: state.todayKey,
+                                              showsHistory: $showsNoteHistory, createNote: createNote,
+                                              openNote: openNote, continueNote: continueNote, deleteNote: deleteNote)
+                            case .settings:
+                                SettingsView(state: state, page: $settingsPage, hasUnsavedChanges: $settingsHaveUnsavedChanges,
+                                             openFocus: { navigate(to: .focus) }, testReminder: testReminder,
+                                             requestNotifications: requestNotifications)
+                            }
+                        }.padding(.horizontal, 22).padding(.top, 6).padding(.bottom, 22).id("mainPanel.top")
+                    }.scrollIndicators(.hidden).id(tab == .notes && showsNoteHistory ? "notes.history" : tab.rawValue)
+                        .onChange(of: settingsPage) { _, _ in scroll.scrollTo("mainPanel.top", anchor: .top) }
+                }
             }
             if let message = state.lastDeletedTodo.map({ "已删除：\($0.text)" }) ?? state.feedback {
                 HStack(alignment: .top, spacing: 8) {
@@ -82,8 +91,37 @@ struct MainPanel: View {
         .onChange(of: tab) { _, newTab in
             if newTab == .notes { showsNoteHistory = false }
         }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("TomatoNotes.showAISettings"))) { _ in tab = .settings }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("TomatoNotes.showFocus"))) { _ in tab = .focus }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("TomatoNotes.showAISettings"))) { _ in
+            navigate(to: .settings, settings: .ai)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("TomatoNotes.showSettings"))) { _ in
+            navigate(to: .settings, settings: .overview)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("TomatoNotes.showFocus"))) { _ in navigate(to: .focus) }
+        .confirmationDialog("还有未保存的修改", isPresented: $showingDiscardSettings, titleVisibility: .visible) {
+            Button("放弃修改并离开", role: .destructive) {
+                settingsHaveUnsavedChanges = false
+                if let pendingSettingsPage { settingsPage = pendingSettingsPage }
+                if let pendingTab { tab = pendingTab }
+                pendingTab = nil; pendingSettingsPage = nil
+            }
+            Button("继续编辑", role: .cancel) { pendingTab = nil; pendingSettingsPage = nil }
+        } message: {
+            Text("保存后再离开，可以保留刚才填写的内容。")
+        }
+    }
+
+    private func requestTab(_ destination: PanelTab) {
+        navigate(to: destination, settings: destination == .settings ? .overview : nil)
+    }
+
+    private func navigate(to destination: PanelTab, settings destinationPage: SettingsPage? = nil) {
+        if tab == .settings && settingsHaveUnsavedChanges {
+            pendingTab = destination; pendingSettingsPage = destinationPage; showingDiscardSettings = true
+        } else {
+            if let destinationPage { settingsPage = destinationPage }
+            tab = destination
+        }
     }
 
     private var header: some View {
@@ -338,187 +376,6 @@ private struct AppUsageRow: View {
                 Capsule().fill(Theme.green.opacity(0.7))
                     .frame(width: max(2, geometry.size.width * min(1, app.seconds / max(1, total))))
             }.frame(height: 3)
-        }
-    }
-}
-
-private struct SettingsView: View {
-    @ObservedObject var state: AppState
-    var testReminder: () -> Void
-    var requestNotifications: () -> Void
-    @ViewState private var focus = 25
-    @ViewState private var shortBreak = 5
-    @ViewState private var longBreak = 15
-    @ViewState private var every = 4
-    @ViewState private var timerKey = Hotkey(letter: "P")
-    @ViewState private var todoKey = Hotkey(letter: "T")
-    @ViewState private var noteKey = Hotkey(letter: "N")
-    @ViewState private var validation: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            PaperCard {
-                VStack(alignment: .leading, spacing: 11) {
-                    Text("外观").font(.system(size: 14, weight: .semibold))
-                    Picker("配色", selection: Binding(get: { state.settings.appearance }, set: { value in
-                        var settings = state.settings; settings.appearance = value; _ = state.updateSettings(settings)
-                    })) {
-                        ForEach(AppAppearance.allCases, id: \.self) { Text($0.label).tag($0) }
-                    }.pickerStyle(.segmented).accessibilityLabel("外观模式")
-                    Text("浅色是暖纸，深色是夜色胡桃；跟随系统会自动切换。")
-                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                    Toggle("按钮玻璃效果", isOn: settingBinding(\.glassControlsEnabled))
-                        .font(.system(size: 12)).tint(Theme.accent)
-                    Text("让按钮与顶部切换栏呈现流动玻璃。背景始终保留暖色纸感，关闭后按钮也使用纸感样式。")
-                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            ReviewSettingsSection(state: state, requestNotifications: requestNotifications)
-            FocusGuardSettingsSection(state: state)
-            PaperCard {
-                VStack(alignment: .leading, spacing: 13) {
-                    Text("专注的节奏").font(.system(size: 14, weight: .semibold))
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 18) {
-                        RotaryDial(title: "专注", unit: "分钟", bounds: 1...180, tint: Theme.accent, value: $focus)
-                        RotaryDial(title: "短休息", unit: "分钟", bounds: 1...60, tint: Theme.green, value: $shortBreak)
-                        RotaryDial(title: "长休息", unit: "分钟", bounds: 1...120, tint: Theme.green, value: $longBreak)
-                        RotaryDial(title: "长休息间隔", unit: "轮", bounds: 2...8, tint: Color(hex: 0x9A7D54), value: $every)
-                    }.padding(.vertical, 6)
-                    Text("转动旋钮调节，− / ＋ 精确微调。")
-                        .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                    if let validation { Text(validation).font(.system(size: 11)).foregroundStyle(Theme.accent) }
-                    Button("保存计时参数", action: saveDurations).buttonStyle(SubtleButtonStyle())
-                    Text("当前阶段保持原时长，新参数从后续阶段生效。")
-                        .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                }
-            }
-            PaperCard {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("温和地提醒").font(.system(size: 14, weight: .semibold))
-                    Toggle("一次提示音", isOn: settingBinding(\.soundEnabled)).font(.system(size: 12))
-                    Toggle("macOS 系统通知", isOn: settingBinding(\.notificationsEnabled)).font(.system(size: 12))
-                    Text(state.notificationStatus).font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 8) {
-                        Button("测试提醒", action: testReminder).buttonStyle(SubtleButtonStyle())
-                        Button("通知权限", action: requestNotifications).buttonStyle(SubtleButtonStyle())
-                    }
-                    Button("打开系统通知设置") {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }.buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(Theme.accent)
-                }
-            }
-            PaperCard {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("打开番茄小记").font(.system(size: 14, weight: .semibold))
-                    Toggle("在 Dock 中显示图标", isOn: settingBinding(\.showDockIcon)).font(.system(size: 12))
-                    Text("菜单栏始终可用；开启后也可点击 Dock 图标打开面板。")
-                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            PaperCard {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("合盖与外接屏").font(.system(size: 14, weight: .semibold))
-                    Toggle("合盖外接屏时继续计时", isOn: settingBinding(\.allowClamshellWithExternalDisplay))
-                        .font(.system(size: 12))
-                    Text("外接显示器工作时可继续；锁屏或系统睡眠仍会暂停，唤醒后需主动继续。")
-                        .font(.system(size: 11)).foregroundStyle(Theme.secondary).lineSpacing(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            PaperCard {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("前台 App 记录").font(.system(size: 14, weight: .semibold))
-                    Toggle("仅在专注运行时记录", isOn: settingBinding(\.recordingEnabled)).font(.system(size: 12))
-                    Text("只保存 App 名称和停留时长。关闭后对应专注时间标记为“未记录”。所有数据保存在本机。")
-                        .font(.system(size: 11)).foregroundStyle(Theme.secondary).lineSpacing(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            PaperCard {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("随手可用的快捷键").font(.system(size: 14, weight: .semibold))
-                    HotkeyRow(title: "开始 / 暂停", value: $timerKey)
-                    HotkeyRow(title: "快速待办", value: $todoKey)
-                    HotkeyRow(title: "呼出便签", value: $noteKey)
-                    Button("保存快捷键", action: saveHotkeys).buttonStyle(SubtleButtonStyle())
-                    Text("使用 A–Z 字母键。在其他 App 中也可使用；检测到占用或重复时会提示。部分应用监听的组合无法由系统查询，冲突时请手动换键。")
-                        .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                }
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                Text("番茄小记 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0")) · macOS 14+")
-                    .font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.secondary)
-                Text("锁屏与睡眠时暂停，回来后由你继续。")
-                    .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                HStack {
-                    Button("查看本地数据") { NSWorkspace.shared.activateFileViewerSelecting([state.repository.fileURL]) }
-                    Button("备份数据") {
-                        if let url = state.backupData() { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                    }
-                    Spacer()
-                    Button("退出番茄小记") { NSApp.terminate(nil) }
-                }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.accent)
-            }.padding(.horizontal, 3).padding(.bottom, 6)
-        }
-        .toggleStyle(.switch).tint(Theme.green)
-        .onAppear {
-            focus = state.settings.focusMinutes
-            shortBreak = state.settings.shortBreakMinutes
-            longBreak = state.settings.longBreakMinutes
-            every = state.settings.longBreakEvery
-            timerKey = state.settings.timerHotkey
-            todoKey = state.settings.todoHotkey
-            noteKey = state.settings.noteHotkey
-        }
-    }
-
-    private func settingBinding(_ keyPath: WritableKeyPath<AppSettings, Bool>) -> Binding<Bool> {
-        Binding(get: { state.settings[keyPath: keyPath] }, set: { value in
-            var settings = state.settings
-            settings[keyPath: keyPath] = value
-            _ = state.updateSettings(settings)
-        })
-    }
-
-    private func saveDurations() {
-        var settings = state.settings
-        settings.focusMinutes = focus
-        settings.shortBreakMinutes = shortBreak
-        settings.longBreakMinutes = longBreak
-        settings.longBreakEvery = every
-        if state.updateSettings(settings) { validation = nil }
-    }
-
-    private func saveHotkeys() {
-        var settings = state.settings
-        settings.timerHotkey = timerKey
-        settings.todoHotkey = todoKey
-        settings.noteHotkey = noteKey
-        _ = state.updateSettings(settings)
-    }
-}
-
-private struct HotkeyRow: View {
-    let title: String
-    @Binding var value: Hotkey
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Toggle(title, isOn: $value.enabled).font(.system(size: 12))
-            HStack(spacing: 8) {
-                Picker("组合键", selection: $value.modifier) {
-                    Text("⌃ Control + ⌥ Option").tag("controlOption")
-                    Text("⌘ Command + ⇧ Shift").tag("commandShift")
-                    Text("⌃ Control + ⌘ Command").tag("controlCommand")
-                }.labelsHidden().frame(maxWidth: .infinity)
-                TextField("P", text: $value.letter).textFieldStyle(.plain).multilineTextAlignment(.center)
-                    .font(.system(size: 12, weight: .medium)).frame(width: 27).padding(6)
-                    .background(Theme.background, in: RoundedRectangle(cornerRadius: 6))
-            }.disabled(!value.enabled)
         }
     }
 }
