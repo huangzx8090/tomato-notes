@@ -119,8 +119,11 @@ public struct FocusSession: Codable, Identifiable, Sendable {
     public var completed: Bool
     public var endReason: String?
     public var goal: String?
+    public var whitelistedBundleIDs: [String]?
+    public var outsideWhitelistSeconds: Double?
 
-    public init(id: UUID = UUID(), startedAt: Date, goal: String? = nil) {
+    public init(id: UUID = UUID(), startedAt: Date, goal: String? = nil,
+                whitelistedBundleIDs: [String]? = nil) {
         self.id = id
         self.startedAt = startedAt
         self.endedAt = nil
@@ -128,6 +131,8 @@ public struct FocusSession: Codable, Identifiable, Sendable {
         self.endTimeZoneID = nil
         self.completed = false
         self.endReason = nil
+        self.whitelistedBundleIDs = whitelistedBundleIDs?.sorted()
+        self.outsideWhitelistSeconds = whitelistedBundleIDs == nil ? nil : 0
         let trimmed = goal?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.goal = trimmed.isEmpty ? nil : String(trimmed.prefix(300))
     }
@@ -218,7 +223,7 @@ public struct StickyNote: Codable, Identifiable, Sendable {
 }
 
 public struct AppData: Codable, Sendable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
     public var schemaVersion = currentSchemaVersion
     public var settings = AppSettings()
     public var timer = TimerSnapshot()

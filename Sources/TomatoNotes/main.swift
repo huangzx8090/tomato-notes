@@ -112,8 +112,10 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
         state.onStageCompleted = { [weak self] next in
             guard let self else { return }
+            let outsideWhitelist = next == .focus ? nil : self.state.data.sessions.last(where: { $0.endedAt != nil })?.outsideWhitelistSeconds
+            let outsideDetail = outsideWhitelist.map { "白名单外应用停留 \(durationLabel($0))。" } ?? ""
             self.reminders.send(title: next == .focus ? "休息结束了" : "这一轮完成了",
-                                body: next == .focus ? "准备好后，开始下一轮专注。" : "这一轮的投入已记录，先休息一下。点击打开面板可查看进展，或开始\(next.label)。",
+                                body: next == .focus ? "准备好后，开始下一轮专注。" : "\(outsideDetail)这一轮的投入已记录，先休息一下。点击打开面板可查看进展，或开始\(next.label)。",
                                 sound: self.state.settings.soundEnabled,
                                 notification: self.state.settings.notificationsEnabled)
         }
@@ -210,7 +212,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         updateTimerActivity()
         let symbol: String
         switch state.timer.phase {
-        case .paused: symbol = "pause.circle"
+        case .paused: symbol = "play.fill"
         case .completed: symbol = "checkmark.circle"
         case .idle, .running: symbol = state.timer.stage == .focus ? "timer" : "cup.and.saucer"
         }
