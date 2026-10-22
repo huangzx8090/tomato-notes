@@ -49,6 +49,6 @@ v1.4.0 的资料格式为 v3，读取旧资料前自动备份；回退旧版应�
 删除待办可从底部逐条撤销，关闭提示或退出后撤销记录失效；删除便签确认后不能在应用内撤销。
 
 完整权限、费用、恢复及问题排查说明：
-https://github.com/huangzx8090/tools-program/blob/main/docs/使用指南与权限.md
+https://github.com/huangzx8090/tomato-notes/blob/main/docs/使用指南与权限.md
 
 已验证自动化规则、构建与文件完整性，不代表所有机器的真实 Chrome 截图/关闭和系统行为均已验收。

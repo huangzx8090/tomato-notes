@@ -5,8 +5,8 @@
 <h1 align="center">番茄小记</h1>
 <p align="center">把时间留给在意的事，让每一段投入都有迹可循。</p>
 <p align="center">
-  <a href="https://github.com/huangzx8090/tools-program/actions/workflows/ci.yml"><img src="https://github.com/huangzx8090/tools-program/actions/workflows/ci.yml/badge.svg" alt="macOS CI"></a>
-  <a href="https://github.com/huangzx8090/tools-program/releases/latest">下载最新版本</a> ·
+  <a href="https://github.com/huangzx8090/tomato-notes/actions/workflows/ci.yml"><img src="https://github.com/huangzx8090/tomato-notes/actions/workflows/ci.yml/badge.svg" alt="macOS CI"></a>
+  <a href="https://github.com/huangzx8090/tomato-notes/releases/latest">下载最新版本</a> ·
   <a href="docs/使用指南与权限.md">使用指南与权限</a> ·
   <a href="CHANGELOG.md">更新记录</a>
 </p>
@@ -15,7 +15,7 @@
 
 ## 下载与安装
 
-前往 **[GitHub Releases](https://github.com/huangzx8090/tools-program/releases/latest)** 下载。声明支持 **macOS 14+**；Universal 包同时包含 **Apple Silicon 与 Intel** 架构。
+前往 **[GitHub Releases](https://github.com/huangzx8090/tomato-notes/releases/latest)** 下载。声明支持 **macOS 14+**；Universal 包同时包含 **Apple Silicon 与 Intel** 架构。
 
 1. 推荐下载 `.dmg`，打开后把“番茄小记”拖入 **Applications**；也可解压 `.zip` 后移入“应用程序”。
 2. 从“应用程序”打开，在屏幕顶部菜单栏点击计时图标。默认不显示 Dock 图标，可在 **设置 → 在 Dock 中显示图标** 开启。
@@ -141,8 +141,8 @@
 需要 **macOS + Xcode 26 或更新工具链及 macOS 26+ SDK**；尽管最低运行系统为 macOS 14，编译原生玻璃 API 需要较新的 SDK。完整 Xcode 可用，匹配 SDK 的 Command Line Tools 也可构建。没有第三方 Swift 依赖。
 
 ```bash
-git clone https://github.com/huangzx8090/tools-program.git
-cd tools-program
+git clone https://github.com/huangzx8090/tomato-notes.git
+cd tomato-notes
 Scripts/test.sh
 Scripts/build-app.sh
 open 'build/番茄小记.app'
@@ -176,8 +176,8 @@ Scripts/check-integration.sh
 
 ### Actions 与发布
 
-- [macOS CI](https://github.com/huangzx8090/tools-program/actions/workflows/ci.yml)：PR、main / develop 推送和手动运行，执行测试、Universal 打包与完整性校验，安装包暂存 7 天。
-- [发布 macOS 应用](https://github.com/huangzx8090/tools-program/actions/workflows/release.yml)：推送 `vX.Y.Z` 标签，检查版本与主分支归属，重新测试和打包，先创建草稿、上传全部附件，再正式发布。
+- [macOS CI](https://github.com/huangzx8090/tomato-notes/actions/workflows/ci.yml)：PR、main / develop 推送和手动运行，执行测试、Universal 打包与完整性校验，安装包暂存 7 天。
+- [发布 macOS 应用](https://github.com/huangzx8090/tomato-notes/actions/workflows/release.yml)：推送 `vX.Y.Z` 标签，检查版本与主分支归属，重新测试和打包，先创建草稿、上传全部附件，再正式发布。
 - 测试使用模拟 AI 响应，**不需要在 Actions 填写 DeepSeek Key**。发布使用仓库自动提供的 `GITHUB_TOKEN`；只有上传 Release 的 job 获得 `contents: write`。
 - 后续发版步骤、工具链选择、失败重跑和签名限制见 [发布流程](docs/发布流程.md)。
 
