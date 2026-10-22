@@ -54,6 +54,7 @@ public struct AppSettings: Codable, Sendable {
     public var appearance: AppAppearance = .system
     public var focusGuard = FocusGuardSettings()
     public var review = ReviewSettings()
+    public var ai = AISettings()
     public var timerHotkey = Hotkey(letter: "P")
     public var todoHotkey = Hotkey(letter: "T")
     public var noteHotkey = Hotkey(letter: "N")
@@ -63,7 +64,7 @@ public struct AppSettings: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakEvery
         case soundEnabled, notificationsEnabled, recordingEnabled, allowClamshellWithExternalDisplay
-        case showDockIcon, glassControlsEnabled, appearance, focusGuard, review
+        case showDockIcon, glassControlsEnabled, appearance, focusGuard, review, ai
         case timerHotkey, todoHotkey, noteHotkey
     }
 
@@ -82,6 +83,7 @@ public struct AppSettings: Codable, Sendable {
         appearance = AppAppearance(rawValue: try values.decodeIfPresent(String.self, forKey: .appearance) ?? "") ?? .system
         focusGuard = try values.decodeIfPresent(FocusGuardSettings.self, forKey: .focusGuard) ?? FocusGuardSettings()
         review = try values.decodeIfPresent(ReviewSettings.self, forKey: .review) ?? ReviewSettings()
+        ai = try values.decodeIfPresent(AISettings.self, forKey: .ai) ?? AISettings()
         timerHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .timerHotkey) ?? Hotkey(letter: "P")
         todoHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .todoHotkey) ?? Hotkey(letter: "T")
         noteHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .noteHotkey) ?? Hotkey(letter: "N")
