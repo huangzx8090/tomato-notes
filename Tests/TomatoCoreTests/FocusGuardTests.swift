@@ -29,6 +29,14 @@ struct FocusGuardTests {
         #expect(watch.update(identity: "tab", at: 900, settings: settings, mayAssess: true) == .none)
         #expect(watch.update(identity: "tab", at: 901, settings: settings, mayAssess: true) == .none)
     }
+
+    @Test func applicationWhitelistDoesNotDependOnAIClosePermission() {
+        let pages = [FocusPageRule(kind: .site, value: "example.test", title: "课程")]
+        let remindersOnly = FocusGuardPlan(goal: "学习", appIDs: ["test.editor"], pages: pages, allowAIClosing: false)
+        let aiClosing = FocusGuardPlan(goal: "学习", appIDs: ["test.editor"], pages: pages, allowAIClosing: true)
+        #expect(remindersOnly.applicationWhitelistBundleIDs == ["com.google.Chrome", "test.editor"])
+        #expect(aiClosing.applicationWhitelistBundleIDs == remindersOnly.applicationWhitelistBundleIDs)
+    }
     @Test func reminderOnlyNeverAsksAI() {
         var watch = GuardDwellMonitor()
         var reminders = 0
@@ -63,6 +71,19 @@ struct FocusGuardTests {
             #expect(!FocusRelevance(verdict: .unrelated, confidence: confidence, reason: "不确定").permitsClosing)
         }
         #expect(!FocusRelevance(verdict: .unrelated, confidence: 1, reason: " \n ").permitsClosing)
+    }
+    @Test func favoritePagesPersistAcrossRoundsAndRoundTripCoding() throws {
+        var settings = FocusGuardSettings()
+        #expect(settings.favoritePages.isEmpty)
+        let site = FocusPageRule(kind: .site, value: "example.test", title: "example.test")
+        let page = FocusPageRule(kind: .page, value: "https://docs.example.test/guide", title: "指南")
+        settings.favoritePages = [site, page]
+        let reopened = try JSONDecoder().decode(FocusGuardSettings.self, from: JSONEncoder().encode(settings))
+        #expect(reopened.favoritePages == [site, page])
+        // 常用名单独立于“沿用上轮”开关：关闭沿用也不清空常用规则。
+        settings.reuseLastPlan = false
+        settings.rememberDraft(nil)
+        #expect(settings.favoritePages == [site, page])
     }
     @Test func savedDraftRequiresOptInAndNeverCarriesClosingPermission() throws {
         var settings = FocusGuardSettings()

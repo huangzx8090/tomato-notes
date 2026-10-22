@@ -33,7 +33,10 @@ public enum DataMerger {
         }
         result.schemaVersion = AppData.currentSchemaVersion
         let sessionIDs = Set(result.sessions.map(\.id))
-        guard result.intervals.allSatisfy({ sessionIDs.contains($0.sessionID) && $0.seconds.isFinite && $0.seconds >= 0 }),
+        guard result.sessions.allSatisfy({
+                  $0.outsideWhitelistSeconds.map { $0.isFinite && $0 >= 0 } ?? true
+              }),
+              result.intervals.allSatisfy({ sessionIDs.contains($0.sessionID) && $0.seconds.isFinite && $0.seconds >= 0 }),
               result.usage.allSatisfy({ sessionIDs.contains($0.sessionID) && $0.seconds.isFinite && $0.seconds >= 0 }) else {
             throw DataMergeError.invalid("分段关联或时长无效")
         }
@@ -53,6 +56,7 @@ public enum DataMerger {
             result.sessions[index].endedLocalDay = lastInterval?.localDay ?? LocalTime.dayKey(end)
             result.sessions[index].endTimeZoneID = lastInterval?.timeZoneID ?? TimeZone.current.identifier
             result.sessions[index].endReason = "数据合并时保留实际记录并结束"
+            result.sessions[index].whitelistedBundleIDs = nil
         }
         var engine = TimerEngine(data: result)
         engine.recoverAfterLaunch()

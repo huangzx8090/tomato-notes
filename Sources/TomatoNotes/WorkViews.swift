@@ -89,10 +89,10 @@ struct WorkReportView: View {
                             if !busy { Image(systemName: "sparkles") }
                         }
                     }.buttonStyle(PrimaryButtonStyle()).disabled(busy || !state.canWrite)
-                    Text("生成时会将本轮或当天的记录、补充文字及所选图片发送给 DeepSeek。")
+                    Text("生成时会将本轮或当天的记录、补充文字及所选图片发送给当前配置的 AI 服务商。")
                         .font(.system(size: 11)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
                     if !state.hasAPIKey {
-                        Button("先配置 DeepSeek API Key", action: configureAI).buttonStyle(.plain)
+                        Button("先配置 AI 服务商", action: configureAI).buttonStyle(.plain)
                             .font(.system(size: 12)).foregroundStyle(Theme.accent)
                     }
                     if let error = state.reviewErrors[scope.key] {
@@ -189,90 +189,6 @@ struct SummarySections: View {
                 }
             }
         }
-    }
-}
-
-struct ReviewSettingsSection: View {
-    @ObservedObject var state: AppState
-    var requestNotifications: () -> Void
-    @ViewState private var apiKey = ""
-    @ViewState private var hour = "21"
-    @ViewState private var minute = "30"
-    @ViewState private var validation: String?
-
-    var body: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: 14) {
-                Label("AI 工作与成果回顾", systemImage: "sparkles").font(.system(size: 14, weight: .semibold))
-                Text("DeepSeek · 支持文字与图片理解")
-                    .font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                SecureField(state.hasAPIKey ? "已配置，输入可更换" : "填写 DeepSeek API Key", text: $apiKey)
-                    .textFieldStyle(.roundedBorder).accessibilityLabel("DeepSeek API Key")
-                HStack(spacing: 8) {
-                    Button("保存密钥") { state.saveAPIKey(apiKey); apiKey = "" }.disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Button(state.testingAI ? "连接中…" : "测试连接", action: state.testAIConnection).disabled(state.testingAI)
-                    Button("刷新", action: state.refreshCredentialStatus)
-                }.buttonStyle(SubtleButtonStyle())
-                Text(state.aiStatus).font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("密钥保存在本机钥匙串；支持导入 deepseek / DEEPSEEK_API_KEY 环境变量。")
-                    .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Divider()
-                Toggle("专注结束后自动整理 AI 回顾", isOn: Binding(get: { state.settings.review.autoSummarizeSessions }, set: { value in
-                    var settings = state.settings
-                    settings.review.autoSummarizeSessions = value
-                    _ = state.updateSettings(settings)
-                })).font(.system(size: 12))
-                Text("默认关闭。开启后，新结束且投入至少 1 分钟的每轮专注会在后台整理一次；发送本轮目标、App 时长、完成待办及主动添加的文字和图片。无需填写，不额外弹窗；失败不自动重试，也不补跑历史。")
-                    .font(.system(size: 10)).foregroundStyle(Theme.secondary).lineSpacing(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                Divider()
-                Toggle("每天定时生成 AI 回顾", isOn: Binding(get: { state.settings.review.scheduleEnabled }, set: { value in
-                    var settings = state.settings
-                    settings.review.scheduleEnabled = value
-                    if state.updateSettings(settings), value { requestNotifications() }
-                })).font(.system(size: 12))
-                HStack(spacing: 8) {
-                    Text("每天").font(.system(size: 12))
-                    timeField($hour, label: "回顾小时")
-                    Text(":")
-                    timeField($minute, label: "回顾分钟")
-                    Spacer()
-                    Button("保存时间", action: saveTime).buttonStyle(SubtleButtonStyle())
-                }
-                if let validation { Text(validation).font(.system(size: 11)).foregroundStyle(Theme.accent) }
-                Text("应用运行时，每天 \(state.settings.review.timeLabel) 汇总当天所有专注成果。当天错过时间，启动或解锁后补生成；生成失败可手动重试。")
-                    .font(.system(size: 11)).foregroundStyle(Theme.secondary).lineSpacing(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("定时汇总会将当天的记录、补充文字和待解析图片发送给 DeepSeek。")
-                    .font(.system(size: 10)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
-                if state.hasAPIKey {
-                    Button("移除已保存的密钥", action: state.removeAPIKey).buttonStyle(.plain)
-                        .font(.system(size: 10)).foregroundStyle(Theme.accent)
-                }
-            }
-        }.onAppear {
-            hour = String(format: "%02d", state.settings.review.hour)
-            minute = String(format: "%02d", state.settings.review.minute)
-            state.refreshCredentialStatus()
-        }
-    }
-
-    private func timeField(_ value: Binding<String>, label: String) -> some View {
-        TextField("00", text: value).textFieldStyle(.plain).multilineTextAlignment(.center)
-            .font(.system(size: 13).monospacedDigit()).frame(width: 30).padding(7)
-            .background(Theme.background, in: RoundedRectangle(cornerRadius: 7)).accessibilityLabel(label)
-    }
-
-    private func saveTime() {
-        guard let h = Int(hour), (0...23).contains(h), let m = Int(minute), (0...59).contains(m) else {
-            validation = "请填写 00–23 的小时和 00–59 的分钟。"; return
-        }
-        var settings = state.settings
-        settings.review.hour = h
-        settings.review.minute = m
-        if state.updateSettings(settings) { validation = nil }
     }
 }
 

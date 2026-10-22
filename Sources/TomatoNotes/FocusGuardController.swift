@@ -19,8 +19,16 @@ final class FocusGuardController: ObservableObject {
     var currentSnapshot: (() -> (TimerSnapshot, Bool, FocusGuardSettings))?
     var onNotice: ((String, String, (() -> Void)?) -> Void)?
     private let browser = ChromeBrowser()
-    private let ai = DeepSeekClient()
-    private let credentials = DeepSeekCredentials()
+    private var ai = AIReviewClient(provider: AIProviderCatalog.deepseek)
+    private let credentials = AIProviderCredentials()
+    /// 当前生效的 AI 配置，由 AppState 在设置变更时同步。
+    private(set) var aiProvider = AIProviderCatalog.deepseek
+
+    func updateAIProvider(_ config: AIProviderConfig) {
+        guard config != aiProvider else { return }
+        aiProvider = config
+        ai = AIReviewClient(provider: config)
+    }
     private var monitor = GuardDwellMonitor()
     private var lastPoll: Double = 0
     private var polling: Task<Void, Never>?
@@ -193,7 +201,7 @@ final class FocusGuardController: ObservableObject {
             guard let self else { return }
             defer { if self.generation == token { self.assessing = false; self.assessment = nil } }
             do {
-                guard let key = try self.credentials.read() else { throw DeepSeekError.missingKey }
+                guard let key = try self.credentials.read(providerID: self.aiProvider.id) else { throw AIReviewError.missingKey }
                 let image = try await FocusPageCapture.image(for: page)
                 guard try await self.browser.frontPage() == page, self.isActive(round), !Task.isCancelled,
                       self.generation == token else { return }

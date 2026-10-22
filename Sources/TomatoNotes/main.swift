@@ -113,8 +113,10 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
         state.onStageCompleted = { [weak self] next in
             guard let self else { return }
+            let outsideWhitelist = next == .focus ? nil : self.state.data.sessions.last(where: { $0.endedAt != nil })?.outsideWhitelistSeconds
+            let outsideDetail = outsideWhitelist.map { "白名单外应用停留 \(durationLabel($0))。" } ?? ""
             self.reminders.send(title: next == .focus ? "休息结束了" : "这一轮完成了",
-                                body: next == .focus ? "准备好后，开始下一轮专注。" : "这一轮的投入已记录，先休息一下。点击打开面板可查看进展，或开始\(next.label)。",
+                                body: next == .focus ? "准备好后，开始下一轮专注。" : "\(outsideDetail)这一轮的投入已记录，先休息一下。点击打开面板可查看进展，或开始\(next.label)。",
                                 sound: self.state.settings.soundEnabled,
                                 notification: self.state.settings.notificationsEnabled)
         }
@@ -151,11 +153,13 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         refreshStatusItem()
         notes.restore()
         let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains("--show-panel") || arguments.contains("--show-ai-settings") {
+        if arguments.contains("--show-panel") || arguments.contains("--show-ai-settings") || arguments.contains("--show-settings") {
             DispatchQueue.main.async { [weak self] in
                 self?.showPopover()
                 if arguments.contains("--show-ai-settings") {
                     NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showAISettings"), object: nil)
+                } else if arguments.contains("--show-settings") {
+                    NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showSettings"), object: nil)
                 }
             }
         }
@@ -238,7 +242,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         updateTimerActivity()
         let symbol: String
         switch state.timer.phase {
-        case .paused: symbol = "pause.circle"
+        case .paused: symbol = "play.fill"
         case .completed: symbol = "checkmark.circle"
         case .idle, .running: symbol = state.timer.stage == .focus ? "timer" : "cup.and.saucer"
         }
@@ -355,6 +359,10 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         }
     }
     @objc private func showExistingInstance() { showPopover() }
+    @objc private func showSettings() {
+        showPopover()
+        NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showSettings"), object: nil)
+    }
     @objc private func closeCurrentWindow() {
         guard let window = NSApp.keyWindow else { return }
         if window === mainPanel { hidePanel() }
@@ -368,6 +376,7 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "打开番茄小记", action: #selector(showExistingInstance), keyEquivalent: "0").target = self
+        appMenu.addItem(withTitle: "设置…", action: #selector(showSettings), keyEquivalent: ",").target = self
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出番茄小记", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu

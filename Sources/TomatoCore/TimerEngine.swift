@@ -15,7 +15,8 @@ public struct TimerEngine {
         }
     }
 
-    public mutating func start(at now: Date, goal: String? = nil) {
+    public mutating func start(at now: Date, goal: String? = nil,
+                               whitelistedBundleIDs: [String]? = nil) {
         switch data.timer.phase {
         case .running: return
         case .paused:
@@ -31,7 +32,8 @@ public struct TimerEngine {
             data.timer.phase = .running
             data.timer.pauseReason = nil
             if data.timer.stage == .focus {
-                let session = FocusSession(startedAt: now, goal: goal)
+                let session = FocusSession(startedAt: now, goal: goal,
+                                           whitelistedBundleIDs: whitelistedBundleIDs)
                 data.timer.sessionID = session.id
                 data.sessions.append(session)
             } else {
@@ -57,6 +59,15 @@ public struct TimerEngine {
         let start = end.addingTimeInterval(-used)
 
         if data.timer.stage == .focus, let sessionID = data.timer.sessionID {
+            // 独立累计白名单外时长；即使关闭 App 明细记录，也保留这项汇总。
+            if let index = data.sessions.firstIndex(where: { $0.id == sessionID }),
+               let bundleIDs = data.sessions[index].whitelistedBundleIDs,
+               let seconds = data.sessions[index].outsideWhitelistSeconds,
+               let app,
+               !app.bundleID.hasPrefix("com.zixuan.TomatoNotes"),
+               !bundleIDs.contains(app.bundleID) {
+                data.sessions[index].outsideWhitelistSeconds = seconds + used
+            }
             for part in LocalTime.split(start: start, end: end, effectiveSeconds: used, calendar: calendar) {
                 appendInterval(part, sessionID: sessionID)
                 let kind: UsageKind = !recordingEnabled ? .disabled : (app == nil ? .unattributed : .app)
@@ -85,6 +96,19 @@ public struct TimerEngine {
         data.timer.remainingSeconds = data.timer.targetSeconds
         data.timer.pauseReason = nil
         data.timer.updatedAt = now
+    }
+
+    public mutating func setWhitelistBundleIDs(_ bundleIDs: [String]?, for sessionID: UUID) {
+        guard let index = data.sessions.firstIndex(where: { $0.id == sessionID }),
+              data.sessions[index].endedAt == nil else { return }
+        let normalized = bundleIDs.map { Array(Set($0)).sorted() }
+        guard data.sessions[index].whitelistedBundleIDs != normalized else { return }
+        data.sessions[index].whitelistedBundleIDs = normalized
+        if normalized == nil {
+            data.sessions[index].outsideWhitelistSeconds = nil
+        } else if data.sessions[index].outsideWhitelistSeconds == nil {
+            data.sessions[index].outsideWhitelistSeconds = 0
+        }
     }
 
     public mutating func skipBreak(at now: Date) {
@@ -135,6 +159,8 @@ public struct TimerEngine {
         data.sessions[index].endTimeZoneID = calendar.timeZone.identifier
         data.sessions[index].completed = completed
         data.sessions[index].endReason = reason
+        // 只把本轮结果留在历史记录中，不长期保存本轮白名单。
+        data.sessions[index].whitelistedBundleIDs = nil
     }
 
     private mutating func appendInterval(_ piece: LocalTime.Piece, sessionID: UUID) {

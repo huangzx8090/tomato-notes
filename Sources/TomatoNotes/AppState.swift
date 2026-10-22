@@ -16,8 +16,10 @@ final class AppState: ObservableObject {
     @Published private(set) var generatingScopes: Set<String> = []
     @Published private(set) var reviewErrors: [String: String] = [:]
     @Published private(set) var hasAPIKey = false
-    @Published var aiStatus = "尚未配置 DeepSeek API Key"
+    @Published var aiStatus = "尚未配置 AI 服务商 API Key"
     @Published private(set) var testingAI = false
+    @Published private(set) var aiModels: [String] = []
+    @Published private(set) var loadingAIModels = false
     @Published var guardSetupPresented = false
     @Published var focusGoalDraft = ""
 
@@ -44,8 +46,10 @@ final class AppState: ObservableObject {
     private var currentApp: AppIdentity?
     private var lastConversion: (UUID, String, Date)?
     private var todoDeletionHistory = TodoDeletionHistory()
-    private let credentials = DeepSeekCredentials()
-    private let ai = DeepSeekClient()
+    private let credentials = AIProviderCredentials()
+    private var ai = AIReviewClient(provider: AIProviderCatalog.deepseek)
+    /// 当前生效的 AI 配置；设置变更后重建客户端。
+    private(set) var aiProvider: AIProviderConfig = AIProviderCatalog.deepseek
     private var workSaveTask: DispatchWorkItem?
     private var lastReviewCheck: TimeInterval = 0
     private var pendingSessionReviews: [UUID] = []
@@ -130,10 +134,12 @@ final class AppState: ObservableObject {
             else { openGuardSetup(startAfter: true); return }
         }
         let previousSessionID = timer.sessionID
-        engine.start(at: Date(), goal: pendingGuardPlan?.goal ?? focusGoalDraft)
+        engine.start(at: Date(), goal: pendingGuardPlan?.goal ?? focusGoalDraft,
+                     whitelistedBundleIDs: pendingGuardPlan?.applicationWhitelistBundleIDs)
         if engine.data.timer.stage == .focus, engine.data.timer.sessionID != previousSessionID { focusGoalDraft = "" }
         if let plan = pendingGuardPlan, let id = engine.data.timer.sessionID {
             guardController.configure(plan, sessionID: id)
+            engine.setWhitelistBundleIDs(plan.applicationWhitelistBundleIDs, for: id)
             var next = engine.data
             if let index = next.sessions.firstIndex(where: { $0.id == id }) { next.sessions[index].goal = plan.goal }
             next.settings.focusGuard.rememberDraft(plan)
@@ -142,6 +148,7 @@ final class AppState: ObservableObject {
         } else if pendingTimerOnly, let id = engine.data.timer.sessionID {
             timerOnlySessionID = id
             guardController.disableForRound()
+            engine.setWhitelistBundleIDs(nil, for: id)
         }
         pendingGuardPlan = nil
         pendingTimerOnly = false
@@ -236,7 +243,8 @@ final class AppState: ObservableObject {
         } else if let id = timer.sessionID, timer.stage == .focus,
                   timer.phase == .running || timer.phase == .paused {
             guardController.configure(plan, sessionID: id)
-            var next = data
+            engine.setWhitelistBundleIDs(plan.applicationWhitelistBundleIDs, for: id)
+            var next = engine.data
             if let index = next.sessions.firstIndex(where: { $0.id == id }) { next.sessions[index].goal = plan.goal }
             engine.replaceData(next)
             publish()
@@ -257,6 +265,8 @@ final class AppState: ObservableObject {
                   timer.phase == .running || timer.phase == .paused {
             timerOnlySessionID = id
             guardController.disableForRound()
+            engine.setWhitelistBundleIDs(nil, for: id)
+            publish()
         }
     }
 
@@ -514,20 +524,60 @@ final class AppState: ObservableObject {
 
     func refreshCredentialStatus() {
         do {
-            hasAPIKey = try credentials.isConfigured()
-            aiStatus = hasAPIKey ? "DeepSeek 已配置，可生成文字和图片成果总结" : "尚未配置 DeepSeek API Key"
+            rebuildAIClient()
+            guardController.updateAIProvider(aiProvider)
+            hasAPIKey = try credentials.isConfigured(providerID: aiProvider.id)
+            aiStatus = hasAPIKey ? "\(aiProvider.name) 已配置，可生成文字和图片成果总结" : "尚未配置 \(aiProvider.name) 的 API Key"
         } catch { hasAPIKey = false; aiStatus = error.localizedDescription }
     }
 
-    func saveAPIKey(_ value: String) {
-        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        do { try credentials.save(value); refreshCredentialStatus(); feedback = "DeepSeek API Key 已保存到本机钥匙串" }
-        catch { aiStatus = error.localizedDescription }
+    /// 设置中的服务商/模型变更后重建 AI 客户端。
+    private func rebuildAIClient() {
+        let resolved = settings.ai.resolved()
+        guard resolved != aiProvider else { return }
+        let catalogChanged = resolved.id != aiProvider.id || resolved.baseURL != aiProvider.baseURL
+        aiProvider = resolved
+        ai = AIReviewClient(provider: resolved)
+        if catalogChanged { aiModels = [] }
+    }
+
+    @discardableResult
+    func saveAPIKey(_ value: String) -> Bool {
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        do {
+            try credentials.save(value, providerID: aiProvider.id)
+            refreshCredentialStatus()
+            feedback = "\(aiProvider.name) 的 API Key 已保存到本机钥匙串"
+            return true
+        } catch { aiStatus = error.localizedDescription; return false }
     }
 
     func removeAPIKey() {
-        do { try credentials.remove(); refreshCredentialStatus() }
-        catch { aiStatus = error.localizedDescription }
+        do {
+            try credentials.remove(providerID: aiProvider.id)
+            refreshCredentialStatus()
+        } catch { aiStatus = error.localizedDescription }
+    }
+
+    func updateAIProvider(_ update: (inout AISettings) -> Void) {
+        var settings = self.settings
+        update(&settings.ai)
+        if updateSettings(settings) { refreshCredentialStatus() }
+    }
+
+    func fetchAIModels() {
+        guard !loadingAIModels else { return }
+        loadingAIModels = true
+        Task {
+            defer { loadingAIModels = false }
+            do {
+                guard let key = try credentials.read(providerID: aiProvider.id) else { throw AIReviewError.missingKey }
+                let models = try await ai.fetchModels(apiKey: key)
+                guard !models.isEmpty else { throw AIReviewError.invalidResponse }
+                aiModels = models
+                aiStatus = "已获取 \(models.count) 个可用模型，请从列表中选择"
+            } catch { aiStatus = error.localizedDescription }
+        }
     }
 
     func testAIConnection() {
@@ -536,10 +586,11 @@ final class AppState: ObservableObject {
         Task {
             defer { testingAI = false }
             do {
-                guard let key = try credentials.read() else { throw DeepSeekError.missingKey }
+                guard let key = try credentials.read(providerID: aiProvider.id) else { throw AIReviewError.missingKey }
                 try await ai.testConnection(apiKey: key)
                 hasAPIKey = true
-                aiStatus = "DeepSeek 连接成功，支持文字与图片总结"
+                aiStatus = "\(aiProvider.name) 连接成功"
+                fetchAIModels()
             } catch { aiStatus = error.localizedDescription }
         }
     }
@@ -553,7 +604,7 @@ final class AppState: ObservableObject {
         Task {
             defer { generatingScopes.remove(scope.key) }
             do {
-                guard let key = try credentials.read() else { throw DeepSeekError.missingKey }
+                guard let key = try credentials.read(providerID: aiProvider.id) else { throw AIReviewError.missingKey }
                 hasAPIKey = true
                 if case .day(let day) = scope {
                     // 先理解尚未总结的各轮文字和图片，再综合全天，避免每天重复上传相同图片。
@@ -590,7 +641,7 @@ final class AppState: ObservableObject {
     private func generateAndStore(_ scope: WorkScope, apiKey: String) async throws {
         let context = ReviewContextBuilder.build(for: scope, from: data)
         let images = try context.images.map { image -> Data in
-            guard let bytes = try? Data(contentsOf: workImages.url(for: image)) else { throw DeepSeekError.missingImage }
+            guard let bytes = try? Data(contentsOf: workImages.url(for: image)) else { throw AIReviewError.missingImage }
             return bytes
         }
         let content = try await ai.summarize(context: context, images: images, apiKey: apiKey)
@@ -598,7 +649,7 @@ final class AppState: ObservableObject {
         let id = ensureWorkRecord(for: scope)
         var next = data
         guard let index = next.workRecords.firstIndex(where: { $0.id == id }) else { return }
-        next.workRecords[index].summary = AISummary(content: content, model: DeepSeekClient.model,
+        next.workRecords[index].summary = AISummary(content: content, model: aiProvider.defaultModel,
                                                    contextDigest: context.digest, imageIDs: context.images.map(\.id))
         engine.replaceData(next)
         publish()
@@ -654,6 +705,10 @@ final class AppState: ObservableObject {
         lastUptime = uptime
         guard delta > 0 else { return }
         let sessionID = timer.sessionID
+        if let sessionID, let plan = guardController.plan,
+           guardController.sessionID == sessionID {
+            engine.setWhitelistBundleIDs(plan.applicationWhitelistBundleIDs, for: sessionID)
+        }
         let completed = engine.advance(seconds: delta, endingAt: Date(), app: currentApp,
                                        recordingEnabled: settings.recordingEnabled)
         let next = engine.data.timer.nextStage

@@ -48,6 +48,7 @@ struct FocusGuardSetupView: View {
     @ViewState private var hasCapture = FocusPageCapture.hasPermission
     @ViewState private var validation: String?
     @ViewState private var tabFilter = ""
+    @ViewState private var expandedHosts: Set<String> = []
     @FocusState private var goalFocused: Bool
 
     private var runningApps: [AppIdentity] {
@@ -69,6 +70,26 @@ struct FocusGuardSetupView: View {
             FocusPageRule.pageKey($0.url) != nil &&
             (tabFilter.isEmpty || ($0.title + " " + $0.host).localizedCaseInsensitiveContains(tabFilter))
         }
+    }
+    private var tabGroups: [TabGroup] {
+        let hosts = Dictionary(grouping: visibleTabs) { $0.host }
+        return hosts
+            .map { TabGroup(host: $0.key, tabs: $0.value.sorted { $0.title < $1.title }) }
+            .sorted { $0.host.localizedCompare($1.host) == .orderedAscending }
+    }
+    /// 已选规则的胶囊展示顺序：网站在前，页面按加入顺序在后。
+    private var selectedChips: [FocusPageRule] {
+        pages.sorted { lhs, rhs in
+            if lhs.kind != rhs.kind { return lhs.kind == .site }
+            return pages.firstIndex(of: lhs) ?? 0 < pages.firstIndex(of: rhs) ?? 0
+        }
+    }
+    private var favoritePages: [FocusPageRule] { state.settings.focusGuard.favoritePages }
+
+    struct TabGroup: Identifiable {
+        let host: String
+        let tabs: [GuardPage]
+        var id: String { host }
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -107,26 +128,44 @@ struct FocusGuardSetupView: View {
                     PaperCard {
                         VStack(alignment: .leading, spacing: 11) {
                             Text("本轮允许的 Chrome 页面").font(.system(size: 13, weight: .semibold))
-                            Button(controller.loadingTabs ? "正在连接…" : "连接 Chrome / 读取当前窗口标签") { controller.loadTabs() }
-                                .buttonStyle(SubtleButtonStyle()).disabled(controller.loadingTabs)
-                            Text(controller.permissionStatus).font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                            if !controller.availableTabs.isEmpty {
-                                TextField("筛选标题或网站", text: $tabFilter).textFieldStyle(.roundedBorder)
-                                    .accessibilityLabel("筛选 Chrome 标签")
+                            if !pages.isEmpty {
+                                RuleChipsView(pages: selectedChips,
+                                              emptyHint: "") { rule in pages.removeAll { $0.id == rule.id } }
                             }
-                            ForEach(visibleTabs) { page in
-                                HStack(alignment: .top, spacing: 8) {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(page.title).lineLimit(2).font(.system(size: 12))
-                                        Text(page.host).font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                                    }.frame(maxWidth: .infinity, alignment: .leading)
-                                    Button(isPageAdded(page) ? "已加入" : "此页") { addPage(page) }.buttonStyle(SubtleButtonStyle())
-                                        .disabled(isPageAdded(page))
-                                        .accessibilityLabel("仅放行页面：\(page.title)")
-                                    Button(isSiteAdded(page) ? "已放行" : "网站") { addSite(page.host) }.buttonStyle(SubtleButtonStyle())
-                                        .disabled(isSiteAdded(page))
-                                        .accessibilityLabel("放行网站：\(page.host)")
+                            if !controller.availableTabs.isEmpty {
+                                HStack(spacing: 8) {
+                                    TextField("筛选标题或网站", text: $tabFilter).textFieldStyle(.roundedBorder)
+                                        .accessibilityLabel("筛选 Chrome 标签")
+                                    Menu {
+                                        ForEach(tabGroups) { group in
+                                            Button("\(group.host)（\(group.tabs.count) 个标签）") { addSite(group.host) }
+                                        }
+                                        Divider()
+                                        Button("按页面逐个加入全部") { visibleTabs.forEach(addPage) }
+                                    } label: { Label("全部放行", systemImage: "checkmark.circle") }
+                                        .font(.system(size: 11))
+                                        .accessibilityLabel("将筛选出的标签全部加入白名单")
                                 }
+                            }
+                            if controller.availableTabs.isEmpty {
+                                Button(controller.loadingTabs ? "正在连接…" : "连接 Chrome / 读取当前窗口标签") { controller.loadTabs() }
+                                    .buttonStyle(SubtleButtonStyle()).disabled(controller.loadingTabs)
+                            }
+                            Text(controller.permissionStatus).font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                            if controller.availableTabs.isEmpty && !controller.loadingTabs {
+                                Text("连接后，这里的标签会按网站分组；点组头放行整个网站，展开后也可只勾选其中几页。")
+                                    .font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                            }
+                            ForEach(tabGroups) { group in
+                                TabGroupRow(group: group,
+                                            expanded: expandedHosts.contains(group.host),
+                                            siteAdded: isSiteAdded(group.host),
+                                            selectedCount: group.tabs.filter { isPageAdded($0) }.count,
+                                            onToggleExpand: { toggleExpanded(group.host) },
+                                            onAddSite: { addSite(group.host) },
+                                            onRemoveSite: { pages.removeAll { $0.kind == .site && $0.value == group.host } },
+                                            isPageAdded: isPageAdded,
+                                            addPage: addPage)
                             }
                             if !tabFilter.isEmpty && visibleTabs.isEmpty {
                                 Text("没有匹配的标签，也可以在下方手动添加网址。")
@@ -142,26 +181,59 @@ struct FocusGuardSetupView: View {
                                 Button("加入") { addManual() }.buttonStyle(SubtleButtonStyle())
                             }
                             if let validation { Text(validation).font(.system(size: 11)).foregroundStyle(Theme.accent) }
-                            if !pages.isEmpty {
-                                HStack {
-                                    Text("已加入白名单（\(pages.count)）").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.secondary)
-                                    Spacer()
-                                    Button("清空") { pages.removeAll() }.buttonStyle(SubtleButtonStyle())
+                            if pages.isEmpty {
+                                Text("还没放行任何页面。也可以先从常用白名单导入。")
+                                    .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                            } else if !controller.chromeReady {
+                                Text("请先连接 Chrome，才能识别这些页面；也可选择“本轮仅计时”。")
+                                    .font(.system(size: 11)).foregroundStyle(Theme.accent)
+                            }
+                        }
+                    }
+                    PaperCard {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Label("常用白名单", systemImage: "star.circle").font(.system(size: 13, weight: .semibold))
+                                Spacer()
+                                Text("\(favoritePages.count) 条规则").font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                            }
+                            if favoritePages.isEmpty {
+                                Text("选好本轮名单后点“存为常用”，下次一键导入，不用重新选。")
+                                    .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                            } else {
+                                RuleChipsView(pages: favoritePages, emptyHint: "") { rule in
+                                    var settings = state.settings
+                                    settings.focusGuard.favoritePages.removeAll { $0.id == rule.id }
+                                    _ = state.updateSettings(settings)
                                 }
-                                if !controller.chromeReady {
-                                    Text("请先连接 Chrome，才能识别这些页面；也可选择“本轮仅计时”。")
-                                        .font(.system(size: 11)).foregroundStyle(Theme.accent)
+                                HStack(spacing: 10) {
+                                    Button("导入到本轮") {
+                                        for rule in favoritePages where !pages.contains(where: { $0.id == rule.id }) {
+                                            pages.append(rule)
+                                        }
+                                    }.buttonStyle(SubtleButtonStyle()).disabled(favoritePages.isEmpty)
+                                    if !pages.isEmpty {
+                                        Button("替换本轮名单") {
+                                            pages = favoritePages
+                                        }.buttonStyle(SubtleButtonStyle())
+                                    }
+                                    Spacer()
+                                    Button("清除常用", role: .destructive) {
+                                        var settings = state.settings
+                                        settings.focusGuard.favoritePages = []
+                                        _ = state.updateSettings(settings)
+                                    }.buttonStyle(SubtleButtonStyle())
                                 }
                             }
-                            ForEach(pages) { rule in
-                                HStack {
-                                    Image(systemName: rule.kind == .page ? "doc.text" : "globe")
-                                    Text(rule.title).lineLimit(1)
-                                    Spacer()
-                                    Text(rule.kind == .page ? "仅此页面" : "整个网站").foregroundStyle(Theme.secondary)
-                                    Button { pages.removeAll { $0.id == rule.id } } label: { Image(systemName: "minus.circle") }
-                                        .buttonStyle(.plain).accessibilityLabel("移除白名单：\(rule.title)")
-                                }.font(.system(size: 11))
+                            if !pages.isEmpty {
+                                Button(pages.count == 1 && favoritePages.contains(pages[0]) ? "已存为常用" : "存为常用") {
+                                    var settings = state.settings
+                                    for rule in pages where !settings.focusGuard.favoritePages.contains(where: { $0.id == rule.id }) {
+                                        settings.focusGuard.favoritePages.append(rule)
+                                    }
+                                    _ = state.updateSettings(settings)
+                                }.buttonStyle(SubtleButtonStyle())
+                                .disabled(pages.allSatisfy { rule in favoritePages.contains(where: { $0.id == rule.id }) })
                             }
                         }
                     }
@@ -184,9 +256,9 @@ struct FocusGuardSetupView: View {
                             Text("离开白名单 \(state.settings.focusGuard.remindAfterSeconds) 秒后提醒，再停留 \(state.settings.focusGuard.graceSeconds) 秒时才调用 AI；本轮最多 \(state.settings.focusGuard.maxChecks) 次。时间可在设置中调整。")
                                 .font(.system(size: 11)).foregroundStyle(Theme.secondary)
                             if allowClosing {
-                                Text("届时将当前普通 Chrome 窗口截图、标题、网站和本轮目标发送给 DeepSeek。截图不保存；无痕窗口不读取，不截图，不关闭。AI 无法确定或调用失败时保留页面。")
+                                Text("届时将当前普通 Chrome 窗口截图、标题、网站和本轮目标发送给当前配置的 AI 服务商。截图不保存；无痕窗口不读取，不截图，不关闭。AI 无法确定或调用失败时保留页面。")
                                     .font(.system(size: 11)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
-                                if !state.hasAPIKey { Text("请先在设置中配置 DeepSeek API Key。").font(.system(size: 11)).foregroundStyle(Theme.accent) }
+                                if !state.hasAPIKey { Text("请先在设置中配置当前 AI 服务商的 API Key。").font(.system(size: 11)).foregroundStyle(Theme.accent) }
                                 if !controller.chromeReady { Text("请先连接 Chrome。").font(.system(size: 11)).foregroundStyle(Theme.accent) }
                                 HStack {
                                     Button(hasCapture ? "已允许屏幕读取" : "允许关闭前读取 Chrome 窗口") {
@@ -249,10 +321,116 @@ struct FocusGuardSetupView: View {
         if !pages.contains(where: { $0.id == rule.id }) { pages.append(rule) }
         validation = nil; manualPage = ""
     }
+    private func toggleExpanded(_ host: String) {
+        if expandedHosts.contains(host) { expandedHosts.remove(host) } else { expandedHosts.insert(host) }
+    }
+    private func isSiteAdded(_ host: String) -> Bool {
+        pages.contains { $0.kind == .site && $0.value == host }
+    }
     private func addManual() {
         if manualKind == .site { addSite(manualPage) }
         else if let key = FocusPageRule.pageKey(manualPage) { add(.init(kind: .page, value: key, title: URLComponents(string: key)?.host ?? "学习页面")) }
         else { validation = "仅此页面请填写完整 http / https 网址，也可选择“网站”后输入域名。" }
+    }
+}
+
+/// 已选白名单规则的胶囊标签：网站规则在前（绿色）、页面规则在后（陶色），点 × 移除。
+struct RuleChipsView: View {
+    let pages: [FocusPageRule]
+    var emptyHint: String
+    var onRemove: (FocusPageRule) -> Void
+    var body: some View {
+        if pages.isEmpty {
+            if !emptyHint.isEmpty {
+                Text(emptyHint).font(.system(size: 11)).foregroundStyle(Theme.secondary)
+            }
+        } else {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 260), spacing: 7, alignment: .leading)],
+                      alignment: .leading, spacing: 7) {
+                ForEach(pages) { rule in
+                    HStack(spacing: 5) {
+                        Image(systemName: rule.kind == .site ? "globe" : "doc.text")
+                            .font(.system(size: 9)).foregroundStyle(rule.kind == .site ? Theme.green : Theme.accent)
+                        Text(rule.kind == .site ? rule.value : rule.title)
+                            .lineLimit(1).font(.system(size: 11))
+                        Spacer(minLength: 2)
+                        Button {
+                            onRemove(rule)
+                        } label: { Image(systemName: "xmark") .font(.system(size: 8, weight: .semibold)) }
+                            .buttonStyle(.plain).foregroundStyle(Theme.secondary)
+                            .accessibilityLabel("移除白名单：\(rule.title)")
+                    }.padding(.horizontal, 9).padding(.vertical, 5)
+                        .background(rule.kind == .site ? Theme.greenSoft : Theme.accentSoft,
+                                    in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+    }
+}
+
+/// 单个网站的分组行：组头显示域名 + 全站勾选，展开后逐页勾选。
+struct TabGroupRow: View {
+    let group: FocusGuardSetupView.TabGroup
+    let expanded: Bool
+    let siteAdded: Bool
+    let selectedCount: Int
+    var onToggleExpand: () -> Void
+    var onAddSite: () -> Void
+    var onRemoveSite: () -> Void
+    var isPageAdded: (GuardPage) -> Bool
+    var addPage: (GuardPage) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: onToggleExpand) {
+                HStack(spacing: 8) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.secondary)
+                        .frame(width: 12)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(group.host).font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(siteAdded ? Theme.green : Theme.primary)
+                        Text("\(group.tabs.count) 个标签" + (selectedCount > 0 ? " · 已选 \(selectedCount) 页" : ""))
+                            .font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                    }
+                    Spacer()
+                    Button(action: siteAdded ? onRemoveSite : onAddSite) {
+                        HStack(spacing: 4) {
+                            Image(systemName: siteAdded ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 11))
+                            Text(siteAdded ? "整个网站" : "全选")
+                                .font(.system(size: 11, weight: siteAdded ? .semibold : .medium))
+                        }.foregroundStyle(siteAdded ? Theme.green : Theme.secondary)
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel(siteAdded ? "取消放行网站：\(group.host)" : "放行整个网站：\(group.host)")
+                }.padding(.vertical, 7).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            if expanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(group.tabs) { page in
+                        Button {
+                            if !isPageAdded(page) { addPage(page) }
+                        } label: {
+                            HStack(spacing: 7) {
+                                Image(systemName: isPageAdded(page) ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(isPageAdded(page) ? Theme.green : Theme.secondary)
+                                    .frame(width: 14)
+                                Text(page.title).lineLimit(1).font(.system(size: 11))
+                                Spacer()
+                            }.padding(.vertical, 4).contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                        .disabled(isPageAdded(page))
+                        .accessibilityLabel("仅放行页面：\(page.title)")
+                        if page.id != group.tabs.last?.id {
+                            Divider().opacity(0.5)
+                        }
+                    }
+                }.padding(.leading, 20).padding(.bottom, 6)
+            }
+        }.padding(.horizontal, 10)
+        .background(Theme.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border.opacity(0.4), lineWidth: 0.5))
     }
 }
 
@@ -281,52 +459,6 @@ final class FocusGuardSetupWindowController: NSWindowController, NSWindowDelegat
     func windowWillClose(_ notification: Notification) {
         state.guardSetupPresented = false
         onClosed?()
-    }
-}
-
-struct FocusGuardSettingsSection: View {
-    @ObservedObject var state: AppState
-    var body: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: 12) {
-                Label("专注守护 · Chrome", systemImage: "leaf.circle").font(.system(size: 14, weight: .semibold))
-                Toggle("开始每轮专注时选择本轮白名单", isOn: Binding(get: { state.settings.focusGuard.enabled }, set: { value in
-                    var settings = state.settings; settings.focusGuard.enabled = value; _ = state.updateSettings(settings)
-                })).font(.system(size: 12))
-                Toggle("自动沿用上轮目标与白名单", isOn: Binding(get: { state.settings.focusGuard.reuseLastPlan }, set: { value in
-                    var settings = state.settings
-                    settings.focusGuard.reuseLastPlan = value
-                    settings.focusGuard.rememberDraft(value ? state.guardController.plan : nil)
-                    _ = state.updateSettings(settings)
-                })).font(.system(size: 12))
-                if state.settings.focusGuard.hasLastPlan {
-                    Text("将沿用 \(state.settings.focusGuard.lastPages.count) 个页面规则、\(state.settings.focusGuard.lastAppIDs.count) 个 App。下轮直接开始并仅提醒；AI 关闭需在该轮单独开启。")
-                        .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                } else {
-                    Text("默认关闭，每轮重新选择。开启后保存一次名单，后续专注自动沿用；AI 关闭授权不沿用。")
-                        .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                }
-                secondsRow("离开白名单后提醒", key: \.remindAfterSeconds, range: 5...1800)
-                secondsRow("提醒后再等待", key: \.graceSeconds, range: 5...600)
-                Stepper("每轮最多 \(state.settings.focusGuard.maxChecks) 次 AI 判断", value: integerBinding(\.maxChecks, range: 1...5), in: 1...5)
-                    .font(.system(size: 12))
-                Text("平时零 AI 调用。只在本轮明确允许关闭、提醒后仍未返回时，由 AI 核对 Chrome；其他 App 只提醒。")
-                    .font(.system(size: 11)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-    private func secondsRow(_ title: String, key: WritableKeyPath<FocusGuardSettings, Int>, range: ClosedRange<Int>) -> some View {
-        HStack {
-            Text(title).font(.system(size: 12)); Spacer()
-            TextField("60", value: integerBinding(key, range: range), format: .number)
-                .textFieldStyle(.roundedBorder).frame(width: 55).accessibilityLabel(title + "秒数")
-            Text("秒").font(.system(size: 11)).foregroundStyle(Theme.secondary)
-        }
-    }
-    private func integerBinding(_ key: WritableKeyPath<FocusGuardSettings, Int>, range: ClosedRange<Int>) -> Binding<Int> {
-        Binding(get: { state.settings.focusGuard[keyPath: key] }, set: { value in
-            var settings = state.settings; settings.focusGuard[keyPath: key] = min(range.upperBound, max(range.lowerBound, value)); _ = state.updateSettings(settings)
-        })
     }
 }
 
