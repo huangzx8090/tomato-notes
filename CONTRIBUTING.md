@@ -7,19 +7,19 @@ main ────────────── 稳定发布、版本标签
   │                       ↑ 发布 PR
   └── develop ────────────┘ 日常集成
         │          ↑ 功能 PR
-        └── huangzx/feat-xxx
+        └── feat/xxx
 ```
 
 | 分支 | 用途 | 更新方式 |
 | --- | --- | --- |
 | `main` | 可发布的稳定代码，仓库默认分支 | 只接收 develop 的发布 PR |
 | `develop` | 最新集成开发代码 | 接收功能分支 PR；必要时接收 main 的同步 PR |
-| `huangzx/<类型>-<描述>` | 一项功能、修复或维护工作 | 从最新 origin/develop 创建，完成后 PR 到 develop |
+| `<类型>/<描述>` | 一项功能、修复或维护工作 | 从最新 origin/develop 创建，完成后 PR 到 develop |
 | `vX.Y.Z` 标签 | 固定发布快照 | 在已合入 main 的版本提交创建注释标签，不移动、不覆盖 |
 
-类型：`feat`、`fix`、`docs`、`chore`、`refactor`、`test`、`ci`、`release`、`hotfix`。描述使用简短小写英文与连字符；发布分支的版本可含点，例如 `huangzx/release-v1.3.3`。即使紧急修复也先进入 develop，再由 develop 发布到 main。
+类型：`feat`、`fix`、`docs`、`chore`、`refactor`、`test`、`ci`、`release`、`hotfix`。类型后用 `/` 连接描述，不加个人名前缀。描述使用简短小写英文与连字符；发布分支的版本可含点，例如 `release/v1.3.3`。即使紧急修复也先进入 develop，再由 develop 发布到 main。
 
-旧的 `feat/*` 和早期 `huangzx/*` 分支保留为历史，不作为新开发基线，也不为统一命名改写已合并记录。当前未执行历史分支删除。
+已有历史分支保留，不作为新开发基线，也不为统一命名改写已合并记录。当前未执行历史分支删除。
 
 ## 开始工作
 
@@ -34,16 +34,16 @@ Scripts/setup-dev.sh
 开始一项功能：
 
 ```bash
-Scripts/start-work.sh feat-progress-timeline
+Scripts/start-work.sh feat/progress-timeline
 ```
 
-脚本先检查命名与工作区，拉取最新 develop，再创建 `huangzx/feat-progress-timeline`。存在未提交内容或同名分支时停止，不丢弃任何内容。
+脚本先检查命名与工作区，拉取最新 develop，再创建 `feat/progress-timeline`。存在未提交内容或同名分支时停止，不丢弃任何内容。
 
 也可手动执行：
 
 ```bash
 git fetch origin develop
-git switch -c huangzx/fix-timer-display origin/develop
+git switch -c fix/timer-display origin/develop
 ```
 
 ## 完成开发
@@ -57,7 +57,7 @@ git switch -c huangzx/fix-timer-display origin/develop
 ```bash
 git add <本次文件>
 git commit -m '新增按时间线查看本轮进展'
-git push -u origin huangzx/feat-progress-timeline
+git push -u origin feat/progress-timeline
 ```
 
 不直接推送 main / develop，不自动合并 PR；同一会话中用户已经给出的合并授权仍有效，不重复索要。合并 develop → main 时保留合并关系，不 squash 或 rebase 长期分支。

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-branch="huangzx/${1:?用法：Scripts/start-work.sh feat-short-description}"
+branch="${1:?用法：Scripts/start-work.sh feat/short-description}"
 Scripts/check-branch-policy.sh develop "$branch"
 if [[ -n "$(git status --porcelain)" ]]; then
     printf '工作区有未提交内容，请先妥善保存，再创建新工作分支。\n' >&2

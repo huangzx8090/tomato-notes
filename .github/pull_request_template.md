@@ -4,7 +4,7 @@
 
 ## 分支
 
-- 功能 / 修复：`huangzx/<类型>-<描述>` → `develop`
+- 功能 / 修复：`<类型>/<描述>` → `develop`，例如 `feat/progress-timeline`、`fix/timer-display`
 - 发布：`develop` → `main`
 - 发布后回同步：`main` → `develop`
 
