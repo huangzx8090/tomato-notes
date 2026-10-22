@@ -1,41 +1,45 @@
 import AppKit
 import Foundation
 
+guard CommandLine.arguments.count == 2 else {
+    fputs("用法：swift Scripts/make-icon.swift <输出 iconset 目录>\n", stderr)
+    exit(1)
+}
+
+let sourceURL = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+    .appendingPathComponent("Packaging/AppIcon.png")
+guard let sourceImage = NSImage(contentsOf: sourceURL),
+      sourceImage.size.width > 0,
+      sourceImage.size.width == sourceImage.size.height else {
+    fputs("无法读取正方形图标原图：\(sourceURL.path)\n", stderr)
+    exit(1)
+}
+
 let destination = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
 try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
 
 func render(_ pixels: Int, name: String) throws {
     let side = CGFloat(pixels)
+    let canvas = NSRect(x: 0, y: 0, width: side, height: side)
     let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
                                   isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
     NSGraphicsContext.saveGraphicsState()
-    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-    NSColor(srgbRed: 0.965, green: 0.949, blue: 0.917, alpha: 1).setFill()
-    NSBezierPath(roundedRect: NSRect(x: side * 0.07, y: side * 0.07, width: side * 0.86, height: side * 0.86),
-                 xRadius: side * 0.20, yRadius: side * 0.20).fill()
-    NSColor(srgbRed: 0.659, green: 0.275, blue: 0.196, alpha: 1).setFill()
-    NSBezierPath(ovalIn: NSRect(x: side * 0.23, y: side * 0.20, width: side * 0.54, height: side * 0.55)).fill()
-    NSColor(srgbRed: 0.322, green: 0.439, blue: 0.365, alpha: 1).setFill()
-    let leaf = NSBezierPath()
-    leaf.move(to: NSPoint(x: side * 0.49, y: side * 0.69))
-    leaf.curve(to: NSPoint(x: side * 0.68, y: side * 0.81),
-               controlPoint1: NSPoint(x: side * 0.47, y: side * 0.83),
-               controlPoint2: NSPoint(x: side * 0.59, y: side * 0.83))
-    leaf.curve(to: NSPoint(x: side * 0.49, y: side * 0.69),
-               controlPoint1: NSPoint(x: side * 0.67, y: side * 0.69),
-               controlPoint2: NSPoint(x: side * 0.58, y: side * 0.66))
-    leaf.fill()
-    NSColor(srgbRed: 1, green: 0.988, blue: 0.965, alpha: 1).setStroke()
-    let hands = NSBezierPath()
-    hands.lineWidth = side * 0.035
-    hands.lineCapStyle = .round
-    hands.move(to: NSPoint(x: side * 0.50, y: side * 0.62))
-    hands.line(to: NSPoint(x: side * 0.50, y: side * 0.47))
-    hands.line(to: NSPoint(x: side * 0.61, y: side * 0.40))
-    hands.stroke()
-    NSGraphicsContext.restoreGraphicsState()
-    try bitmap.representation(using: .png, properties: [:])!.write(to: destination.appendingPathComponent(name))
+    defer { NSGraphicsContext.restoreGraphicsState() }
+    let context = NSGraphicsContext(bitmapImageRep: bitmap)!
+    NSGraphicsContext.current = context
+    context.imageInterpolation = .high
+    context.cgContext.clear(canvas)
+
+    // 原图保留完整材质，统一裁出圆角与透明边距，避免抠图杂点进入各尺寸图标。
+    let iconBounds = canvas.insetBy(dx: side * 0.07, dy: side * 0.07)
+    NSBezierPath(roundedRect: iconBounds, xRadius: side * 0.20, yRadius: side * 0.20).addClip()
+    sourceImage.draw(in: iconBounds, from: .zero, operation: .copy, fraction: 1)
+
+    try bitmap.representation(using: .png, properties: [:])!
+        .write(to: destination.appendingPathComponent(name), options: .atomic)
 }
 
 for size in [16, 32, 128, 256, 512] {
