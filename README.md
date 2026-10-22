@@ -104,7 +104,7 @@
 
 **不需要辅助功能、输入监控或完全磁盘访问。** 主动选择图片通过系统文件选择器完成，不需要照片图库权限。Chrome 无需安装插件，也无需开启“允许来自 Apple 事件的 JavaScript”。
 
-授权入口、升级后重新授权、费用、备份恢复与常见问题请看 **[完整使用指南与权限](docs/使用指南与权限.md)**；安装包内也附有离线 `安装说明.txt`。
+授权入口、升级后重新授权、费用、备份恢复与常见问题请看 **[完整使用指南与权限](docs/使用指南与权限.md)**；下载页附有离线 `INSTALL.txt`，DMG 内为“安装说明.txt”。
 
 ## 快捷键
 
@@ -151,7 +151,7 @@ open 'build/番茄小记.app'
 Scripts/build-app.sh release --universal
 
 # DMG、ZIP、安装说明与校验文件；标签必须匹配 Info.plist
-Scripts/package-release.sh v1.3.1
+Scripts/package-release.sh v1.3.2
 
 # 独立验证包和资料，不接触正式数据
 Scripts/build-app.sh release --qa
@@ -164,9 +164,15 @@ Scripts/check-integration.sh
 
 `--guard-qa` 生成专注守护验证包；验证包 Bundle ID 与默认数据目录独立。构建会整体替换应用包，已运行的进程需要正常退出重开后才使用新代码。
 
+### 开发分支
+
+`main` 保持稳定，`develop` 集成开发；功能分支命名为 `huangzx/<类型>-<描述>`，通过 PR 进入 develop，发布时再由 develop PR 到 main。参见 [开发与分支约定](CONTRIBUTING.md)。首次克隆执行 `Scripts/setup-dev.sh` 开启本地推送拦截。
+
+当前私有仓库的 GitHub 分支保护受账号计划限制，CI 与本地 hook **不能替代服务端保护**。
+
 ### Actions 与发布
 
-- [macOS CI](https://github.com/huangzx8090/tools-program/actions/workflows/ci.yml)：PR、主分支推送和手动运行，执行测试、Universal 打包与完整性校验，安装包暂存 7 天。
+- [macOS CI](https://github.com/huangzx8090/tools-program/actions/workflows/ci.yml)：PR、main / develop 推送和手动运行，执行测试、Universal 打包与完整性校验，安装包暂存 7 天。
 - [发布 macOS 应用](https://github.com/huangzx8090/tools-program/actions/workflows/release.yml)：推送 `vX.Y.Z` 标签，检查版本与主分支归属，重新测试和打包，先创建草稿、上传全部附件，再正式发布。
 - 测试使用模拟 AI 响应，**不需要在 Actions 填写 DeepSeek Key**。发布使用仓库自动提供的 `GITHUB_TOKEN`；只有上传 Release 的 job 获得 `contents: write`。
 - 后续发版步骤、工具链选择、失败重跑和签名限制见 [发布流程](docs/发布流程.md)。

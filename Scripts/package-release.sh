@@ -38,10 +38,10 @@ cp Packaging/安装说明.txt "$staging/dmg/安装说明.txt"
 hdiutil create -volname "番茄小记 $version" -srcfolder "$staging/dmg" \
     -format UDZO -ov "$output/$asset.dmg"
 hdiutil verify "$output/$asset.dmg"
-cp Packaging/安装说明.txt "$output/安装说明.txt"
+cp Packaging/安装说明.txt "$output/INSTALL.txt"
 (
     cd "$output"
-    shasum -a 256 "$asset.dmg" "$asset.zip" 安装说明.txt > SHA256SUMS.txt
+    shasum -a 256 "$asset.dmg" "$asset.zip" INSTALL.txt > SHA256SUMS.txt
     shasum -a 256 -c SHA256SUMS.txt
 )
 printf '\n发布文件：%s\n' "$output"

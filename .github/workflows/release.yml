@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 已存在并已合入 main 的版本标签，例如 v1.3.1
+        description: 已存在并已合入 main 的版本标签，例如 v1.3.2
         required: true
         type: string
 
@@ -83,6 +83,14 @@ jobs:
               --title "番茄小记 $RELEASE_TAG" \
               --notes-file ../../release-notes.md
           fi
-          gh release upload "$RELEASE_TAG" ./*.dmg ./*.zip SHA256SUMS.txt 安装说明.txt --clobber
+          gh release upload "$RELEASE_TAG" ./*.dmg ./*.zip SHA256SUMS.txt INSTALL.txt --clobber
+          expected_assets="$(printf '%s\n' INSTALL.txt SHA256SUMS.txt \
+            "TomatoNotes-$RELEASE_TAG-macOS-universal.dmg" \
+            "TomatoNotes-$RELEASE_TAG-macOS-universal.zip" | sort)"
+          actual_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '[.assets[].name] | sort | .[]')"
+          if [ "$actual_assets" != "$expected_assets" ]; then
+            echo '服务器上的附件名与校验清单不一致，保留草稿供排查。' >&2
+            exit 1
+          fi
           gh release edit "$RELEASE_TAG" --draft=false --latest \
             --notes-file ../../release-notes.md

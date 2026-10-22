@@ -2,9 +2,9 @@ name: macOS CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
 
 permissions:
@@ -15,8 +15,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  branch-policy:
+    name: 分支约定
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 检出规则
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: 检查 PR 来源与目标
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: Scripts/check-branch-policy.sh "$BASE_REF" "$HEAD_REF"
+
   test-and-package:
     name: 测试与双架构打包
+    needs: branch-policy
     runs-on: macos-15
     timeout-minutes: 30
     env:

@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+# pre-push 输入由 Git 提供；只拦截推送目标，不读取或输出远端认证地址。
+while read -r local_ref local_sha remote_ref remote_sha; do
+    case "$remote_ref" in
+        refs/heads/main|refs/heads/develop)
+            printf '禁止从本地直接推送 %s，请推送 huangzx/ 功能分支并创建 PR。\n' "${remote_ref#refs/heads/}" >&2
+            exit 1
+            ;;
+    esac
+done
