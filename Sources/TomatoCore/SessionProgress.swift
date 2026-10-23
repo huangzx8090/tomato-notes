@@ -22,7 +22,9 @@ public struct SessionProgress: Sendable {
         let todos = data.todos.filter { todo in
             guard record?.excludedActivityKeys?.contains("todoCompleted|\(todo.id.uuidString)") != true else { return false }
             guard let completed = todo.completedAt else { return false }
-            return intervals.contains { completed >= $0.startedAt && completed <= $0.endedAt }
+            guard day == nil || todo.completionDay == day else { return false }
+            // 相邻轮次或午夜分段共用边界时，完成事件只归入随后开始的分段。
+            return intervals.contains { completed >= $0.startedAt && completed < $0.endedAt }
         }.sorted { ($0.completedAt ?? .distantPast) < ($1.completedAt ?? .distantPast) }
         let usage = data.usage.filter { $0.sessionID == sessionID && $0.kind == .app && (day == nil || $0.localDay == day) }
         let groups = Dictionary(grouping: usage, by: { $0.bundleID ?? "unknown" })

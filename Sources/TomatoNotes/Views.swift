@@ -9,11 +9,15 @@ struct MainPanel: View {
     var continueNote: (UUID) -> Void
     var deleteNote: (UUID) -> Void
     var openWork: (WorkScope) -> Void
+    var openHistorySearch: () -> Void
+    var openFocusHeatmap: () -> Void
     var testReminder: () -> Void
     var requestNotifications: () -> Void
     var panelHeight: CGFloat = 660
     @ViewState private var tab: PanelTab = .focus
     @ViewState private var todoDraft = ""
+    @ViewState private var todayDate = Date()
+    @ViewState private var highlightedTodoID: UUID?
     @ViewState private var showsNoteHistory = false
     @ViewState private var settingsPage: SettingsPage = .overview
     @ViewState private var settingsHaveUnsavedChanges = false
@@ -45,10 +49,16 @@ struct MainPanel: View {
                             switch tab {
                             case .focus: focus
                             case .todos:
-                                TodoPage(todos: state.summary(for: state.todayKey).todos, day: state.todayKey,
+                                TodoPage(todos: state.data.todos.filter { $0.effectiveScheduledDay == state.todayKey },
+                                         allTodos: state.data.todos, day: state.todayKey,
                                          draft: $todoDraft, addTodo: state.addTodo, toggleTodo: state.toggleTodo,
-                                         updateTodo: state.updateTodo, deleteTodo: state.deleteTodo)
-                            case .today: TodayView(state: state, startFocus: { tab = .focus }, openWork: openWork)
+                                         updateTodo: state.updateTodo, deleteTodo: state.deleteTodo,
+                                         scheduleCarryover: { _ = state.scheduleTodosForToday($0) },
+                                         undoCarryover: state.undoTodoSchedule)
+                            case .today:
+                                TodayView(state: state, selectedDate: $todayDate, highlightedTodoID: $highlightedTodoID,
+                                          startFocus: { tab = .focus }, openWork: openWork,
+                                          openHistorySearch: openHistorySearch, openFocusHeatmap: openFocusHeatmap)
                             case .notes:
                                 NotesListView(notes: state.data.notes, today: state.todayKey,
                                               showsHistory: $showsNoteHistory, createNote: createNote,
@@ -99,6 +109,12 @@ struct MainPanel: View {
             navigate(to: .settings, settings: .overview)
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("TomatoNotes.showFocus"))) { _ in navigate(to: .focus) }
+        .onChange(of: state.historyNavigationRequest) { _, request in
+            guard let request, let date = LocalTime.date(forDayKey: request.day) else { return }
+            highlightedTodoID = request.todoID
+            todayDate = date
+            navigate(to: .today)
+        }
         .confirmationDialog("还有未保存的修改", isPresented: $showingDiscardSettings, titleVisibility: .visible) {
             Button("放弃修改并离开", role: .destructive) {
                 settingsHaveUnsavedChanges = false
@@ -221,15 +237,29 @@ private struct MetricView: View {
 
 private struct TodayView: View {
     @ObservedObject var state: AppState
+    @Binding var selectedDate: Date
+    @Binding var highlightedTodoID: UUID?
     var startFocus: () -> Void
     var openWork: (WorkScope) -> Void
-    @ViewState private var selectedDate = Date()
+    var openHistorySearch: () -> Void
+    var openFocusHeatmap: () -> Void
     @ViewState private var showAllApps = false
 
     var body: some View {
         let day = LocalTime.dayKey(selectedDate)
         let summary = state.summary(for: day)
         VStack(alignment: .leading, spacing: 18) {
+            FocusHeatmapCompactView(
+                state: state,
+                selectedDay: day,
+                onSelectDay: { selected in
+                    if let date = LocalTime.date(forDayKey: selected) {
+                        selectedDate = date
+                        highlightedTodoID = nil
+                    }
+                },
+                onShowAll: openFocusHeatmap
+            )
             HStack {
                 Button { moveDay(-1) } label: {
                     Image(systemName: "chevron.left").frame(width: 24, height: 26).contentShape(Rectangle())
@@ -238,6 +268,9 @@ private struct TodayView: View {
                 Text(selectedDate, format: .dateTime.month().day().weekday(.wide))
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
+                Button(action: openHistorySearch) {
+                    Image(systemName: "magnifyingglass").frame(width: 24, height: 26).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel("搜索历史").help("搜索历史记录")
                 Button { moveDay(1) } label: {
                     Image(systemName: "chevron.right").frame(width: 24, height: 26).contentShape(Rectangle())
                 }.accessibilityLabel("后一天").help(Calendar.current.isDateInToday(selectedDate) ? "今天已是最近日期" : "查看后一天")
@@ -331,14 +364,26 @@ private struct TodayView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("当天待办").font(.system(size: 14, weight: .semibold))
                         ForEach(summary.todos) { todo in
-                            HStack(alignment: .top, spacing: 8) {
-                                Text(todo.text).strikethrough(todo.isCompleted)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(todo.isCompleted ? Theme.green : Theme.secondary)
-                            }.font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                            let status = todo.completionDay.map { $0 == day ? "当日完成" : "于 \($0) 完成" }
+                                ?? (todo.effectiveScheduledDay > day ? "后续已结转到 \(todo.effectiveScheduledDay)" : "当日未完成")
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack(alignment: .top, spacing: 8) {
+                                    Text(todo.text).strikethrough(todo.completionDay == day)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Image(systemName: todo.completionDay == day ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(todo.completionDay == day ? Theme.green : Theme.secondary)
+                                }
+                                Text("原始日期 \(todo.localDay) · \(status)")
+                                    .font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                            }
+                            .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                            .padding(8)
+                            .background(todo.id == highlightedTodoID ? Theme.accentSoft : .clear,
+                                        in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8)
+                                .stroke(todo.id == highlightedTodoID ? Theme.accent.opacity(0.8) : .clear, lineWidth: 1.2))
                         }
-                        Text("历史日期只读，待办不会自动结转。")
+                        Text("保留当天安排；结转和完成日期会单独标注。")
                             .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                     }
                 }
@@ -350,6 +395,7 @@ private struct TodayView: View {
         if let date = Calendar.current.date(byAdding: .day, value: amount, to: selectedDate) {
             selectedDate = date
             showAllApps = false
+            highlightedTodoID = nil
         }
     }
 

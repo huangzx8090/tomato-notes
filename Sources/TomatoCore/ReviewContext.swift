@@ -58,8 +58,28 @@ public enum ReviewContextBuilder {
             facts["日期"] = day
             facts["实际专注秒数"] = Int(summary.focusSeconds.rounded())
             facts["完整番茄轮数"] = summary.completedSessions
-            facts["完成的待办"] = useTodoFacts ? summary.completedTodos.filter { !excludedKeys.contains("todoCompleted|\($0.id.uuidString)") }.map(\.text) : []
-            facts["尚未完成的待办"] = useTodoFacts ? summary.todos.filter { !$0.isCompleted && !excludedKeys.contains("todoCompleted|\($0.id.uuidString)") }.map(\.text) : []
+            let visibleTodos = useTodoFacts ? summary.todos.filter {
+                !excludedKeys.contains("todoCompleted|\($0.id.uuidString)")
+            } : []
+            facts["完成的待办"] = visibleTodos.filter { $0.completionDay == day }.map(\.text)
+            facts["当天安排的待办"] = visibleTodos.map { todo -> [String: String] in
+                let status: String
+                if todo.completionDay == day {
+                    status = "当日完成"
+                } else if let completionDay = todo.completionDay, completionDay > day {
+                    status = "当时未完成，后续于 \(completionDay) 完成"
+                } else if todo.effectiveScheduledDay > day {
+                    status = "当时未完成，后续结转到 \(todo.effectiveScheduledDay)"
+                } else if todo.isCompleted {
+                    status = "此前已完成"
+                } else {
+                    status = "尚未完成"
+                }
+                return ["文字": todo.text, "状态": status]
+            }
+            facts["尚未完成的待办"] = visibleTodos.filter {
+                $0.completionDay.map { $0 > day } ?? true
+            }.map(\.text)
             facts["专注期间前台App"] = useAppFacts ? appFacts(data.usage.filter { $0.localDay == day }) : []
             facts["已记录的活动与材料（仅说明可观察到的操作）"] = activityFacts(activities.filter { $0.localDay == day })
             let dayIDs = Set(data.intervals.filter { $0.localDay == day }.map(\.sessionID))

@@ -43,6 +43,7 @@ struct ReviewTests {
         var data = AppData()
         var completed = TodoItem(text: "已做完", localDay: "2026-10-21")
         completed.completedAt = Date()
+        completed.completedLocalDay = "2026-10-21"
         data.todos = [completed, TodoItem(text: "还没做", localDay: "2026-10-21"), TodoItem(text: "昨天私有内容", localDay: "2026-10-20")]
         var today = WorkRecord(localDay: "2026-10-21", sessionID: UUID())
         today.userText = "今天的工作"
@@ -58,13 +59,13 @@ struct ReviewTests {
         #expect(context.images.isEmpty)
     }
 
-    @Test func schemaOneUpgradesWithBackupAndKeepsNewFieldsOnRoundTrip() throws {
+    @Test func schemaThreeUpgradesWithBackupAndKeepsNewFieldsOnRoundTrip() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let repository = LocalRepository(fileURL: root.appendingPathComponent("data.json"))
         var legacy = AppData()
-        legacy.schemaVersion = 1
+        legacy.schemaVersion = 3
         legacy.todos = [TodoItem(text: "旧版用户内容", localDay: "2026-10-21")]
         var json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(legacy)) as? [String: Any])
         json.removeValue(forKey: "workRecords")
@@ -74,7 +75,7 @@ struct ReviewTests {
         #expect(loaded.schemaVersion == AppData.currentSchemaVersion)
         #expect(loaded.todos[0].text == "旧版用户内容")
         #expect(loaded.workRecords.isEmpty)
-        let backups = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("Backups/schema-v1"), includingPropertiesForKeys: nil)
+        let backups = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("Backups/schema-v3"), includingPropertiesForKeys: nil)
         #expect(try Data(contentsOf: #require(backups.first)) == original)
         loaded.workRecords = [WorkRecord(localDay: "2026-10-21")]
         loaded.lastReviewAttemptDay = "2026-10-21"

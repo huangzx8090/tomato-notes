@@ -5,7 +5,8 @@ import Testing
 struct TodoDeletionHistoryTests {
     @Test func deletionOnlyAllowsTheRequestedDayAndDoesNotTouchOtherItems() {
         let yesterday = TodoItem(text: "昨日记录", localDay: "2026-10-21")
-        let today = TodoItem(text: "今天的待办", localDay: "2026-10-22")
+        var today = TodoItem(text: "今天的待办", localDay: "2026-10-21")
+        today.scheduledDays.append("2026-10-22")
         var todos = [yesterday, today]
         var history = TodoDeletionHistory()
         let removedYesterday = history.remove(yesterday.id, on: "2026-10-22", from: &todos)
@@ -18,15 +19,17 @@ struct TodoDeletionHistoryTests {
         #expect(history.lastDeleted?.id == today.id)
     }
 
-    @Test func undoPreservesCompletedRecordAndOriginalOrderAfterAddingAnotherTodo() throws {
+    @Test func undoPreservesCompletionAndScheduleHistoryAfterAddingAnotherTodo() throws {
         let before = TodoItem(text: "第一项", localDay: "2026-10-22")
         var completed = TodoItem(text: "完成的成果", localDay: "2026-10-22", createdAt: Date(timeIntervalSince1970: 100))
         completed.completedAt = Date(timeIntervalSince1970: 200)
+        completed.completedLocalDay = "2026-10-22"
+        completed.scheduledDays.append("2026-10-23")
         let after = TodoItem(text: "第三项", localDay: "2026-10-22")
         let added = TodoItem(text: "新加的待办", localDay: "2026-10-23")
         var todos = [before, completed, after]
         var history = TodoDeletionHistory()
-        history.remove(completed.id, on: "2026-10-22", from: &todos)
+        history.remove(completed.id, on: "2026-10-23", from: &todos)
         todos.append(added)
         let restoredItem = history.restoreLast(in: &todos)
         let restored = try #require(restoredItem)
