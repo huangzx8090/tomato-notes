@@ -28,6 +28,7 @@ let package = Package(
             ]
         ),
         .testTarget(name: "TomatoCoreTests", dependencies: ["TomatoCore"]),
+        .testTarget(name: "TomatoNotesTests", dependencies: ["TomatoNotes"]),
         .testTarget(name: "TomatoSystemTests", dependencies: ["TomatoCore", "TomatoSystem"])
     ],
     swiftLanguageModes: [.v5]

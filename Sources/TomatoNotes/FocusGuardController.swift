@@ -18,16 +18,38 @@ final class FocusGuardController: ObservableObject {
     private var usageSessionID: UUID?
     var currentSnapshot: (() -> (TimerSnapshot, Bool, FocusGuardSettings))?
     var onNotice: ((String, String, (() -> Void)?) -> Void)?
-    private let browser = ChromeBrowser()
+    private let browser: ChromeBrowser
     private var ai = AIReviewClient(provider: AIProviderCatalog.deepseek)
-    private let credentials = AIProviderCredentials()
+    private let keyReader: @MainActor (String) throws -> String?
+    private let capturePage: @MainActor (GuardPage) async throws -> Data
+    private let frontPage: @MainActor () async throws -> GuardPage
+    private let assessPage: @MainActor (AIReviewClient, String, GuardPage, Data, String) async throws -> FocusAssessment
+    private let closePage: @MainActor (GuardPage) async throws -> Bool
     /// 当前生效的 AI 配置，由 AppState 在设置变更时同步。
     private(set) var aiProvider = AIProviderCatalog.deepseek
 
+    init(keyReader: @escaping @MainActor (String) throws -> String? = { try AIProviderCredentials().read(providerID: $0) },
+         capturePage: @escaping @MainActor (GuardPage) async throws -> Data = { try await FocusPageCapture.image(for: $0) },
+         frontPage: (@MainActor () async throws -> GuardPage)? = nil,
+         assessPage: @escaping @MainActor (AIReviewClient, String, GuardPage, Data, String) async throws -> FocusAssessment = {
+             try await $0.assessFocus(goal: $1, page: $2, image: $3, apiKey: $4)
+         },
+         closePage: (@MainActor (GuardPage) async throws -> Bool)? = nil) {
+        let browser = ChromeBrowser()
+        self.browser = browser
+        self.keyReader = keyReader
+        self.capturePage = capturePage
+        self.frontPage = frontPage ?? { try await browser.frontPage() }
+        self.assessPage = assessPage
+        self.closePage = closePage ?? { try await browser.closeIfUnchanged($0) }
+    }
+
     func updateAIProvider(_ config: AIProviderConfig) {
         guard config != aiProvider else { return }
+        stop()
         aiProvider = config
         ai = AIReviewClient(provider: config)
+        if plan != nil { status = "AI 配置已修改，本次判断已取消，停留时间重新计算" }
     }
     private var monitor = GuardDwellMonitor()
     private var lastPoll: Double = 0
@@ -84,16 +106,26 @@ final class FocusGuardController: ObservableObject {
     }
 
     func loadTabs() {
-        guard !loadingTabs else { return }
+        Task { _ = try? await readTabsForRecommendation() }
+    }
+
+    func readTabsForRecommendation() async throws -> [GuardPage] {
+        guard !loadingTabs else { throw ChromeBrowserError.unavailable }
         loadingTabs = true
-        Task {
-            defer { loadingTabs = false }
-            do {
-                try await browser.requestAccess()
-                availableTabs = try await browser.currentWindowTabs()
-                chromeReady = true
-                permissionStatus = "已连接 Chrome；读取当前普通窗口的 \(availableTabs.count) 个标签"
-            } catch { permissionStatus = error.localizedDescription; chromeReady = false }
+        defer { loadingTabs = false }
+        do {
+            try await browser.requestAccess()
+            let tabs = try await browser.allWindowTabs()
+            try Task.checkCancellation()
+            availableTabs = tabs
+            chromeReady = true
+            permissionStatus = "已连接 Chrome；读取所有普通窗口的 \(tabs.count) 个标签"
+            return tabs
+        } catch {
+            availableTabs = []
+            permissionStatus = error.localizedDescription
+            chromeReady = false
+            throw error
         }
     }
 
@@ -192,23 +224,33 @@ final class FocusGuardController: ObservableObject {
         return sessionID == round && settings.enabled && timer.sessionID == round && timer.stage == .focus && timer.phase == .running && !locked
     }
 
-    private func assess(_ page: GuardPage, round: UUID, plan: FocusGuardPlan) {
-        guard !assessing, let (_, _, settings) = currentSnapshot?(), checks < max(1, min(5, settings.maxChecks)) else { return }
+    private func isCurrentAssessment(_ round: UUID, token: UUID, provider: AIProviderConfig) -> Bool {
+        isActive(round) && !Task.isCancelled && generation == token && aiProvider == provider && ai.provider == provider
+    }
+
+    @discardableResult
+    func assess(_ page: GuardPage, round: UUID, plan: FocusGuardPlan) -> Task<Void, Never>? {
+        guard !assessing, let (_, _, settings) = currentSnapshot?(), checks < max(1, min(5, settings.maxChecks)) else { return nil }
         assessing = true
         status = "关闭前由 AI 核对当前 Chrome 页面…"
         let token = generation
+        // 客户端和凭据必须属于同一份配置；等待截图后不能改用新的服务商地址。
+        let client = ai
+        let provider = client.provider
         assessment = Task { [weak self] in
             guard let self else { return }
             defer { if self.generation == token { self.assessing = false; self.assessment = nil } }
             do {
-                guard let key = try self.credentials.read(providerID: self.aiProvider.id) else { throw AIReviewError.missingKey }
-                let image = try await FocusPageCapture.image(for: page)
-                guard try await self.browser.frontPage() == page, self.isActive(round), !Task.isCancelled,
-                      self.generation == token else { return }
+                guard self.isCurrentAssessment(round, token: token, provider: provider) else { return }
+                guard let key = try self.keyReader(provider.id) else { throw AIReviewError.missingKey }
+                let image = try await self.capturePage(page)
+                guard self.isCurrentAssessment(round, token: token, provider: provider) else { return }
+                let current = try await self.frontPage()
+                guard current == page, self.isCurrentAssessment(round, token: token, provider: provider) else { return }
                 self.checks += 1
                 self.trace("requesting")
-                let result = try await self.ai.assessFocus(goal: plan.goal, page: page, image: image, apiKey: key)
-                guard self.isActive(round), !Task.isCancelled, self.generation == token else { return }
+                let result = try await self.assessPage(client, plan.goal, page, image, key)
+                guard self.isCurrentAssessment(round, token: token, provider: provider) else { return }
                 self.inputTokens += max(0, result.inputTokens)
                 self.outputTokens += max(0, result.outputTokens)
                 self.ignoredPages.insert(page.id)
@@ -216,7 +258,8 @@ final class FocusGuardController: ObservableObject {
                 if result.relevance.permitsClosing {
                     guard self.plan?.allows(appID: "com.google.Chrome", url: page.url) == false,
                           self.plan?.allowAIClosing == true else { return }
-                    _ = try await self.browser.closeIfUnchanged(page)
+                    _ = try await self.closePage(page)
+                    guard self.isCurrentAssessment(round, token: token, provider: provider) else { return }
                     self.trace("closed")
                     self.status = "已关闭无关标签：\(result.relevance.reason)"
                     self.onNotice?("已收起无关页面", result.relevance.reason, nil)
@@ -226,7 +269,7 @@ final class FocusGuardController: ObservableObject {
                     self.onNotice?(result.relevance.verdict == .related ? "这个页面可以继续学习" : "AI 无法确认，已保留页面", result.relevance.reason, nil)
                 }
             } catch {
-                guard self.isActive(round), !Task.isCancelled, self.generation == token else { return }
+                guard self.isCurrentAssessment(round, token: token, provider: provider) else { return }
                 self.ignoredPages.insert(page.id)
                 self.trace("failed")
                 self.status = error.localizedDescription
@@ -234,6 +277,7 @@ final class FocusGuardController: ObservableObject {
                 self.onNotice?("本次检查未能完成", error.localizedDescription, nil)
             }
         }
+        return assessment
     }
 
     private func trace(_ stage: String) {

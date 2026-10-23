@@ -18,7 +18,9 @@ public struct DailySummary {
     public let disabledSeconds: Double
     public let sessions: [FocusSession]
 
-    public var completedTodos: [TodoItem] { todos.filter(\.isCompleted) }
+    public var completedTodos: [TodoItem] {
+        todos.filter { $0.isCompleted && $0.completionDay == day }
+    }
 
     public var sentence: String {
         guard focusSeconds > 0 || !todos.isEmpty else { return "今天的记录会从第一轮专注开始。" }
@@ -50,7 +52,7 @@ public struct DailySummary {
         }.sorted { $0.startedAt > $1.startedAt }
         return DailySummary(
             day: day, focusSeconds: focus, completedSessions: completed, earlySessions: early,
-            todos: data.todos.filter { $0.localDay == day }.sorted { $0.createdAt < $1.createdAt },
+            todos: data.todos.filter { $0.isScheduled(on: day) }.sorted { $0.createdAt < $1.createdAt },
             apps: apps,
             unattributedSeconds: usage.filter { $0.kind == .unattributed }.reduce(0) { $0 + $1.seconds },
             disabledSeconds: usage.filter { $0.kind == .disabled }.reduce(0) { $0 + $1.seconds },

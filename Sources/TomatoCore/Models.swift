@@ -55,6 +55,7 @@ public struct AppSettings: Codable, Sendable {
     public var focusGuard = FocusGuardSettings()
     public var review = ReviewSettings()
     public var ai = AISettings()
+    public var activityRecording = ActivityRecordingSettings()
     public var timerHotkey = Hotkey(letter: "P")
     public var todoHotkey = Hotkey(letter: "T")
     public var noteHotkey = Hotkey(letter: "N")
@@ -64,7 +65,7 @@ public struct AppSettings: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakEvery
         case soundEnabled, notificationsEnabled, recordingEnabled, allowClamshellWithExternalDisplay
-        case showDockIcon, glassControlsEnabled, appearance, focusGuard, review, ai
+        case showDockIcon, glassControlsEnabled, appearance, focusGuard, review, ai, activityRecording
         case timerHotkey, todoHotkey, noteHotkey
     }
 
@@ -84,6 +85,7 @@ public struct AppSettings: Codable, Sendable {
         focusGuard = try values.decodeIfPresent(FocusGuardSettings.self, forKey: .focusGuard) ?? FocusGuardSettings()
         review = try values.decodeIfPresent(ReviewSettings.self, forKey: .review) ?? ReviewSettings()
         ai = try values.decodeIfPresent(AISettings.self, forKey: .ai) ?? AISettings()
+        activityRecording = try values.decodeIfPresent(ActivityRecordingSettings.self, forKey: .activityRecording) ?? ActivityRecordingSettings()
         timerHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .timerHotkey) ?? Hotkey(letter: "P")
         todoHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .todoHotkey) ?? Hotkey(letter: "T")
         noteHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .noteHotkey) ?? Hotkey(letter: "N")
@@ -183,13 +185,52 @@ public struct TodoItem: Codable, Identifiable, Sendable {
     public var localDay: String
     public var createdAt = Date()
     public var completedAt: Date? = nil
+    /// 每次安排保留一个日期；旧资料解码时回退为原始所属日。
+    public var scheduledDays: [String]
+    /// 记录完成时的本地日期，避免以后切换时区改写历史统计。
+    public var completedLocalDay: String? = nil
 
     public var isCompleted: Bool { completedAt != nil }
+    public var effectiveScheduledDay: String { scheduledDays.max() ?? localDay }
+    public var completionDay: String? {
+        guard let completedAt else { return nil }
+        return completedLocalDay ?? LocalTime.dayKey(completedAt)
+    }
 
-    public init(text: String, localDay: String, createdAt: Date = Date()) {
+    public func isScheduled(on day: String) -> Bool {
+        (scheduledDays.isEmpty ? [localDay] : scheduledDays).contains(day)
+    }
+
+    public init(text: String, localDay: String, createdAt: Date = Date(), id: UUID = UUID()) {
+        self.id = id
         self.text = text
         self.localDay = localDay
         self.createdAt = createdAt
+        self.scheduledDays = [localDay]
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, text, localDay, createdAt, completedAt, scheduledDays, completedLocalDay
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        text = try values.decode(String.self, forKey: .text)
+        localDay = try values.decode(String.self, forKey: .localDay)
+        createdAt = try values.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        completedAt = try values.decodeIfPresent(Date.self, forKey: .completedAt)
+        let decodedDays = try values.decodeIfPresent([String].self, forKey: .scheduledDays) ?? [localDay]
+        var uniqueDays: [String] = []
+        for day in decodedDays where !day.isEmpty && !uniqueDays.contains(day) { uniqueDays.append(day) }
+        if !uniqueDays.contains(localDay) { uniqueDays.insert(localDay, at: 0) }
+        scheduledDays = uniqueDays
+        if completedAt == nil {
+            completedLocalDay = nil
+        } else {
+            completedLocalDay = try values.decodeIfPresent(String.self, forKey: .completedLocalDay)
+                ?? completedAt.map { LocalTime.dayKey($0) }
+        }
     }
 }
 
@@ -225,7 +266,8 @@ public struct StickyNote: Codable, Identifiable, Sendable {
 }
 
 public struct AppData: Codable, Sendable {
-    public static let currentSchemaVersion = 3
+    // v4 为同期新增的本地记录字段共用迁移版本。
+    public static let currentSchemaVersion = 4
     public var schemaVersion = currentSchemaVersion
     public var settings = AppSettings()
     public var timer = TimerSnapshot()
@@ -235,13 +277,14 @@ public struct AppData: Codable, Sendable {
     public var todos: [TodoItem] = []
     public var notes: [StickyNote] = []
     public var workRecords: [WorkRecord] = []
+    public var focusActivities: [FocusActivity] = []
     public var lastReviewAttemptDay: String?
     public var lastReviewError: String?
 
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, settings, timer, sessions, intervals, usage, todos, notes, workRecords, lastReviewAttemptDay, lastReviewError
+        case schemaVersion, settings, timer, sessions, intervals, usage, todos, notes, workRecords, focusActivities, lastReviewAttemptDay, lastReviewError
     }
 
     public init(from decoder: Decoder) throws {
@@ -255,6 +298,7 @@ public struct AppData: Codable, Sendable {
         todos = try values.decode([TodoItem].self, forKey: .todos)
         notes = try values.decode([StickyNote].self, forKey: .notes)
         workRecords = try values.decodeIfPresent([WorkRecord].self, forKey: .workRecords) ?? []
+        focusActivities = try values.decodeIfPresent([FocusActivity].self, forKey: .focusActivities) ?? []
         lastReviewAttemptDay = try values.decodeIfPresent(String.self, forKey: .lastReviewAttemptDay)
         lastReviewError = try values.decodeIfPresent(String.self, forKey: .lastReviewError)
     }

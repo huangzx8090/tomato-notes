@@ -60,6 +60,88 @@ public actor ChromeBrowser {
         return pages
     }
 
+    public func allWindowTabs() throws -> [GuardPage] {
+        try Task.checkCancellation()
+        guard isRunning else { throw ChromeBrowserError.notRunning }
+        return try enumerateAllWindowTabs(read: { try get($0) })
+    }
+
+    // 注入只读事件，测试无需连接 Chrome 或请求自动化权限。
+    nonisolated func enumerateAllWindowTabs(read: (NSAppleEventDescriptor) throws -> NSAppleEventDescriptor) throws -> [GuardPage] {
+        func checkedRead(_ reference: NSAppleEventDescriptor) throws -> NSAppleEventDescriptor {
+            try Task.checkCancellation()
+            let result = Result { try read(reference) }
+            try Task.checkCancellation()
+            return try result.get()
+        }
+        func nextIndex(_ index: Int32) throws -> Int32 {
+            guard index < .max else { throw ChromeBrowserError.unavailable }
+            return index + 1
+        }
+        func string(_ descriptor: NSAppleEventDescriptor) throws -> String {
+            guard let value = descriptor.stringValue, !value.isEmpty else { throw ChromeBrowserError.unavailable }
+            return value
+        }
+
+        // 先收集 ID；读取标签期间窗口消失或重排，不会改变随后使用的窗口引用。
+        var windowIDs: [String] = []
+        var seenWindows: Set<String> = []
+        var windowIndex: Int32 = 1
+        while true {
+            let window = object("cwin", form: "indx", value: .init(int32: windowIndex))
+            let idDescriptor: NSAppleEventDescriptor
+            do { idDescriptor = try checkedRead(property("ID  ", of: window)) }
+            catch ChromeBrowserError.noPage { break }
+            let id = try string(idDescriptor)
+            if seenWindows.insert(id).inserted { windowIDs.append(id) }
+            windowIndex = try nextIndex(windowIndex)
+        }
+
+        var pages: [GuardPage] = []
+        for id in windowIDs {
+            try Task.checkCancellation()
+            let window = object("cwin", form: "ID  ", value: .init(string: id))
+            do {
+                // sdef 的 mode 在创建后不可变；必须先用 ID 检查，不能先读窗口 pALL 或 tabs。
+                let mode = try string(checkedRead(property("mode", of: window)))
+                if mode == "incognito" || mode == "private" { continue }
+                guard mode == "normal" else { throw ChromeBrowserError.unavailable }
+                let boundsDescriptor = try checkedRead(property("pbnd", of: window))
+                let bounds: GuardPage.Bounds
+                do { bounds = try Self.decodeBounds(boundsDescriptor) }
+                catch ChromeBrowserError.noPage { throw ChromeBrowserError.unavailable }
+
+                var windowPages: [GuardPage] = []
+                var seenTabs: Set<String> = []
+                var tabIndex: Int32 = 1
+                while true {
+                    let tab = object("CrTb", form: "indx", value: .init(int32: tabIndex), container: window)
+                    let properties: NSAppleEventDescriptor
+                    do { properties = try checkedRead(property("pALL", of: tab)) }
+                    catch ChromeBrowserError.noPage { break }
+                    // 只有事件返回 noPage 才代表索引结束；字段缺失不能伪装成完整快照。
+                    guard let tabID = properties.forKeyword(cc("ID  "))?.stringValue, !tabID.isEmpty,
+                          let url = properties.forKeyword(cc("URL "))?.stringValue,
+                          let title = properties.forKeyword(cc("pnam"))?.stringValue else {
+                        throw ChromeBrowserError.unavailable
+                    }
+                    if seenTabs.insert(tabID).inserted {
+                        windowPages.append(GuardPage(windowID: id, tabID: tabID, url: url, title: String(title.prefix(600)),
+                                                     isPrivate: false, bounds: bounds))
+                    }
+                    tabIndex = try nextIndex(tabIndex)
+                }
+                // noPage 也可能是整个窗口消失；确认窗口仍在，才保留该窗口已读的标签。
+                guard try string(checkedRead(property("ID  ", of: window))) == id else {
+                    throw ChromeBrowserError.unavailable
+                }
+                pages.append(contentsOf: windowPages)
+            } catch ChromeBrowserError.noPage { continue }
+        }
+        try Task.checkCancellation()
+        return pages
+    }
+
     public func closeIfUnchanged(_ expected: GuardPage) throws -> Bool {
         let current = try frontPage()
         guard current.windowID == expected.windowID, current.tabID == expected.tabID,
@@ -96,14 +178,14 @@ public actor ChromeBrowser {
     private func requireChromeForeground() throws {
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Self.bundleID else { throw ChromeBrowserError.changed }
     }
-    private func cc(_ value: String) -> UInt32 { value.utf8.reduce(0) { ($0 << 8) | UInt32($1) } }
+    private nonisolated func cc(_ value: String) -> UInt32 { value.utf8.reduce(0) { ($0 << 8) | UInt32($1) } }
     private func targetDescriptor() -> NSAppleEventDescriptor {
         NSAppleEventDescriptor(descriptorType: cc("bund"), data: Data(Self.bundleID.utf8))!
     }
-    private func property(_ code: String, of container: NSAppleEventDescriptor) -> NSAppleEventDescriptor {
+    private nonisolated func property(_ code: String, of container: NSAppleEventDescriptor) -> NSAppleEventDescriptor {
         object("prop", form: "prop", value: .init(typeCode: cc(code)), container: container)
     }
-    private func object(_ type: String, form: String, value: NSAppleEventDescriptor,
+    private nonisolated func object(_ type: String, form: String, value: NSAppleEventDescriptor,
                         container: NSAppleEventDescriptor = .null()) -> NSAppleEventDescriptor {
         let record = NSAppleEventDescriptor.record()
         record.setDescriptor(.init(typeCode: cc(type)), forKeyword: cc("want"))

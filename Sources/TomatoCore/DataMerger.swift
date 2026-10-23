@@ -22,6 +22,7 @@ public enum DataMerger {
         result.todos = []
         result.notes = []
         result.workRecords = []
+        result.focusActivities = []
         for source in [primary] + sources {
             guard (1...AppData.currentSchemaVersion).contains(source.schemaVersion) else { throw RepositoryError.unsupportedVersion(source.schemaVersion) }
             result.sessions = try combine(result.sessions, source.sessions, name: "专注轮次")
@@ -30,6 +31,7 @@ public enum DataMerger {
             result.todos = try combine(result.todos, source.todos, name: "待办")
             result.notes = try combine(result.notes, source.notes, name: "便签")
             result.workRecords = try combine(result.workRecords, source.workRecords, name: "成果记录")
+            result.focusActivities = try combine(result.focusActivities, source.focusActivities, name: "专注活动")
         }
         result.schemaVersion = AppData.currentSchemaVersion
         let sessionIDs = Set(result.sessions.map(\.id))
@@ -37,7 +39,8 @@ public enum DataMerger {
                   $0.outsideWhitelistSeconds.map { $0.isFinite && $0 >= 0 } ?? true
               }),
               result.intervals.allSatisfy({ sessionIDs.contains($0.sessionID) && $0.seconds.isFinite && $0.seconds >= 0 }),
-              result.usage.allSatisfy({ sessionIDs.contains($0.sessionID) && $0.seconds.isFinite && $0.seconds >= 0 }) else {
+              result.usage.allSatisfy({ sessionIDs.contains($0.sessionID) && $0.seconds.isFinite && $0.seconds >= 0 }),
+              result.focusActivities.allSatisfy({ sessionIDs.contains($0.sessionID) && $0.seconds.isFinite && $0.seconds >= 0 && $0.endedAt >= $0.startedAt }) else {
             throw DataMergeError.invalid("分段关联或时长无效")
         }
         let days = Set(result.intervals.map(\.localDay) + result.usage.map(\.localDay))

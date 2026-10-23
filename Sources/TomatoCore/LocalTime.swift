@@ -6,6 +6,17 @@ public enum LocalTime {
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
+    public static func date(forDayKey key: String, calendar: Calendar = .current) -> Date? {
+        let parts = key.split(separator: "-", omittingEmptySubsequences: false).compactMap { Int($0) }
+        guard parts.count == 3, parts[0] > 0, (1...12).contains(parts[1]), (1...31).contains(parts[2]) else { return nil }
+        var components = DateComponents()
+        components.year = parts[0]
+        components.month = parts[1]
+        components.day = parts[2]
+        guard let date = calendar.date(from: components), dayKey(date, calendar: calendar) == key else { return nil }
+        return calendar.startOfDay(for: date)
+    }
+
     public struct Piece {
         public let start: Date
         public let end: Date

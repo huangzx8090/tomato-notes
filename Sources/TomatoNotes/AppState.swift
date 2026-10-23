@@ -5,6 +5,12 @@ import IOKit
 import TomatoCore
 import TomatoSystem
 
+struct HistoryNavigationRequest: Equatable {
+    let id = UUID()
+    let day: String
+    let todoID: UUID?
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published private(set) var data: AppData
@@ -13,6 +19,9 @@ final class AppState: ObservableObject {
     @Published private(set) var lastDeletedTodo: TodoItem?
     @Published var notificationStatus = "首次开始或测试提醒时申请通知权限"
     @Published private(set) var calendarDay = LocalTime.dayKey(Date())
+    @Published private(set) var focusHeatmapRevision = 0
+    @Published private(set) var historySearchRevision = 0
+    @Published private(set) var historyNavigationRequest: HistoryNavigationRequest?
     @Published private(set) var generatingScopes: Set<String> = []
     @Published private(set) var reviewErrors: [String: String] = [:]
     @Published private(set) var hasAPIKey = false
@@ -22,6 +31,9 @@ final class AppState: ObservableObject {
     @Published private(set) var loadingAIModels = false
     @Published var guardSetupPresented = false
     @Published var focusGoalDraft = ""
+    @Published private(set) var activityStatus = "开启后，专注时自动留下活动记录。"
+    @Published private(set) var identifyingActivity = false
+    @Published private(set) var activityErrors: [UUID: String] = [:]
 
     let repository: LocalRepository
     var onOpenSharedLibrary: (() -> Void)?
@@ -41,6 +53,7 @@ final class AppState: ObservableObject {
     private var engine: TimerEngine
     private var lastUptime: TimeInterval?
     private var lastSavedUptime: TimeInterval = 0
+    private var lastHeatmapMinute = Calendar.current.component(.minute, from: Date())
     private var lastLidCheck: TimeInterval = 0
     private var lidClosed = false
     private var currentApp: AppIdentity?
@@ -53,9 +66,28 @@ final class AppState: ObservableObject {
     private var workSaveTask: DispatchWorkItem?
     private var lastReviewCheck: TimeInterval = 0
     private var pendingSessionReviews: [UUID] = []
+    private let activityChrome = ChromeBrowser()
+    private var activitySampleTask: Task<Void, Never>?
+    private var activityTopicTask: Task<Void, Never>?
+    private var topicSessionID: UUID?
+    private var sampleGeneration = UUID()
+    private var activityGeneration = UUID()
+    private var topicRequestID = UUID()
+    private var lastActivityPoll: TimeInterval = 0
+    private var lastActivityTopicCheck: TimeInterval = 0
+    private var activitySample: (page: ActivityPage, identity: String, at: Date)?
+    private var noteBaselines: [UUID: String] = [:]
+    private var noteRecordingBlockID = UUID()
+    private var noteBaselineDay = LocalTime.dayKey(Date())
+    private let aiClientFactory: (AIProviderConfig) -> AIReviewClient
+    private let injectedKeyReader: ((String) throws -> String?)?
 
-    init(repository: LocalRepository = LocalRepository()) {
+    init(repository: LocalRepository = LocalRepository(),
+         aiClientFactory: @escaping (AIProviderConfig) -> AIReviewClient = { AIReviewClient(provider: $0) },
+         keyReader: ((String) throws -> String?)? = nil) {
         self.repository = repository
+        self.aiClientFactory = aiClientFactory
+        self.injectedKeyReader = keyReader
         self.workImages = WorkImageStore(repository: repository)
         do {
             var loaded = try repository.load()
@@ -76,6 +108,7 @@ final class AppState: ObservableObject {
         deviceLocked = session?["CGSSessionScreenIsLocked"] as? Bool ?? false
         currentApp = Self.frontmostApp()
         if let day = data.lastReviewAttemptDay, let error = data.lastReviewError { reviewErrors[WorkScope.day(day).key] = error }
+        ai = aiClientFactory(data.settings.ai.resolved())
         refreshCredentialStatus()
         guardController.currentSnapshot = { [weak self] in
             guard let self else { return (TimerSnapshot(), true, FocusGuardSettings()) }
@@ -117,8 +150,9 @@ final class AppState: ObservableObject {
         if timer.phase == .running {
             advanceToNow()
             engine.pause(reason: "手动暂停", at: Date())
+            stopActivitySampling()
             lastUptime = nil
-            publish()
+            publish(focusHeatmapChanged: timer.stage == .focus)
             return
         }
         guard !deviceLocked else { feedback = "设备仍处于锁屏状态"; return }
@@ -154,13 +188,22 @@ final class AppState: ObservableObject {
         pendingTimerOnly = false
         lastUptime = ProcessInfo.processInfo.systemUptime
         currentApp = Self.frontmostApp()
-        publish()
+        publish(historyContentChanged: engine.data.timer.sessionID != previousSessionID)
+        markAutomaticRecording()
         onStarted?()
     }
 
     func tick() {
-        let day = LocalTime.dayKey(Date())
-        if day != calendarDay { calendarDay = day }
+        let now = Date()
+        let day = LocalTime.dayKey(now)
+        var heatmapNeedsRefresh = false
+        if day != calendarDay { calendarDay = day; heatmapNeedsRefresh = true }
+        let minute = Calendar.current.component(.minute, from: now)
+        if minute != lastHeatmapMinute {
+            lastHeatmapMinute = minute
+            if timer.phase == .running && timer.stage == .focus { heatmapNeedsRefresh = true }
+        }
+        if heatmapNeedsRefresh { focusHeatmapRevision &+= 1 }
         guard canWrite else { return }
         let uptime = ProcessInfo.processInfo.systemUptime
         if uptime - lastLidCheck >= 1 {
@@ -170,8 +213,9 @@ final class AppState: ObservableObject {
         if timer.phase == .running && (deviceLocked || shouldPauseForLid(lidClosed)) {
             // 合盖通知可能不伴随睡眠，检测后立刻冻结最近检查点。
             engine.pause(reason: deviceLocked ? "锁屏已暂停" : "合盖已暂停", at: Date())
+            stopActivitySampling()
             lastUptime = nil
-            publish()
+            publish(focusHeatmapChanged: timer.stage == .focus)
             return
         }
         advanceToNow()
@@ -179,7 +223,9 @@ final class AppState: ObservableObject {
             timerOnlySessionID = nil
         }
         guardController.tick(timer: timer, locked: deviceLocked, settings: settings.focusGuard)
+        pollActivityPage()
         checkAutomaticSessionReviews()
+        checkActivityTopic()
         if uptime - lastReviewCheck >= 15, !deviceLocked {
             lastReviewCheck = uptime
             checkDailyReviewSchedule()
@@ -190,14 +236,16 @@ final class AppState: ObservableObject {
         guard canWrite, timer.phase == .running else { return }
         advanceToNow()
         engine.pause(reason: reason, at: Date())
+        stopActivitySampling()
         lastUptime = nil
-        publish()
+        publish(focusHeatmapChanged: timer.stage == .focus)
     }
 
     func appDidChange() {
         guard canWrite else { return }
         advanceToNow()
         currentApp = Self.frontmostApp()
+        resetActivityPageSample()
         guardController.foregroundDidChange()
     }
 
@@ -209,16 +257,18 @@ final class AppState: ObservableObject {
         else if timer.stage == .focus { engine.endEarly(at: Date()) }
         else { engine.skipBreak(at: Date()) }
         lastUptime = nil
-        publish()
+        stopActivitySampling()
+        publish(focusHeatmapChanged: endingSessionID != nil)
         if let id = endingSessionID { recordEndedFocus(id) }
     }
 
     func prepareForQuit() {
         guardController.stop()
+        stopActivitySampling()
         guard canWrite else { return }
         advanceToNow()
         if timer.phase == .running { engine.pause(reason: "应用退出已暂停", at: Date()) }
-        publish()
+        publish(focusHeatmapChanged: timer.stage == .focus)
     }
 
     var guardSetupActionTitle: String { guardSetupStartsTimer ? "设置并开始专注" : "保存本轮白名单" }
@@ -247,7 +297,7 @@ final class AppState: ObservableObject {
             var next = engine.data
             if let index = next.sessions.firstIndex(where: { $0.id == id }) { next.sessions[index].goal = plan.goal }
             engine.replaceData(next)
-            publish()
+            publish(historyContentChanged: true)
             timerOnlySessionID = nil
             guardSetupPresented = false
         } else { feedback = "本轮已经结束，请在开始下一轮时重新设置白名单。"; guardSetupPresented = false }
@@ -293,6 +343,10 @@ final class AppState: ObservableObject {
             return false
         }
         advanceToNow()
+        if value.activityRecording != settings.activityRecording || value.ai != settings.ai || value.recordingEnabled != settings.recordingEnabled {
+            stopActivitySampling()
+            activityGeneration = UUID()
+        }
         var next = data
         next.settings = value
         if next.timer.phase == .idle {
@@ -301,6 +355,7 @@ final class AppState: ObservableObject {
         }
         engine.replaceData(next)
         publish()
+        markAutomaticRecording()
         feedback = "设置已保存"
         return true
     }
@@ -312,16 +367,25 @@ final class AppState: ObservableObject {
         var next = data
         next.todos.append(TodoItem(text: trimmed, localDay: todayKey))
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
     }
 
     @discardableResult
     func toggleTodo(_ id: UUID) -> Bool {
         guard canWrite else { return false }
         advanceToNow()
+        let now = Date()
+        let day = LocalTime.dayKey(now)
         var next = data
-        guard let index = next.todos.firstIndex(where: { $0.id == id && $0.localDay == todayKey }) else { return false }
-        next.todos[index].completedAt = next.todos[index].completedAt == nil ? Date() : nil
+        guard let index = next.todos.firstIndex(where: { $0.id == id && $0.effectiveScheduledDay == day }) else { return false }
+        if next.todos[index].completedAt == nil {
+            next.todos[index].completedAt = now
+            next.todos[index].completedLocalDay = day
+        } else {
+            next.todos[index].completedAt = nil
+            next.todos[index].completedLocalDay = nil
+        }
+        if !deviceLocked { ActivityRecorder.recordTodo(next.todos[index], at: now, in: &next) }
         engine.replaceData(next)
         publish()
         return canWrite && next.todos[index].isCompleted
@@ -331,20 +395,22 @@ final class AppState: ObservableObject {
         guard canWrite else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let day = todayKey
         var next = data
-        guard let index = next.todos.firstIndex(where: { $0.id == id && $0.localDay == todayKey }) else { return }
+        guard let index = next.todos.firstIndex(where: { $0.id == id && $0.effectiveScheduledDay == day }) else { return }
         next.todos[index].text = trimmed
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
     }
 
     func deleteTodo(_ id: UUID) {
         guard canWrite else { return }
+        let day = todayKey
         var next = data
         var history = todoDeletionHistory
-        guard history.remove(id, on: todayKey, from: &next.todos) else { return }
+        guard history.remove(id, on: day, from: &next.todos) else { return }
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
         guard canWrite else { return }
         todoDeletionHistory = history
         lastDeletedTodo = history.lastDeleted
@@ -358,7 +424,7 @@ final class AppState: ObservableObject {
         let restored = history.restoreLast(in: &next.todos)
         if restored != nil {
             engine.replaceData(next)
-            publish()
+            publish(historyContentChanged: true)
             guard canWrite else { return }
         }
         todoDeletionHistory = history
@@ -372,13 +438,49 @@ final class AppState: ObservableObject {
         feedback = nil
     }
 
+    @discardableResult
+    func scheduleTodosForToday(_ ids: Set<UUID>) -> [UUID] {
+        guard canWrite, !ids.isEmpty else { return [] }
+        let day = todayKey
+        var next = data
+        let changed = TodoCarryover.schedule(ids, on: day, in: &next.todos)
+        guard !changed.isEmpty else { return [] }
+        engine.replaceData(next)
+        publish()
+        if canWrite { feedback = changed.count == 1 ? "待办已安排到今天" : "已安排 \(changed.count) 项到今天" }
+        return changed
+    }
+
+    func undoTodoSchedule(_ id: UUID) {
+        guard canWrite else { return }
+        let day = todayKey
+        var next = data
+        let result = TodoCarryover.undoSchedule(id, on: day, in: &next.todos)
+        switch result {
+        case .undone:
+            engine.replaceData(next)
+            publish()
+            if canWrite { feedback = "已撤销安排，待办文字和完成记录已保留" }
+        case .completed:
+            feedback = "这条待办已完成，不能直接撤销结转"
+        case .missing:
+            feedback = "记录已不存在"
+        case .notScheduledToday:
+            feedback = "这条待办目前不在今天的安排中"
+        }
+    }
+
+    func requestHistoryDay(_ day: String, highlightTodoID: UUID? = nil) {
+        historyNavigationRequest = HistoryNavigationRequest(day: day, todoID: highlightTodoID)
+    }
+
     func createNote() -> UUID? {
         guard canWrite else { return nil }
         var next = data
         let note = StickyNote()
         next.notes.append(note)
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
         return note.id
     }
 
@@ -389,7 +491,7 @@ final class AppState: ObservableObject {
         var next = data
         guard let copyID = NoteLibrary.continueNote(id, in: &next.notes) else { return nil }
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
         return canWrite ? copyID : nil
     }
 
@@ -399,19 +501,30 @@ final class AppState: ObservableObject {
         var next = data
         next.notes.removeAll { $0.id == id }
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
         if canWrite { feedback = "便签已删除" }
         return canWrite
     }
 
     func updateNoteText(_ id: UUID, text: String) {
         guard canWrite else { return }
+        advanceToNow()
         var next = data
         guard let index = next.notes.firstIndex(where: { $0.id == id }) else { return }
+        let previous = next.notes[index].text
         next.notes[index].text = text
         next.notes[index].updatedAt = Date()
+        if ActivityRecorder.isRecording(next), !deviceLocked {
+            if todayKey != noteBaselineDay {
+                noteBaselines.removeAll()
+                noteRecordingBlockID = UUID()
+                noteBaselineDay = todayKey
+            }
+            if noteBaselines[id] == nil { noteBaselines[id] = previous }
+            ActivityRecorder.recordNote(next.notes[index], previousText: noteBaselines[id] ?? previous, at: Date(), blockID: noteRecordingBlockID, in: &next)
+        }
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
     }
 
     func updateNoteFrame(_ id: UUID, frame: NSRect) {
@@ -445,11 +558,12 @@ final class AppState: ObservableObject {
         if let previous = lastConversion, previous.0 == id, previous.1 == text,
            Date().timeIntervalSince(previous.2) < 1 { return 0 }
         let now = Date()
+        let day = todayKey
         var next = data
-        for line in lines { next.todos.append(TodoItem(text: line, localDay: todayKey, createdAt: now)) }
+        for line in lines { next.todos.append(TodoItem(text: line, localDay: day, createdAt: now)) }
         engine.replaceData(next)
         lastConversion = (id, text, now)
-        publish()
+        publish(historyContentChanged: true)
         feedback = "已添加 \(lines.count) 条待办"
         return lines.count
     }
@@ -482,7 +596,7 @@ final class AppState: ObservableObject {
         next.workRecords[index].userText = text
         next.workRecords[index].updatedAt = Date()
         engine.replaceData(next)
-        publish(persist: false)
+        publish(persist: false, historyContentChanged: true)
         workSaveTask?.cancel()
         let task = DispatchWorkItem { [weak self] in self?.publish() }
         workSaveTask = task
@@ -522,11 +636,17 @@ final class AppState: ObservableObject {
         publish()
     }
 
+    private func readAPIKey(providerID: String) throws -> String? {
+        if let injectedKeyReader { return try injectedKeyReader(providerID) }
+        return try credentials.read(providerID: providerID)
+    }
+
     func refreshCredentialStatus() {
         do {
             rebuildAIClient()
             guardController.updateAIProvider(aiProvider)
-            hasAPIKey = try credentials.isConfigured(providerID: aiProvider.id)
+            if let injectedKeyReader { hasAPIKey = try injectedKeyReader(aiProvider.id) != nil }
+            else { hasAPIKey = try credentials.isConfigured(providerID: aiProvider.id) }
             aiStatus = hasAPIKey ? "\(aiProvider.name) 已配置，可生成文字和图片成果总结" : "尚未配置 \(aiProvider.name) 的 API Key"
         } catch { hasAPIKey = false; aiStatus = error.localizedDescription }
     }
@@ -537,7 +657,7 @@ final class AppState: ObservableObject {
         guard resolved != aiProvider else { return }
         let catalogChanged = resolved.id != aiProvider.id || resolved.baseURL != aiProvider.baseURL
         aiProvider = resolved
-        ai = AIReviewClient(provider: resolved)
+        ai = aiClientFactory(resolved)
         if catalogChanged { aiModels = [] }
     }
 
@@ -554,6 +674,8 @@ final class AppState: ObservableObject {
 
     func removeAPIKey() {
         do {
+            stopActivitySampling()
+            activityGeneration = UUID()
             try credentials.remove(providerID: aiProvider.id)
             refreshCredentialStatus()
         } catch { aiStatus = error.localizedDescription }
@@ -571,7 +693,7 @@ final class AppState: ObservableObject {
         Task {
             defer { loadingAIModels = false }
             do {
-                guard let key = try credentials.read(providerID: aiProvider.id) else { throw AIReviewError.missingKey }
+                guard let key = try readAPIKey(providerID: aiProvider.id) else { throw AIReviewError.missingKey }
                 let models = try await ai.fetchModels(apiKey: key)
                 guard !models.isEmpty else { throw AIReviewError.invalidResponse }
                 aiModels = models
@@ -586,7 +708,7 @@ final class AppState: ObservableObject {
         Task {
             defer { testingAI = false }
             do {
-                guard let key = try credentials.read(providerID: aiProvider.id) else { throw AIReviewError.missingKey }
+                guard let key = try readAPIKey(providerID: aiProvider.id) else { throw AIReviewError.missingKey }
                 try await ai.testConnection(apiKey: key)
                 hasAPIKey = true
                 aiStatus = "\(aiProvider.name) 连接成功"
@@ -601,11 +723,32 @@ final class AppState: ObservableObject {
         ensureWorkRecord(for: scope)
         generatingScopes.insert(scope.key)
         reviewErrors[scope.key] = nil
+        let reviewProvider = aiProvider
+        let generation = activityGeneration
         Task {
             defer { generatingScopes.remove(scope.key) }
             do {
-                guard let key = try credentials.read(providerID: aiProvider.id) else { throw AIReviewError.missingKey }
+                guard let key = try readAPIKey(providerID: aiProvider.id) else { throw AIReviewError.missingKey }
                 hasAPIKey = true
+                if automatic, case .session(let id) = scope {
+                    await identifyActivityTopic(id, final: true)
+                    guard settings.review.autoSummarizeSessions || settings.activityRecording.enabled else { return }
+                    if deviceLocked {
+                        if !pendingSessionReviews.contains(id) { pendingSessionReviews.append(id) }
+                        return
+                    }
+                }
+                guard generation == activityGeneration, reviewProvider == aiProvider else { return }
+                if automatic, case .session(let id) = scope {
+                    guard AutomaticSessionReview.shouldGenerate(sessionID: id, from: data) else { return }
+                    var next = data
+                    guard let index = next.workRecords.firstIndex(where: { $0.sessionID == id }) else { return }
+                    // 在真正发送回顾前落盘；主题判断期间锁屏则等待解锁，尚不消耗这次回顾机会。
+                    next.workRecords[index].autoReviewAttemptedAt = Date()
+                    engine.replaceData(next)
+                    publish()
+                    guard canWrite else { return }
+                }
                 if case .day(let day) = scope {
                     // 先理解尚未总结的各轮文字和图片，再综合全天，避免每天重复上传相同图片。
                     let rounds = data.workRecords.filter { $0.localDay == day && $0.sessionID != nil && (!$0.userText.isEmpty || !$0.images.isEmpty) }
@@ -619,6 +762,7 @@ final class AppState: ObservableObject {
                             generatingScopes.insert(roundScope.key)
                             defer { generatingScopes.remove(roundScope.key) }
                             try await generateAndStore(roundScope, apiKey: key)
+                            guard generation == activityGeneration, reviewProvider == aiProvider else { return }
                         }
                     }
                 }
@@ -640,53 +784,243 @@ final class AppState: ObservableObject {
 
     private func generateAndStore(_ scope: WorkScope, apiKey: String) async throws {
         let context = ReviewContextBuilder.build(for: scope, from: data)
+        let client = ai
+        let generation = activityGeneration
         let images = try context.images.map { image -> Data in
             guard let bytes = try? Data(contentsOf: workImages.url(for: image)) else { throw AIReviewError.missingImage }
             return bytes
         }
-        let content = try await ai.summarize(context: context, images: images, apiKey: apiKey)
-        guard canWrite else { return }
+        let content = try await client.summarize(context: context, images: images, apiKey: apiKey)
+        try Task.checkCancellation()
+        guard canWrite, generation == activityGeneration, client.provider == aiProvider else { return }
         let id = ensureWorkRecord(for: scope)
         var next = data
         guard let index = next.workRecords.firstIndex(where: { $0.id == id }) else { return }
-        next.workRecords[index].summary = AISummary(content: content, model: aiProvider.defaultModel,
+        next.workRecords[index].summary = AISummary(content: content, model: client.model,
                                                    contextDigest: context.digest, imageIDs: context.images.map(\.id))
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
     }
 
     private func checkDailyReviewSchedule() {
         guard let day = ReviewSchedule.dueDay(at: Date(), settings: settings.review, lastAttemptDay: data.lastReviewAttemptDay),
-              generatingScopes.isEmpty, pendingSessionReviews.isEmpty else { return }
+              generatingScopes.isEmpty, pendingSessionReviews.isEmpty, !identifyingActivity else { return }
         generateReview(for: .day(day), scheduled: true)
     }
 
     private func recordEndedFocus(_ id: UUID) {
         guard let progress = SessionProgress.build(sessionID: id, from: data),
               progress.session.endedAt != nil, progress.focusSeconds > 0 else { return }
-        ensureWorkRecord(for: .session(id))
+        let recordID = ensureWorkRecord(for: .session(id))
+        if let day = progress.session.endedLocalDay,
+           let index = engine.data.workRecords.firstIndex(where: { $0.id == recordID }), engine.data.workRecords[index].localDay != day {
+            var next = engine.data
+            next.workRecords[index].localDay = day
+            engine.replaceData(next)
+        }
+        publish(historyContentChanged: true)
         if hasAPIKey, AutomaticSessionReview.shouldGenerate(sessionID: id, from: data), !pendingSessionReviews.contains(id) {
             pendingSessionReviews.append(id)
         }
     }
 
     private func checkAutomaticSessionReviews() {
-        guard settings.review.autoSummarizeSessions else { pendingSessionReviews.removeAll(); return }
-        guard !deviceLocked, hasAPIKey, generatingScopes.isEmpty else { return }
+        guard settings.review.autoSummarizeSessions || settings.activityRecording.enabled else { pendingSessionReviews.removeAll(); return }
+        guard !deviceLocked, hasAPIKey, generatingScopes.isEmpty, !identifyingActivity else { return }
         while !pendingSessionReviews.isEmpty {
             let id = pendingSessionReviews.removeFirst()
             guard AutomaticSessionReview.shouldGenerate(sessionID: id, from: data) else { continue }
-            let recordID = ensureWorkRecord(for: .session(id))
-            var next = data
-            guard let index = next.workRecords.firstIndex(where: { $0.id == recordID }) else { continue }
-            // 先落盘再发送，退出或断网后也不会悄悄重试同一轮。
-            next.workRecords[index].autoReviewAttemptedAt = Date()
-            engine.replaceData(next)
-            publish()
-            guard canWrite else { return }
             generateReview(for: .session(id), automatic: true)
             return
         }
+    }
+
+    func requestActivityChromeAccess() {
+        Task {
+            do {
+                try await activityChrome.requestAccess()
+                activityStatus = "Chrome 已授权；专注时自动记录普通页面。"
+            } catch { activityStatus = error.localizedDescription }
+        }
+    }
+
+    private func markAutomaticRecording() {
+        guard canWrite, !deviceLocked, ActivityRecorder.isRecording(data), let id = timer.sessionID else { return }
+        let recordID = ensureWorkRecord(for: .session(id))
+        var next = data
+        guard let index = next.workRecords.firstIndex(where: { $0.id == recordID }), next.workRecords[index].automaticRecordingUsed != true else { return }
+        next.workRecords[index].automaticRecordingUsed = true
+        engine.replaceData(next)
+        publish()
+    }
+
+    private func resetActivityPageSample() {
+        sampleGeneration = UUID()
+        activitySample = nil
+        activitySampleTask?.cancel()
+        activitySampleTask = nil
+    }
+
+    private func stopActivitySampling() {
+        resetActivityPageSample()
+        if activityTopicTask != nil, let id = topicSessionID {
+            var next = engine.data
+            if let index = next.workRecords.firstIndex(where: { $0.sessionID == id }), next.workRecords[index].titleOverride == nil {
+                // 主动中止的判断与接口失败不同：允许结束时用同一材料完成首次命名。
+                next.workRecords[index].topicAttemptDigest = nil
+                engine.replaceData(next)
+                publish(persist: false)
+            }
+        }
+        topicRequestID = UUID()
+        activityTopicTask?.cancel()
+        activityTopicTask = nil
+        identifyingActivity = false
+        topicSessionID = nil
+        noteBaselines.removeAll()
+        noteRecordingBlockID = UUID()
+        lastActivityTopicCheck = 0
+    }
+
+    private func pollActivityPage() {
+        guard ActivityRecorder.isRecording(data), !deviceLocked, settings.activityRecording.chromeEnabled,
+              Self.frontmostApp()?.bundleID == "com.google.Chrome", let sessionID = timer.sessionID else {
+            if activitySample != nil || activitySampleTask != nil { resetActivityPageSample() }
+            return
+        }
+        let uptime = ProcessInfo.processInfo.systemUptime
+        guard activitySampleTask == nil, uptime - lastActivityPoll >= 5 else { return }
+        lastActivityPoll = uptime
+        let generation = sampleGeneration
+        activitySampleTask = Task {
+            defer { if generation == sampleGeneration { activitySampleTask = nil } }
+            do {
+                // 后台采样不触发系统授权弹窗；用户在设置里主动点“允许读取 Chrome”。
+                try await activityChrome.requestAccess(askUserIfNeeded: false)
+                let raw = try await activityChrome.frontPage()
+                guard !Task.isCancelled, generation == sampleGeneration, !deviceLocked, canWrite,
+                      ActivityRecorder.isRecording(data), timer.sessionID == sessionID,
+                      settings.activityRecording.chromeEnabled, Self.frontmostApp()?.bundleID == "com.google.Chrome" else { return }
+                guard let page = ActivityPage(title: raw.title, url: raw.url, isPrivate: raw.isPrivate) else {
+                    activitySample = nil; activityStatus = "当前页面不在记录范围内。"; return
+                }
+                advanceToNow()
+                guard ActivityRecorder.isRecording(data), timer.sessionID == sessionID else { return }
+                let now = Date()
+                let identity = raw.windowID + ":" + raw.tabID
+                if let previous = activitySample, previous.identity == identity, previous.page == page {
+                    var next = data
+                    ActivityRecorder.appendPage(page, sessionID: sessionID, start: previous.at, end: now, to: &next)
+                    engine.replaceData(next)
+                    publish(persist: false)
+                }
+                activitySample = (page, identity, now)
+                activityStatus = "正在自动记录普通 Chrome 页面。"
+            } catch {
+                guard generation == sampleGeneration, !Task.isCancelled else { return }
+                activitySample = nil
+                activityStatus = error.localizedDescription
+            }
+        }
+    }
+
+    private func checkActivityTopic() {
+        guard canWrite, !deviceLocked, hasAPIKey, !identifyingActivity, generatingScopes.isEmpty,
+              let id = timer.sessionID, ActivityRecorder.isRecording(data) else { return }
+        let uptime = ProcessInfo.processInfo.systemUptime
+        guard uptime - lastActivityTopicCheck >= 15 else { return }
+        lastActivityTopicCheck = uptime
+        guard ActivityTopicPolicy.shouldIdentify(sessionID: id, in: data) else { return }
+        identifyingActivity = true
+        let requestID = UUID()
+        topicRequestID = requestID
+        topicSessionID = id
+        activityTopicTask = Task {
+            defer {
+                if requestID == topicRequestID { identifyingActivity = false; activityTopicTask = nil; topicSessionID = nil }
+            }
+            await identifyActivityTopic(id, final: false)
+        }
+    }
+
+    private func identifyActivityTopic(_ id: UUID, final: Bool) async {
+        guard canWrite, !deviceLocked, hasAPIKey, ActivityTopicPolicy.shouldIdentify(sessionID: id, in: data, final: final) else { return }
+        let context = ActivityTopicContext.build(sessionID: id, from: data)
+        let generation = activityGeneration
+        let client = ai
+        let recordID = ensureWorkRecord(for: .session(id))
+        var next = data
+        guard let index = next.workRecords.firstIndex(where: { $0.id == recordID }) else { return }
+        next.workRecords[index].topicAttemptCount = (next.workRecords[index].topicAttemptCount ?? 0) + 1
+        next.workRecords[index].topicAttemptDigest = context.digest
+        next.workRecords[index].topicAttemptFocusSeconds = SessionProgress.build(sessionID: id, from: data)?.focusSeconds ?? 0
+        if final { next.workRecords[index].finalTopicAttempted = true }
+        engine.replaceData(next)
+        publish()
+        guard canWrite else { return }
+        do {
+            guard let key = try readAPIKey(providerID: client.provider.id) else { throw AIReviewError.missingKey }
+            let result = try await client.identifyActivity(context: context, apiKey: key)
+            guard !Task.isCancelled, !deviceLocked, canWrite, generation == activityGeneration, client.provider == aiProvider,
+                  settings.activityRecording.enabled else { return }
+            guard result.confidence >= 0.75, !result.title.isEmpty else { activityErrors[id] = nil; return }
+            var updated = data
+            guard let index = updated.workRecords.firstIndex(where: { $0.id == recordID }), updated.workRecords[index].titleOverride == nil else { return }
+            let previous = updated.workRecords[index].activityTopic
+            let title = ActivityPrivacy.clean(result.title, limit: 60)
+            let groupID = result.matchingTopicID ?? (previous?.title == title ? previous?.groupID : nil) ?? UUID()
+            updated.workRecords[index].activityTopic = ActivityTopic(groupID: groupID, title: title, confidence: result.confidence,
+                evidenceIDs: result.evidenceIDs, model: client.model)
+            engine.replaceData(updated)
+            publish()
+            activityErrors[id] = nil
+        } catch {
+            guard !Task.isCancelled, generation == activityGeneration else { return }
+            activityErrors[id] = error.localizedDescription
+        }
+    }
+
+    func renameActivitySession(_ id: UUID, title: String) {
+        guard canWrite else { return }
+        let cleaned = ActivityPrivacy.clean(title, limit: 60)
+        guard !cleaned.isEmpty else { return }
+        activityGeneration = UUID()
+        stopActivitySampling()
+        let recordID = ensureWorkRecord(for: .session(id))
+        var next = data
+        guard let index = next.workRecords.firstIndex(where: { $0.id == recordID }) else { return }
+        next.workRecords[index].titleOverride = cleaned
+        // 用户修改的名称独立成组，下一轮 AI 可以在有新证据时复用这项纠正。
+        next.workRecords[index].activityTopic = ActivityTopic(title: cleaned, confidence: 1,
+            evidenceIDs: next.workRecords[index].activityTopic?.evidenceIDs ?? [], model: "用户命名")
+        next.workRecords[index].updatedAt = Date()
+        engine.replaceData(next)
+        publish()
+    }
+
+    func removeFocusActivity(_ id: UUID) {
+        guard canWrite, let activity = data.focusActivities.first(where: { $0.id == id }) else { return }
+        activityGeneration = UUID()
+        stopActivitySampling()
+        let recordID = ensureWorkRecord(for: .session(activity.sessionID))
+        var next = data
+        let removed = Set(next.focusActivities.filter { $0.sessionID == activity.sessionID && $0.sourceKey == activity.sourceKey }.map(\.id))
+        let affectedDays = Set(next.focusActivities.filter { removed.contains($0.id) }.map(\.localDay))
+        next.focusActivities.removeAll { removed.contains($0.id) }
+        for index in next.workRecords.indices where next.workRecords[index].sessionID == nil && affectedDays.contains(next.workRecords[index].localDay) {
+            next.workRecords[index].summary = nil
+        }
+        if let index = next.workRecords.firstIndex(where: { $0.id == recordID }) {
+            next.workRecords[index].excludedActivityKeys = Array(Set((next.workRecords[index].excludedActivityKeys ?? []) + [activity.sourceKey]))
+            next.workRecords[index].summary = nil
+            if next.workRecords[index].titleOverride == nil,
+               !(Set(next.workRecords[index].activityTopic?.evidenceIDs ?? []).intersection(removed)).isEmpty {
+                next.workRecords[index].activityTopic = nil
+            }
+            next.workRecords[index].updatedAt = Date()
+        }
+        engine.replaceData(next)
+        publish(historyContentChanged: true)
     }
 
     private func finishScheduledReview(day: String, error: String?) {
@@ -709,19 +1043,29 @@ final class AppState: ObservableObject {
            guardController.sessionID == sessionID {
             engine.setWhitelistBundleIDs(plan.applicationWhitelistBundleIDs, for: sessionID)
         }
+        let hadSessionInterval = sessionID.map { id in data.intervals.contains { $0.sessionID == id } } ?? true
         let completed = engine.advance(seconds: delta, endingAt: Date(), app: currentApp,
                                        recordingEnabled: settings.recordingEnabled)
         let next = engine.data.timer.nextStage
-        publish(persist: completed || uptime - lastSavedUptime >= 2)
+        let firstIntervalRecorded = !hadSessionInterval && (sessionID.map { id in
+            engine.data.intervals.contains { $0.sessionID == id }
+        } ?? false)
+        publish(persist: completed || uptime - lastSavedUptime >= 2,
+                historyContentChanged: firstIntervalRecorded,
+                focusHeatmapChanged: completed && sessionID != nil)
         if completed {
             lastUptime = nil
+            stopActivitySampling()
             if let id = sessionID { recordEndedFocus(id) }
             onStageCompleted?(next ?? .focus)
         }
     }
 
-    private func publish(persist: Bool = true) {
+    private func publish(persist: Bool = true, historyContentChanged: Bool = false,
+                         focusHeatmapChanged: Bool = false) {
         data = engine.data
+        if historyContentChanged { historySearchRevision &+= 1 }
+        if focusHeatmapChanged { focusHeatmapRevision &+= 1 }
         if persist {
             do {
                 try repository.save(data)

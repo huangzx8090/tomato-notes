@@ -13,7 +13,7 @@ public struct TodoDeletionHistory: Sendable {
 
     @discardableResult
     public mutating func remove(_ id: UUID, on day: String, from todos: inout [TodoItem]) -> Bool {
-        guard let index = todos.firstIndex(where: { $0.id == id && $0.localDay == day }) else { return false }
+        guard let index = todos.firstIndex(where: { $0.id == id && $0.effectiveScheduledDay == day }) else { return false }
         entries.append(Entry(item: todos.remove(at: index), index: index))
         return true
     }
