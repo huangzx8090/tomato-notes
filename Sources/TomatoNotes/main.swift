@@ -372,8 +372,11 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuItemValidatio
     private func installSystemObservers() {
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
             guard let self else { return event }
-            if self.panelPresented, event.window !== self.mainPanel,
-               event.window !== self.statusItem.button?.window { self.hidePanel() }
+            if self.panelPresented,
+               PanelDismissalPolicy.shouldDismiss(clickedWindow: event.window, panel: self.mainPanel,
+                                                  statusWindow: self.statusItem.button?.window) {
+                self.hidePanel()
+            }
             return event
         }
         let workspace = NSWorkspace.shared.notificationCenter
