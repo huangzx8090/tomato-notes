@@ -4,8 +4,8 @@ import TomatoCore
 import TomatoSystem
 
 struct FocusWhitelistSnapshotTests {
-    private func page(_ url: String, privateWindow: Bool = false) -> GuardPage {
-        .init(windowID: "private-window-id", tabID: UUID().uuidString, url: url, title: "课程资料",
+    private func page(_ url: String, title: String = "课程资料", privateWindow: Bool = false) -> GuardPage {
+        .init(windowID: "private-window-id", tabID: UUID().uuidString, url: url, title: title,
               isPrivate: privateWindow, bounds: .init(x: 0, y: 0, width: 1000, height: 700))
     }
 
@@ -37,6 +37,36 @@ struct FocusWhitelistSnapshotTests {
         #expect(!plan.pages[0].value.contains("password"))
         #expect(plan.pages[0].matches("https://example.test/watch?v=secret1"))
         #expect(!plan.pages[0].matches("https://example.test/watch?v=secret2"))
+    }
+
+    @Test func titleURLsNeverExposeCredentialsPathsOrQueriesInCandidateJSON() throws {
+        let cases = [
+            ("https://private-user:fake-password@course.example/private-path?token=secret-query#secret-fragment", "course.example"),
+            ("查阅 <https://private-user:fake-password@course.example/private-path?token=secret-query> 与 HTTP://archive.example/secret-path?key=secret-key 阅读",
+             "查阅 <course.example> 与 archive.example 阅读"),
+            ("https://private-user:fake-password@course.example/" + String(repeating: "private-path", count: 40) + "?token=secret-query", "course.example")
+        ]
+        for (title, expected) in cases {
+            let snapshot = FocusWhitelistSnapshot(apps: [], pages: [page("https://course.example/lesson?video=local-only", title: title)])
+            #expect(snapshot.candidates.first?.name == expected)
+            let json = String(decoding: try JSONEncoder().encode(snapshot.candidates), as: UTF8.self)
+            for secret in ["private-user", "fake-password", "private-path", "secret-query", "secret-fragment", "secret-path", "secret-key", "local-only"] {
+                #expect(!json.contains(secret))
+            }
+            #expect(snapshot.items.first?.pageRule?.title == title)
+            #expect(snapshot.items.first?.pageRule?.matches("https://course.example/lesson?video=local-only") == true)
+        }
+    }
+
+    @Test func preservesNormalTitlesAndCleansURLsBeforeApplyingTitleLimit() {
+        let prefix = String(repeating: "课", count: 225)
+        let snapshot = FocusWhitelistSnapshot(apps: [], pages: [
+            page("https://course.example/normal", title: "  数据库规范化 · 第三范式  "),
+            page("https://course.example/long", title: prefix + " https://private-user:fake-password@course.example/private-path?token=secret-query"),
+            page("https://course.example/empty", title: " \n ")
+        ])
+        #expect(snapshot.candidates.map(\.name) == ["数据库规范化 · 第三范式", String((prefix + " course.example").prefix(240)), "course.example"])
+        #expect(snapshot.candidates.allSatisfy { $0.name.count <= 240 })
     }
 
     @Test func confirmationOnlyAddsSelectedKnownTargetsAndKeepsManualChoices() throws {

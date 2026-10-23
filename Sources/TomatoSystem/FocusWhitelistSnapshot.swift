@@ -28,7 +28,7 @@ public struct FocusWhitelistSnapshot: Sendable {
         var seenPages: Set<String> = []
         for page in pages {
             guard !page.isPrivate, let key = FocusPageRule.pageKey(page.url), seenPages.insert(key).inserted else { continue }
-            let title = page.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = ActivityPrivacy.clean(page.title, limit: 240)
             let candidate = FocusWhitelistCandidate(id: "page-\(entries.count)", kind: .page,
                                                      name: String((title.isEmpty ? page.host : title).prefix(240)),
                                                      detail: String(page.host.prefix(160)))
