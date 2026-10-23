@@ -14,7 +14,7 @@
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
-    <key>NSAppleEventsUsageDescription</key><string>专注守护需要读取当前 Chrome 标签的标题与网址，并在本轮授权且 AI 确认无关后关闭对应标签。</string>
+    <key>NSAppleEventsUsageDescription</key><string>读取 Chrome 普通窗口中的标签标题与网址，为本轮专注推荐和检查白名单；仅在本轮另行授权且 AI 确认无关后关闭对应标签。</string>
     <key>NSScreenCaptureUsageDescription</key><string>仅在本轮允许 AI 关闭无关页面时，截取当前 Chrome 窗口供 DeepSeek 判断与学习目标的相关性；不持续录屏，也不保存截图。</string>
 </dict>
 </plist>
