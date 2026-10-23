@@ -41,6 +41,7 @@ struct ReviewSettingsSection: View {
         VStack(spacing: 14) {
             connection
             models
+            ActivityRecordingSettingsCard(state: state)
             automation
             privacy
         }
@@ -187,7 +188,7 @@ struct ReviewSettingsSection: View {
             DisclosureGroup {
                 VStack(alignment: .leading, spacing: 12) {
                     SettingsHelpText("API Key 按服务商分别保存在本机钥匙串。切换服务商时，可以继续使用已保存的密钥。")
-                    SettingsHelpText("成果回顾会发送目标、App 时长、完成待办及你添加的文字和图片。专注守护的 AI 检查还需要当前普通 Chrome 窗口的截图、标题和网址，须在每轮单独授权；截图不保存。")
+                    SettingsHelpText("成果回顾会发送目标、App 时长、完成待办及你添加的文字和图片。开启 AI 自动记录后，还会使用你允许保存的页面标题、网站和便签变更。专注守护的 AI 检查需要当前普通 Chrome 窗口截图与标题，须在每轮单独授权；截图不保存，也不混入活动记录。")
                     SettingsHelpText("基础计时与白名单外时长统计在本机完成。")
                     Button("重新检测本机密钥", action: state.refreshCredentialStatus)
                         .buttonStyle(.plain).foregroundStyle(Theme.accent)

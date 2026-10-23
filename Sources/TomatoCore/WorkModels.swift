@@ -70,6 +70,14 @@ public struct WorkRecord: Codable, Identifiable, Sendable {
     public var images: [WorkImage] = []
     public var summary: AISummary?
     public var autoReviewAttemptedAt: Date?
+    public var activityTopic: ActivityTopic?
+    public var titleOverride: String?
+    public var topicAttemptCount: Int?
+    public var topicAttemptDigest: String?
+    public var topicAttemptFocusSeconds: Double?
+    public var finalTopicAttempted: Bool?
+    public var automaticRecordingUsed: Bool?
+    public var excludedActivityKeys: [String]?
     public var updatedAt = Date()
 
     public init(localDay: String, sessionID: UUID? = nil) {
