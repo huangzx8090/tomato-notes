@@ -55,6 +55,7 @@ public struct AppSettings: Codable, Sendable {
     public var focusGuard = FocusGuardSettings()
     public var review = ReviewSettings()
     public var ai = AISettings()
+    public var activityRecording = ActivityRecordingSettings()
     public var timerHotkey = Hotkey(letter: "P")
     public var todoHotkey = Hotkey(letter: "T")
     public var noteHotkey = Hotkey(letter: "N")
@@ -64,7 +65,7 @@ public struct AppSettings: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakEvery
         case soundEnabled, notificationsEnabled, recordingEnabled, allowClamshellWithExternalDisplay
-        case showDockIcon, glassControlsEnabled, appearance, focusGuard, review, ai
+        case showDockIcon, glassControlsEnabled, appearance, focusGuard, review, ai, activityRecording
         case timerHotkey, todoHotkey, noteHotkey
     }
 
@@ -84,6 +85,7 @@ public struct AppSettings: Codable, Sendable {
         focusGuard = try values.decodeIfPresent(FocusGuardSettings.self, forKey: .focusGuard) ?? FocusGuardSettings()
         review = try values.decodeIfPresent(ReviewSettings.self, forKey: .review) ?? ReviewSettings()
         ai = try values.decodeIfPresent(AISettings.self, forKey: .ai) ?? AISettings()
+        activityRecording = try values.decodeIfPresent(ActivityRecordingSettings.self, forKey: .activityRecording) ?? ActivityRecordingSettings()
         timerHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .timerHotkey) ?? Hotkey(letter: "P")
         todoHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .todoHotkey) ?? Hotkey(letter: "T")
         noteHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .noteHotkey) ?? Hotkey(letter: "N")
@@ -225,7 +227,7 @@ public struct StickyNote: Codable, Identifiable, Sendable {
 }
 
 public struct AppData: Codable, Sendable {
-    public static let currentSchemaVersion = 3
+    public static let currentSchemaVersion = 4
     public var schemaVersion = currentSchemaVersion
     public var settings = AppSettings()
     public var timer = TimerSnapshot()
@@ -235,13 +237,14 @@ public struct AppData: Codable, Sendable {
     public var todos: [TodoItem] = []
     public var notes: [StickyNote] = []
     public var workRecords: [WorkRecord] = []
+    public var focusActivities: [FocusActivity] = []
     public var lastReviewAttemptDay: String?
     public var lastReviewError: String?
 
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, settings, timer, sessions, intervals, usage, todos, notes, workRecords, lastReviewAttemptDay, lastReviewError
+        case schemaVersion, settings, timer, sessions, intervals, usage, todos, notes, workRecords, focusActivities, lastReviewAttemptDay, lastReviewError
     }
 
     public init(from decoder: Decoder) throws {
@@ -255,6 +258,7 @@ public struct AppData: Codable, Sendable {
         todos = try values.decode([TodoItem].self, forKey: .todos)
         notes = try values.decode([StickyNote].self, forKey: .notes)
         workRecords = try values.decodeIfPresent([WorkRecord].self, forKey: .workRecords) ?? []
+        focusActivities = try values.decodeIfPresent([FocusActivity].self, forKey: .focusActivities) ?? []
         lastReviewAttemptDay = try values.decodeIfPresent(String.self, forKey: .lastReviewAttemptDay)
         lastReviewError = try values.decodeIfPresent(String.self, forKey: .lastReviewError)
     }

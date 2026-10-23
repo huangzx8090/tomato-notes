@@ -132,6 +132,68 @@ struct AIReviewClientTests {
         #expect(models == ["gpt-4o", "gpt-4o-mini"])
     }
 
+    private func activityContext() -> ActivityTopicContext {
+        var data = AppData()
+        let session = FocusSession(startedAt: Date())
+        data.sessions = [session]
+        data.focusActivities = [.init(sessionID: session.id, kind: .chromePage, title: "数据库规范化", site: "course.example",
+            startedAt: Date(), endedAt: Date(), localDay: "2026-10-23", seconds: 90)]
+        return ActivityTopicContext.build(sessionID: session.id, from: data)
+    }
+
+    @Test func activityIdentificationUsesTextOnlyAndValidatesEvidenceIDs() async throws {
+        let context = activityContext()
+        let evidenceID = try #require(context.evidenceIDs.first)
+        StubProtocol.handler = { request in
+            let body = try #require(try JSONSerialization.jsonObject(with: Self.requestBody(request)) as? [String: Any])
+            let messages = try #require(body["messages"] as? [[String: Any]])
+            #expect(messages[1]["content"] as? String == context.text)
+            #expect(!String(decoding: try Self.requestBody(request), as: UTF8.self).contains("image_url"))
+            let result: [String: Any] = ["title": "软考 · 数据库规范化", "confidence": 0.9, "evidenceIDs": [evidenceID.uuidString], "matchingTopicID": NSNull()]
+            let text = String(decoding: try JSONSerialization.data(withJSONObject: result), as: UTF8.self)
+            return (200, try JSONSerialization.data(withJSONObject: ["choices": [["finish_reason": "stop", "message": ["content": text]]]]))
+        }
+        let result = try await client().identifyActivity(context: context, apiKey: "fake-test-key")
+        #expect(result.title == "软考 · 数据库规范化" && result.evidenceIDs == [evidenceID])
+    }
+
+    @Test func activityIdentificationRejectsInventedEvidenceTopicsAndInvalidConfidence() async throws {
+        let context = activityContext()
+        let evidenceID = try #require(context.evidenceIDs.first)
+        let invalid: [[String: Any]] = [
+            ["title": "数据库", "confidence": 0.9, "evidenceIDs": [UUID().uuidString]],
+            ["title": "数据库", "confidence": 0.9, "evidenceIDs": [evidenceID.uuidString], "matchingTopicID": UUID().uuidString],
+            ["title": "数据库", "confidence": 1.1, "evidenceIDs": [evidenceID.uuidString]],
+            ["title": "数据库", "confidence": 0.9, "evidenceIDs": []]
+        ]
+        for result in invalid {
+            StubProtocol.handler = { _ in
+                let text = String(decoding: try JSONSerialization.data(withJSONObject: result), as: UTF8.self)
+                return (200, try JSONSerialization.data(withJSONObject: ["choices": [["finish_reason": "stop", "message": ["content": text]]]]))
+            }
+            do {
+                _ = try await client().identifyActivity(context: context, apiKey: "fake-test-key")
+                Issue.record("无效主题或虚构依据不能成为记录")
+            } catch is AIReviewError {}
+        }
+    }
+
+    @Test func activityIdentificationAllowsUncertaintyAndRejectsTruncation() async throws {
+        let context = activityContext()
+        StubProtocol.handler = { _ in
+            let text = #"{"title":"","confidence":0.2,"evidenceIDs":[],"matchingTopicID":null}"#
+            return (200, try JSONSerialization.data(withJSONObject: ["choices": [["finish_reason": "stop", "message": ["content": text]]]]))
+        }
+        #expect(try await client().identifyActivity(context: context, apiKey: "fake-test-key").title.isEmpty)
+        StubProtocol.handler = { _ in
+            (200, Data(#"{"choices":[{"finish_reason":"length","message":{"content":"{}"}}]}"#.utf8))
+        }
+        do {
+            _ = try await client().identifyActivity(context: context, apiKey: "fake-test-key")
+            Issue.record("截断的识别结果不能保存")
+        } catch AIReviewError.incomplete {}
+    }
+
     @Test func testConnectionOnlyChecksModelEndpoint() async throws {
         StubProtocol.handler = { request in
             #expect(request.httpMethod == "GET")
