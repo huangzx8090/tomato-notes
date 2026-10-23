@@ -4,12 +4,15 @@ import TomatoCore
 
 struct TodoPage: View {
     let todos: [TodoItem]
+    let allTodos: [TodoItem]
     let day: String
     @Binding var draft: String
     var addTodo: (String) -> Void
     var toggleTodo: (UUID) -> Bool
     var updateTodo: (UUID, String) -> Void
     var deleteTodo: (UUID) -> Void
+    var scheduleCarryover: (Set<UUID>) -> Void
+    var undoCarryover: (UUID) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ViewState private var lastCompletedID: UUID?
     @ViewState private var feedbackGeneration = 0
@@ -19,6 +22,9 @@ struct TodoPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            TodoCarryoverView(todos: allTodos, today: day,
+                              schedule: scheduleCarryover,
+                              undoSchedule: undoCarryover)
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("今日待办").font(.system(size: 21, weight: .semibold, design: .serif))
@@ -199,6 +205,10 @@ private struct NotebookTodoRow: View {
                         .strikethrough(todo.isCompleted, color: Theme.green.opacity(0.7))
                         .foregroundStyle(todo.isCompleted ? Theme.secondary : Theme.primary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if todo.localDay != todo.effectiveScheduledDay {
+                        Text("来源 \(todo.localDay) · 最近安排 \(todo.effectiveScheduledDay)")
+                            .font(.system(size: 9)).foregroundStyle(Theme.secondary)
+                    }
                     if let date = todo.completedAt {
                         Text("已完成 · \(date.formatted(date: .omitted, time: .shortened))")
                             .font(.system(size: 9)).foregroundStyle(Theme.green)

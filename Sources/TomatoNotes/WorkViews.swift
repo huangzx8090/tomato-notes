@@ -136,8 +136,11 @@ struct WorkReportView: View {
     private var subtitle: String {
         switch scope {
         case .session(let id):
-            let seconds = state.data.intervals.filter { $0.sessionID == id }.reduce(0) { $0 + $1.seconds }
-            return "本轮实际投入 \(durationLabel(seconds))，已有记录会自动归集。想补充时，再留一句话或一张图。"
+            let intervals = state.data.intervals.filter { $0.sessionID == id }
+            let seconds = intervals.reduce(0) { $0 + $1.seconds }
+            let days = Array(Set(intervals.map(\.localDay))).sorted()
+            let dateDetail = days.count > 1 ? "涉及日期：\(days.joined(separator: "、"))。" : ""
+            return "\(dateDetail)本轮实际投入 \(durationLabel(seconds))，已有记录会自动归集。想补充时，再留一句话或一张图。"
         case .day: return "结合当天各轮专注、成果图片、待办和你的补充，整理今天一整天的进展。"
         }
     }

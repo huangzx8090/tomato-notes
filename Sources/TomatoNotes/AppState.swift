@@ -5,6 +5,12 @@ import IOKit
 import TomatoCore
 import TomatoSystem
 
+struct HistoryNavigationRequest: Equatable {
+    let id = UUID()
+    let day: String
+    let todoID: UUID?
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published private(set) var data: AppData
@@ -13,6 +19,9 @@ final class AppState: ObservableObject {
     @Published private(set) var lastDeletedTodo: TodoItem?
     @Published var notificationStatus = "首次开始或测试提醒时申请通知权限"
     @Published private(set) var calendarDay = LocalTime.dayKey(Date())
+    @Published private(set) var focusHeatmapRevision = 0
+    @Published private(set) var historySearchRevision = 0
+    @Published private(set) var historyNavigationRequest: HistoryNavigationRequest?
     @Published private(set) var generatingScopes: Set<String> = []
     @Published private(set) var reviewErrors: [String: String] = [:]
     @Published private(set) var hasAPIKey = false
@@ -41,6 +50,7 @@ final class AppState: ObservableObject {
     private var engine: TimerEngine
     private var lastUptime: TimeInterval?
     private var lastSavedUptime: TimeInterval = 0
+    private var lastHeatmapMinute = Calendar.current.component(.minute, from: Date())
     private var lastLidCheck: TimeInterval = 0
     private var lidClosed = false
     private var currentApp: AppIdentity?
@@ -118,7 +128,7 @@ final class AppState: ObservableObject {
             advanceToNow()
             engine.pause(reason: "手动暂停", at: Date())
             lastUptime = nil
-            publish()
+            publish(focusHeatmapChanged: timer.stage == .focus)
             return
         }
         guard !deviceLocked else { feedback = "设备仍处于锁屏状态"; return }
@@ -154,13 +164,21 @@ final class AppState: ObservableObject {
         pendingTimerOnly = false
         lastUptime = ProcessInfo.processInfo.systemUptime
         currentApp = Self.frontmostApp()
-        publish()
+        publish(historyContentChanged: engine.data.timer.sessionID != previousSessionID)
         onStarted?()
     }
 
     func tick() {
-        let day = LocalTime.dayKey(Date())
-        if day != calendarDay { calendarDay = day }
+        let now = Date()
+        let day = LocalTime.dayKey(now)
+        var heatmapNeedsRefresh = false
+        if day != calendarDay { calendarDay = day; heatmapNeedsRefresh = true }
+        let minute = Calendar.current.component(.minute, from: now)
+        if minute != lastHeatmapMinute {
+            lastHeatmapMinute = minute
+            if timer.phase == .running && timer.stage == .focus { heatmapNeedsRefresh = true }
+        }
+        if heatmapNeedsRefresh { focusHeatmapRevision &+= 1 }
         guard canWrite else { return }
         let uptime = ProcessInfo.processInfo.systemUptime
         if uptime - lastLidCheck >= 1 {
@@ -171,7 +189,7 @@ final class AppState: ObservableObject {
             // 合盖通知可能不伴随睡眠，检测后立刻冻结最近检查点。
             engine.pause(reason: deviceLocked ? "锁屏已暂停" : "合盖已暂停", at: Date())
             lastUptime = nil
-            publish()
+            publish(focusHeatmapChanged: timer.stage == .focus)
             return
         }
         advanceToNow()
@@ -191,7 +209,7 @@ final class AppState: ObservableObject {
         advanceToNow()
         engine.pause(reason: reason, at: Date())
         lastUptime = nil
-        publish()
+        publish(focusHeatmapChanged: timer.stage == .focus)
     }
 
     func appDidChange() {
@@ -209,7 +227,7 @@ final class AppState: ObservableObject {
         else if timer.stage == .focus { engine.endEarly(at: Date()) }
         else { engine.skipBreak(at: Date()) }
         lastUptime = nil
-        publish()
+        publish(focusHeatmapChanged: endingSessionID != nil)
         if let id = endingSessionID { recordEndedFocus(id) }
     }
 
@@ -218,7 +236,7 @@ final class AppState: ObservableObject {
         guard canWrite else { return }
         advanceToNow()
         if timer.phase == .running { engine.pause(reason: "应用退出已暂停", at: Date()) }
-        publish()
+        publish(focusHeatmapChanged: timer.stage == .focus)
     }
 
     var guardSetupActionTitle: String { guardSetupStartsTimer ? "设置并开始专注" : "保存本轮白名单" }
@@ -247,7 +265,7 @@ final class AppState: ObservableObject {
             var next = engine.data
             if let index = next.sessions.firstIndex(where: { $0.id == id }) { next.sessions[index].goal = plan.goal }
             engine.replaceData(next)
-            publish()
+            publish(historyContentChanged: true)
             timerOnlySessionID = nil
             guardSetupPresented = false
         } else { feedback = "本轮已经结束，请在开始下一轮时重新设置白名单。"; guardSetupPresented = false }
@@ -312,16 +330,23 @@ final class AppState: ObservableObject {
         var next = data
         next.todos.append(TodoItem(text: trimmed, localDay: todayKey))
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
     }
 
     @discardableResult
     func toggleTodo(_ id: UUID) -> Bool {
         guard canWrite else { return false }
         advanceToNow()
+        let day = todayKey
         var next = data
-        guard let index = next.todos.firstIndex(where: { $0.id == id && $0.localDay == todayKey }) else { return false }
-        next.todos[index].completedAt = next.todos[index].completedAt == nil ? Date() : nil
+        guard let index = next.todos.firstIndex(where: { $0.id == id && $0.effectiveScheduledDay == day }) else { return false }
+        if next.todos[index].completedAt == nil {
+            next.todos[index].completedAt = Date()
+            next.todos[index].completedLocalDay = day
+        } else {
+            next.todos[index].completedAt = nil
+            next.todos[index].completedLocalDay = nil
+        }
         engine.replaceData(next)
         publish()
         return canWrite && next.todos[index].isCompleted
@@ -331,20 +356,22 @@ final class AppState: ObservableObject {
         guard canWrite else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let day = todayKey
         var next = data
-        guard let index = next.todos.firstIndex(where: { $0.id == id && $0.localDay == todayKey }) else { return }
+        guard let index = next.todos.firstIndex(where: { $0.id == id && $0.effectiveScheduledDay == day }) else { return }
         next.todos[index].text = trimmed
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
     }
 
     func deleteTodo(_ id: UUID) {
         guard canWrite else { return }
+        let day = todayKey
         var next = data
         var history = todoDeletionHistory
-        guard history.remove(id, on: todayKey, from: &next.todos) else { return }
+        guard history.remove(id, on: day, from: &next.todos) else { return }
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
         guard canWrite else { return }
         todoDeletionHistory = history
         lastDeletedTodo = history.lastDeleted
@@ -358,7 +385,7 @@ final class AppState: ObservableObject {
         let restored = history.restoreLast(in: &next.todos)
         if restored != nil {
             engine.replaceData(next)
-            publish()
+            publish(historyContentChanged: true)
             guard canWrite else { return }
         }
         todoDeletionHistory = history
@@ -372,13 +399,49 @@ final class AppState: ObservableObject {
         feedback = nil
     }
 
+    @discardableResult
+    func scheduleTodosForToday(_ ids: Set<UUID>) -> [UUID] {
+        guard canWrite, !ids.isEmpty else { return [] }
+        let day = todayKey
+        var next = data
+        let changed = TodoCarryover.schedule(ids, on: day, in: &next.todos)
+        guard !changed.isEmpty else { return [] }
+        engine.replaceData(next)
+        publish()
+        if canWrite { feedback = changed.count == 1 ? "待办已安排到今天" : "已安排 \(changed.count) 项到今天" }
+        return changed
+    }
+
+    func undoTodoSchedule(_ id: UUID) {
+        guard canWrite else { return }
+        let day = todayKey
+        var next = data
+        let result = TodoCarryover.undoSchedule(id, on: day, in: &next.todos)
+        switch result {
+        case .undone:
+            engine.replaceData(next)
+            publish()
+            if canWrite { feedback = "已撤销安排，待办文字和完成记录已保留" }
+        case .completed:
+            feedback = "这条待办已完成，不能直接撤销结转"
+        case .missing:
+            feedback = "记录已不存在"
+        case .notScheduledToday:
+            feedback = "这条待办目前不在今天的安排中"
+        }
+    }
+
+    func requestHistoryDay(_ day: String, highlightTodoID: UUID? = nil) {
+        historyNavigationRequest = HistoryNavigationRequest(day: day, todoID: highlightTodoID)
+    }
+
     func createNote() -> UUID? {
         guard canWrite else { return nil }
         var next = data
         let note = StickyNote()
         next.notes.append(note)
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
         return note.id
     }
 
@@ -389,7 +452,7 @@ final class AppState: ObservableObject {
         var next = data
         guard let copyID = NoteLibrary.continueNote(id, in: &next.notes) else { return nil }
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
         return canWrite ? copyID : nil
     }
 
@@ -399,7 +462,7 @@ final class AppState: ObservableObject {
         var next = data
         next.notes.removeAll { $0.id == id }
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
         if canWrite { feedback = "便签已删除" }
         return canWrite
     }
@@ -411,7 +474,7 @@ final class AppState: ObservableObject {
         next.notes[index].text = text
         next.notes[index].updatedAt = Date()
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
     }
 
     func updateNoteFrame(_ id: UUID, frame: NSRect) {
@@ -445,11 +508,12 @@ final class AppState: ObservableObject {
         if let previous = lastConversion, previous.0 == id, previous.1 == text,
            Date().timeIntervalSince(previous.2) < 1 { return 0 }
         let now = Date()
+        let day = todayKey
         var next = data
-        for line in lines { next.todos.append(TodoItem(text: line, localDay: todayKey, createdAt: now)) }
+        for line in lines { next.todos.append(TodoItem(text: line, localDay: day, createdAt: now)) }
         engine.replaceData(next)
         lastConversion = (id, text, now)
-        publish()
+        publish(historyContentChanged: true)
         feedback = "已添加 \(lines.count) 条待办"
         return lines.count
     }
@@ -482,7 +546,7 @@ final class AppState: ObservableObject {
         next.workRecords[index].userText = text
         next.workRecords[index].updatedAt = Date()
         engine.replaceData(next)
-        publish(persist: false)
+        publish(persist: false, historyContentChanged: true)
         workSaveTask?.cancel()
         let task = DispatchWorkItem { [weak self] in self?.publish() }
         workSaveTask = task
@@ -652,7 +716,7 @@ final class AppState: ObservableObject {
         next.workRecords[index].summary = AISummary(content: content, model: aiProvider.defaultModel,
                                                    contextDigest: context.digest, imageIDs: context.images.map(\.id))
         engine.replaceData(next)
-        publish()
+        publish(historyContentChanged: true)
     }
 
     private func checkDailyReviewSchedule() {
@@ -709,10 +773,16 @@ final class AppState: ObservableObject {
            guardController.sessionID == sessionID {
             engine.setWhitelistBundleIDs(plan.applicationWhitelistBundleIDs, for: sessionID)
         }
+        let hadSessionInterval = sessionID.map { id in data.intervals.contains { $0.sessionID == id } } ?? true
         let completed = engine.advance(seconds: delta, endingAt: Date(), app: currentApp,
                                        recordingEnabled: settings.recordingEnabled)
         let next = engine.data.timer.nextStage
-        publish(persist: completed || uptime - lastSavedUptime >= 2)
+        let firstIntervalRecorded = !hadSessionInterval && (sessionID.map { id in
+            engine.data.intervals.contains { $0.sessionID == id }
+        } ?? false)
+        publish(persist: completed || uptime - lastSavedUptime >= 2,
+                historyContentChanged: firstIntervalRecorded,
+                focusHeatmapChanged: completed && sessionID != nil)
         if completed {
             lastUptime = nil
             if let id = sessionID { recordEndedFocus(id) }
@@ -720,8 +790,11 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func publish(persist: Bool = true) {
+    private func publish(persist: Bool = true, historyContentChanged: Bool = false,
+                         focusHeatmapChanged: Bool = false) {
         data = engine.data
+        if historyContentChanged { historySearchRevision &+= 1 }
+        if focusHeatmapChanged { focusHeatmapRevision &+= 1 }
         if persist {
             do {
                 try repository.save(data)

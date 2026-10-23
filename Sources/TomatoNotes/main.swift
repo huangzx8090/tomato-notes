@@ -4,13 +4,15 @@ import TomatoCore
 import TomatoSystem
 
 @MainActor
-final class AppCoordinator: NSObject, NSApplicationDelegate {
+final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let state: AppState
     private let dataLock: RepositoryLock
     private lazy var shortcuts = HotkeyManager()
     private lazy var reminders = ReminderManager()
     private var notes: NoteWindows!
     private var work: WorkWindows!
+    private var focusHeatmapWindow: FocusHeatmapWindowController?
+    private var historySearchWindow: HistorySearchWindowController?
     private var statusItem: NSStatusItem!
     private var mainPanel: MainPanelWindow?
     private var heartbeat: Timer?
@@ -77,6 +79,8 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
             continueNote: { [weak self] id in self?.hidePanel(); self?.notes.continueNote(id) },
             deleteNote: { [weak self] id in self?.notes.delete(id) },
             openWork: { [weak self] scope in self?.hidePanel(); self?.work.open(scope) },
+            openHistorySearch: { [weak self] in self?.showHistorySearch() },
+            openFocusHeatmap: { [weak self] in self?.showFocusHeatmap() },
             testReminder: { [weak self] in self?.testReminder() },
             requestNotifications: { [weak self] in self?.reminders.requestIfNeeded() },
             panelHeight: panelHeight
@@ -202,6 +206,54 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
     private func hidePanel() {
         panelPresented = false
         mainPanel?.orderOut(nil)
+    }
+
+    private func showHistorySearch() {
+        if historySearchWindow == nil {
+            historySearchWindow = HistorySearchWindowController(state: state) { [weak self] target in
+                self?.openHistorySearchTarget(target)
+            }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        historySearchWindow?.showWindow(nil)
+        historySearchWindow?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    private func showFocusHeatmap() {
+        if focusHeatmapWindow == nil {
+            focusHeatmapWindow = FocusHeatmapWindowController(state: state) { [weak self] day in
+                guard let self else { return }
+                self.showPopover()
+                self.state.requestHistoryDay(day)
+            }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        focusHeatmapWindow?.showWindow(nil)
+        focusHeatmapWindow?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    private func openHistorySearchTarget(_ target: HistorySearchTarget) {
+        switch target {
+        case .todo(let id):
+            guard let todo = state.data.todos.first(where: { $0.id == id }) else {
+                state.feedback = "记录已不存在"
+                return
+            }
+            showPopover()
+            state.requestHistoryDay(todo.localDay, highlightTodoID: id)
+        case .note(let id):
+            guard state.note(id) != nil else { state.feedback = "记录已不存在"; return }
+            hidePanel()
+            notes.open(id)
+        case .session(let id):
+            guard state.data.sessions.contains(where: { $0.id == id }) else { state.feedback = "记录已不存在"; return }
+            hidePanel()
+            work.open(.session(id))
+        case .work(let scope):
+            guard state.workRecord(for: scope) != nil else { state.feedback = "记录已不存在"; return }
+            hidePanel()
+            work.open(scope)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -363,6 +415,15 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
         showPopover()
         NotificationCenter.default.post(name: Notification.Name("TomatoNotes.showSettings"), object: nil)
     }
+    @objc private func searchHistory(_ sender: Any?) { showHistorySearch() }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(searchHistory(_:)) else { return true }
+        guard NSApp.keyWindow === mainPanel else { return false }
+        if let textView = NSApp.keyWindow?.firstResponder as? NSTextView,
+           textView.isEditable || textView.isFieldEditor { return false }
+        return true
+    }
     @objc private func closeCurrentWindow() {
         guard let window = NSApp.keyWindow else { return }
         if window === mainPanel { hidePanel() }
@@ -388,6 +449,10 @@ final class AppCoordinator: NSObject, NSApplicationDelegate {
                                        ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] {
             editMenu.addItem(withTitle: title, action: NSSelectorFromString(selector), keyEquivalent: key)
         }
+        editMenu.addItem(.separator())
+        let searchItem = editMenu.addItem(withTitle: "搜索历史…", action: #selector(searchHistory(_:)), keyEquivalent: "f")
+        searchItem.target = self
+        searchItem.keyEquivalentModifierMask = [.command]
         editItem.submenu = editMenu
         main.addItem(editItem)
         let windowItem = NSMenuItem()

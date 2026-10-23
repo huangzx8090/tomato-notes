@@ -40,7 +40,24 @@ public enum ReviewContextBuilder {
             facts["实际专注秒数"] = Int(summary.focusSeconds.rounded())
             facts["完整番茄轮数"] = summary.completedSessions
             facts["完成的待办"] = summary.completedTodos.map(\.text)
-            facts["尚未完成的待办"] = summary.todos.filter { !$0.isCompleted }.map(\.text)
+            facts["当天安排的待办"] = summary.todos.map { todo -> [String: String] in
+                let status: String
+                if todo.completionDay == day {
+                    status = "当日完成"
+                } else if let completionDay = todo.completionDay, completionDay > day {
+                    status = "当时未完成，后续于 \(completionDay) 完成"
+                } else if todo.effectiveScheduledDay > day {
+                    status = "当时未完成，后续结转到 \(todo.effectiveScheduledDay)"
+                } else if todo.isCompleted {
+                    status = "此前已完成"
+                } else {
+                    status = "尚未完成"
+                }
+                return ["文字": todo.text, "状态": status]
+            }
+            facts["尚未完成的待办"] = summary.todos.filter {
+                $0.completionDay.map { $0 > day } ?? true
+            }.map(\.text)
             facts["专注期间前台App"] = appFacts(data.usage.filter { $0.localDay == day })
             let dayIDs = Set(data.intervals.filter { $0.localDay == day }.map(\.sessionID))
             facts["各轮投入与目标"] = data.sessions.filter { dayIDs.contains($0.id) }

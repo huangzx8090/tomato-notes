@@ -63,7 +63,7 @@ struct FocusGuardSetupView: View {
             (!allowClosing || (hasCapture && controller.chromeReady && state.hasAPIKey))
     }
     private var unfinishedTodos: [TodoItem] {
-        Array(state.data.todos.filter { $0.localDay == state.todayKey && !$0.isCompleted }.prefix(12))
+        Array(state.data.todos.filter { $0.effectiveScheduledDay == state.todayKey && !$0.isCompleted }.prefix(12))
     }
     private var visibleTabs: [GuardPage] {
         controller.availableTabs.filter {
