@@ -215,6 +215,8 @@ private struct FocusHeatmapGrid: View {
     let onSelectDay: (String) -> Void
 
     private let weekdays = ["一", "二", "三", "四", "五", "六", "日"]
+    @ViewState private var hoveredDay: String?
+    @ViewState private var hoverTask: Task<Void, Never>?
     private var cellSide: CGFloat { compact ? 9 : 12 }
     private var cellPitch: CGFloat { compact ? 13 : 19 }
     private var weekHeader: CGFloat { compact ? 11 : 16 }
@@ -237,11 +239,13 @@ private struct FocusHeatmapGrid: View {
                             let index = item.offset
                             let week = item.element
                             VStack(alignment: .leading, spacing: 0) {
-                                Text(monthLabel(for: week, previous: index > 0 ? range.weeks[index - 1] : nil))
+                                let month = monthLabel(for: week, previous: index > 0 ? range.weeks[index - 1] : nil)
+                                Text(month)
                                     .font(.system(size: compact ? 8 : 10, weight: .medium))
                                     .foregroundStyle(Theme.secondary)
                                     .fixedSize()
                                     .frame(width: cellPitch, height: weekHeader, alignment: .leading)
+                                    .accessibilityLabel(compact ? "\(month)月" : month)
                                 VStack(spacing: compact ? 3 : 5) {
                                     ForEach(week.days) { day in
                                         dayButton(day)
@@ -269,6 +273,10 @@ private struct FocusHeatmapGrid: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("按周排列的每日专注热力图，周一至周日")
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onDisappear {
+            hoverTask?.cancel()
+            hoveredDay = nil
+        }
     }
 
     @ViewBuilder private func dayButton(_ day: FocusHeatmapDay) -> some View {
@@ -299,6 +307,27 @@ private struct FocusHeatmapGrid: View {
         .accessibilityValue(day.isFuture ? "未来日期" : "专注时长：\(heatmapExactDuration(day.seconds))")
         .accessibilityAddTraits(day.id == selectedDay ? .isSelected : [])
         .accessibilityIdentifier("heatmap.day.\(day.day)")
+        .popover(isPresented: Binding(
+            get: { hoveredDay == day.day },
+            set: { isPresented in
+                if !isPresented && hoveredDay == day.day { hoveredDay = nil }
+            }
+        ), arrowEdge: .bottom) {
+            heatmapHoverDetail(day)
+        }
+        .onHover { isHovering in
+            hoverTask?.cancel()
+            guard isHovering, !day.isFuture else {
+                if hoveredDay == day.day { hoveredDay = nil }
+                return
+            }
+            hoverTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                guard !Task.isCancelled else { return }
+                hoveredDay = day.day
+            }
+        }
+        .zIndex(hoveredDay == day.day ? 2 : 0)
     }
 
     private func monthLabel(for week: FocusHeatmapWeek, previous: FocusHeatmapWeek?) -> String {
@@ -312,8 +341,24 @@ private struct FocusHeatmapGrid: View {
             let previousYear = calendar.component(.year, from: previousAnchor)
             guard month != previousMonth || year != previousYear else { return "" }
         }
-        return "\(month)月"
+        return compact ? "\(month)" : "\(month)月"
     }
+}
+
+private func heatmapHoverDetail(_ day: FocusHeatmapDay) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+        Text(heatmapDateLabel(day.date))
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Theme.primary)
+        Text("专注 \(heatmapExactDuration(day.seconds))")
+            .font(.system(size: 11))
+            .foregroundStyle(Theme.secondary)
+    }
+    .padding(.horizontal, 11)
+    .padding(.vertical, 9)
+    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 9))
+    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.border, lineWidth: 0.8))
+    .fixedSize()
 }
 
 private func heatmapColor(_ day: FocusHeatmapDay) -> Color {
