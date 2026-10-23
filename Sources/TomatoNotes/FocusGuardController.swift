@@ -84,16 +84,26 @@ final class FocusGuardController: ObservableObject {
     }
 
     func loadTabs() {
-        guard !loadingTabs else { return }
+        Task { _ = try? await readTabsForRecommendation() }
+    }
+
+    func readTabsForRecommendation() async throws -> [GuardPage] {
+        guard !loadingTabs else { throw ChromeBrowserError.unavailable }
         loadingTabs = true
-        Task {
-            defer { loadingTabs = false }
-            do {
-                try await browser.requestAccess()
-                availableTabs = try await browser.currentWindowTabs()
-                chromeReady = true
-                permissionStatus = "已连接 Chrome；读取当前普通窗口的 \(availableTabs.count) 个标签"
-            } catch { permissionStatus = error.localizedDescription; chromeReady = false }
+        defer { loadingTabs = false }
+        do {
+            try await browser.requestAccess()
+            let tabs = try await browser.allWindowTabs()
+            try Task.checkCancellation()
+            availableTabs = tabs
+            chromeReady = true
+            permissionStatus = "已连接 Chrome；读取所有普通窗口的 \(tabs.count) 个标签"
+            return tabs
+        } catch {
+            availableTabs = []
+            permissionStatus = error.localizedDescription
+            chromeReady = false
+            throw error
         }
     }
 
