@@ -72,7 +72,7 @@ struct ReviewTests {
         let original = try JSONSerialization.data(withJSONObject: json)
         try original.write(to: repository.fileURL)
         var loaded = try repository.load()
-        #expect(loaded.schemaVersion == 4)
+        #expect(loaded.schemaVersion == AppData.currentSchemaVersion)
         #expect(loaded.todos[0].text == "旧版用户内容")
         #expect(loaded.workRecords.isEmpty)
         let backups = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("Backups/schema-v3"), includingPropertiesForKeys: nil)

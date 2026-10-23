@@ -28,6 +28,7 @@ struct WorkReportView: View {
                 }
                 if case .session(let id) = scope, let progress = SessionProgress.build(sessionID: id, from: state.data) {
                     SessionProgressCard(state: state, progress: progress, showSummaryPreview: false)
+                    ActivitySessionDetails(state: state, sessionID: id)
                     if !progress.apps.isEmpty {
                         DisclosureGroup("这一轮的 App 投入记录") {
                             VStack(spacing: 8) {

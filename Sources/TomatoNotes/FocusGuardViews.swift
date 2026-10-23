@@ -38,6 +38,7 @@ struct FocusGuardCard: View {
 struct FocusGuardSetupView: View {
     @ObservedObject var state: AppState
     @ObservedObject var controller: FocusGuardController
+    @ObservedObject var recommender: FocusWhitelistRecommender
     var onClose: () -> Void
     @ViewState private var goal = ""
     @ViewState private var allowedApps: Set<String> = []
@@ -59,8 +60,13 @@ struct FocusGuardSetupView: View {
     }
     private var maySave: Bool {
         !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && goal.count <= 300 &&
-            (pages.isEmpty || controller.chromeReady) &&
+            !recommender.loading && (confirmedPlan.pages.isEmpty || controller.chromeReady) &&
             (!allowClosing || (hasCapture && controller.chromeReady && state.hasAPIKey))
+    }
+    private var confirmedPlan: FocusGuardPlan {
+        let draft = FocusGuardPlan(goal: goal.trimmingCharacters(in: .whitespacesAndNewlines), appIDs: allowedApps,
+                                   pages: pages, allowAIClosing: allowClosing)
+        return recommender.confirmedPlan(from: draft, provider: controller.aiProvider)
     }
     private var unfinishedTodos: [TodoItem] {
         Array(state.data.todos.filter { $0.effectiveScheduledDay == state.todayKey && !$0.isCompleted }.prefix(12))
@@ -121,10 +127,15 @@ struct FocusGuardSetupView: View {
                                 } label: { Label("从今天未完成的待办选一个", systemImage: "checklist") }
                                 .font(.system(size: 11))
                             }
-                            Text("平时只在本机检查白名单，提醒不消耗 AI Tokens。")
+                            Text("写好目标后，可让 AI 读取当前 App 与网页，帮你选好本轮白名单。")
                                 .font(.system(size: 11)).foregroundStyle(Theme.secondary)
                         }
                     }
+                    FocusWhitelistRecommendationView(model: recommender, providerName: controller.aiProvider.name,
+                                                     hasKey: state.hasAPIKey,
+                                                     canRecommend: !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                                                        goal.count <= 300 && !controller.loadingTabs,
+                                                     onRecommend: { recommender.recommend(goal: goal, controller: controller) })
                     PaperCard {
                         VStack(alignment: .leading, spacing: 11) {
                             Text("本轮允许的 Chrome 页面").font(.system(size: 13, weight: .semibold))
@@ -148,7 +159,7 @@ struct FocusGuardSetupView: View {
                                 }
                             }
                             if controller.availableTabs.isEmpty {
-                                Button(controller.loadingTabs ? "正在连接…" : "连接 Chrome / 读取当前窗口标签") { controller.loadTabs() }
+                                Button(controller.loadingTabs ? "正在连接…" : "连接 Chrome / 读取所有普通窗口标签") { controller.loadTabs() }
                                     .buttonStyle(SubtleButtonStyle()).disabled(controller.loadingTabs)
                             }
                             Text(controller.permissionStatus).font(.system(size: 10)).foregroundStyle(Theme.secondary)
@@ -279,7 +290,7 @@ struct FocusGuardSetupView: View {
                     .help("仅跳过这一轮的守护，不改变全局设置")
                 Spacer()
                 Button(state.guardSetupActionTitle) {
-                    state.saveGuardPlan(.init(goal: goal.trimmingCharacters(in: .whitespacesAndNewlines), appIDs: allowedApps, pages: pages, allowAIClosing: allowClosing))
+                    state.saveGuardPlan(confirmedPlan)
                 }.buttonStyle(SubtleButtonStyle()).disabled(!maySave)
             }.padding(20)
         }
@@ -300,7 +311,16 @@ struct FocusGuardSetupView: View {
             goalFocused = true
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in hasCapture = FocusPageCapture.hasPermission }
-        .onChange(of: state.guardSetupPresented) { _, presented in if !presented { onClose() } }
+        .onChange(of: goal) { _, _ in
+            if recommender.loading || !recommender.suggestions.isEmpty {
+                recommender.cancel(message: "目标已修改，可重新读取并推荐。")
+            }
+        }
+        .onChange(of: state.settings.ai) { _, _ in recommender.cancel(message: "AI 配置已修改，请重新推荐。") }
+        .onDisappear { recommender.cancel() }
+        .onChange(of: state.guardSetupPresented) { _, presented in
+            if !presented { recommender.cancel(); onClose() }
+        }
         .onExitCommand { state.guardSetupPresented = false }
     }
     private func isPageAdded(_ page: GuardPage) -> Bool {
@@ -437,6 +457,7 @@ struct TabGroupRow: View {
 @MainActor
 final class FocusGuardSetupWindowController: NSWindowController, NSWindowDelegate {
     private let state: AppState
+    private let recommender = FocusWhitelistRecommender()
     var onClosed: (() -> Void)?
     init(state: AppState) {
         self.state = state
@@ -450,6 +471,7 @@ final class FocusGuardSetupWindowController: NSWindowController, NSWindowDelegat
         window.titlebarAppearsTransparent = true
         window.backgroundColor = Theme.backgroundNS
         window.contentView = makePaperHostingView(rootView: FocusGuardSetupView(state: state, controller: state.guardController,
+                                                                             recommender: recommender,
                                                                              onClose: { [weak self] in self?.window?.close() }),
                                                   size: NSSize(width: 590, height: height))
         window.delegate = self
@@ -457,6 +479,7 @@ final class FocusGuardSetupWindowController: NSWindowController, NSWindowDelegat
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func windowWillClose(_ notification: Notification) {
+        recommender.cancel()
         state.guardSetupPresented = false
         onClosed?()
     }
