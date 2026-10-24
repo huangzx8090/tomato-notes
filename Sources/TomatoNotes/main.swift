@@ -78,6 +78,10 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuItemValidatio
             openNote: { [weak self] id in self?.hidePanel(); self?.notes.open(id) },
             continueNote: { [weak self] id in self?.hidePanel(); self?.notes.continueNote(id) },
             deleteNote: { [weak self] id in self?.notes.delete(id) },
+            exportNote: { [weak self] id in
+                guard let self else { return }
+                self.notes.export(id, from: self.mainPanel)
+            },
             openWork: { [weak self] scope in self?.hidePanel(); self?.work.open(scope) },
             openHistorySearch: { [weak self] in self?.showHistorySearch() },
             openFocusHeatmap: { [weak self] in self?.showFocusHeatmap() },

@@ -20,8 +20,9 @@ struct FocusGuardCard: View {
                         .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                     Button("查看或调整本轮白名单") { state.openGuardSetup(startAfter: false) }.buttonStyle(SubtleButtonStyle())
                 } else {
-                    Text(state.isTimerOnlyRound ? "这轮安心计时，不检查页面；下一轮仍按原设置开始。" : "选好这轮要做的事，离开白名单太久时，轻轻提醒你回来。")
-                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                    if state.isTimerOnlyRound {
+                        Text("本轮仅计时").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                    }
                     if state.timer.stage == .focus && (state.timer.phase == .running || state.timer.phase == .paused) {
                         Button("设置本轮白名单") { state.openGuardSetup(startAfter: false) }.buttonStyle(SubtleButtonStyle())
                     } else if state.timer.phase == .idle || (state.timer.phase == .completed && state.timer.nextStage == .focus) {
