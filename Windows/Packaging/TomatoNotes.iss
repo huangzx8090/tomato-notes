@@ -1,10 +1,10 @@
 ; Build from the repository root:
 ; dotnet publish Windows/TomatoNotes -c Release -r win-x64 --self-contained true -o build/windows/publish
-; iscc /DAppVersion=1.6.1 /DPublishDir=build/windows/publish Windows/Packaging/TomatoNotes.iss
+; iscc /DAppVersion=1.6.2 /DPublishDir=build/windows/publish Windows/Packaging/TomatoNotes.iss
 #define AppName "番茄小记"
 #define AppId "{{A36F99B0-1F70-42F9-9F1C-C7B80E975244}"
 #ifndef AppVersion
-  #define AppVersion "1.6.1"
+  #define AppVersion "1.6.2"
 #endif
 #ifndef PublishDir
   #define PublishDir "build\windows\publish"
