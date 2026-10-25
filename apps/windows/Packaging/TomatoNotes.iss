@@ -1,6 +1,6 @@
 ; Build from the repository root:
-; dotnet publish Windows/TomatoNotes -c Release -r win-x64 --self-contained true -o build/windows/publish
-; iscc /DAppVersion=1.6.2 /DPublishDir=build/windows/publish Windows/Packaging/TomatoNotes.iss
+; dotnet publish apps/windows/TomatoNotes -c Release -r win-x64 --self-contained true -o build/windows/publish
+; iscc /DAppVersion=1.6.2 /DPublishDir=build/windows/publish /DRepoRoot=<repository-root> apps/windows/Packaging/TomatoNotes.iss
 #define AppName "番茄小记"
 #define AppId "{{A36F99B0-1F70-42F9-9F1C-C7B80E975244}"
 #ifndef AppVersion
@@ -10,7 +10,7 @@
   #define PublishDir "build\windows\publish"
 #endif
 #ifndef RepoRoot
-  #define RepoRoot "..\.."
+  #define RepoRoot "..\..\.."
 #endif
 [Setup]
 AppId={#AppId}
@@ -28,14 +28,14 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
-SetupIconFile={#RepoRoot}\Windows\TomatoNotes\Assets\AppIcon.ico
+SetupIconFile={#RepoRoot}\apps\windows\TomatoNotes\Assets\AppIcon.ico
 UninstallDisplayIcon={app}\TomatoNotes.exe
 DisableProgramGroupPage=yes
 CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion={#AppVersion}.0
 VersionInfoDescription=番茄小记 Windows 安装程序
-InfoBeforeFile={#RepoRoot}\Windows\Packaging\安装说明.txt
+InfoBeforeFile={#RepoRoot}\apps\windows\Packaging\安装说明.txt
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"

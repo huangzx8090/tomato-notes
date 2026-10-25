@@ -37,10 +37,10 @@ jobs:
       - name: 核对标签、版本与主分支
         run: Scripts/validate-release.sh "$RELEASE_TAG"
       - name: 运行规则与接口测试
-        run: Scripts/test.sh
+        run: apps/macos/Scripts/test.sh
       - name: 构建并校验发布文件
         run: |
-          Scripts/package-release.sh "$RELEASE_TAG"
+          apps/macos/Scripts/package-release.sh "$RELEASE_TAG"
           cp "docs/releases/$RELEASE_TAG.md" build/release-notes.md
       - name: 保存发布文件
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -74,16 +74,16 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - name: 运行 Windows 核心与模拟接口测试
-        run: dotnet run --project Windows/TomatoNotes.Tests/TomatoNotes.Tests.csproj -c Release
+        run: dotnet run --project apps/windows/TomatoNotes.Tests/TomatoNotes.Tests.csproj -c Release
       - name: 安装 Inno Setup 并打包
         run: |
           choco install innosetup --yes --no-progress
-          powershell -ExecutionPolicy Bypass -File Scripts/package-windows.ps1
+          powershell -ExecutionPolicy Bypass -File apps/windows/Scripts/package-windows.ps1
       - name: 校验 Windows 发布附件
         shell: bash
         run: |
           test -s "build/releases/$RELEASE_TAG/TomatoNotes-$RELEASE_TAG-Windows-x64-setup.exe"
-          cp Windows/Packaging/安装说明.txt "build/releases/$RELEASE_TAG/WINDOWS-INSTALL.txt"
+          cp apps/windows/Packaging/安装说明.txt "build/releases/$RELEASE_TAG/WINDOWS-INSTALL.txt"
           cd "build/releases/$RELEASE_TAG"
           sha256sum -c WINDOWS-SHA256SUMS.txt
       - name: 保存 Windows 发布文件
