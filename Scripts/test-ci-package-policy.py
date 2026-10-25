@@ -19,8 +19,8 @@ class PackagePolicyTests(unittest.TestCase):
         self.git("init", "--quiet", "--initial-branch=main")
         self.base = self.commit({
             "README.md": "base\n",
-            "Sources/App.swift": "// base\n",
-            "Packaging/Info.plist": "base\n",
+            "apps/macos/Sources/App.swift": "// base\n",
+            "apps/macos/Packaging/Info.plist": "base\n",
         })
 
     def git(self, *args):
@@ -60,44 +60,48 @@ class PackagePolicyTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), str(expected).lower())
 
     def test_source_and_docs_only_skip_packaging(self):
-        self.commit({"Sources/App.swift": "// updated\n", "README.md": "docs\n"})
+        self.commit({"apps/macos/Sources/App.swift": "// updated\n", "README.md": "docs\n"})
         for event in ("push", "pull_request"):
             with self.subTest(event=event):
                 self.assertPackage(False, event)
 
     def test_packaging_inputs_trigger_packaging(self):
         previous = self.base
-        for path in ("Packaging/Info.plist", "Scripts/build-app.sh",
+        for path in ("apps/macos/Packaging/Info.plist", "Scripts/build-app.sh",
+                     "VERSION",
+                     "apps/macos/Scripts/build-app.sh", "apps/windows/Scripts/package-windows.ps1",
                      "Scripts/ci-package-needed.sh", ".github/workflows/ci.yml",
-                     ".github/workflows/release.yml", "Windows/TomatoNotes/App.xaml.cs", "Windows/Packaging/TomatoNotes.iss", "Package.swift", "Package.resolved"):
+                     ".github/workflows/release.yml", "apps/windows/TomatoNotes/App.xaml.cs",
+                     "apps/windows/Packaging/TomatoNotes.iss", "apps/macos/Package.swift",
+                     "apps/macos/Package.resolved"):
             with self.subTest(path=path):
                 head = self.commit({path: "changed\n"})
                 self.assertPackage(True, base=previous, head=head)
                 previous = head
 
     def test_push_checks_all_commits_in_the_push(self):
-        self.commit({"Packaging/Info.plist": "updated\n"})
-        self.commit({"Sources/App.swift": "// updated\n"})
+        self.commit({"apps/macos/Packaging/Info.plist": "updated\n"})
+        self.commit({"apps/macos/Sources/App.swift": "// updated\n"})
         self.assertPackage(True, "push")
 
     def test_pr_ignores_changes_only_on_target_branch(self):
-        target = self.commit({"Packaging/Info.plist": "target change\n"})
+        target = self.commit({"apps/macos/Packaging/Info.plist": "target change\n"})
         self.git("checkout", "--quiet", "-b", "feature", self.base)
-        self.commit({"Sources/App.swift": "// feature change\n"})
+        self.commit({"apps/macos/Sources/App.swift": "// feature change\n"})
         self.assertPackage(False, base=target)
 
     def test_pr_keeps_packaging_changes_after_target_branch_advances(self):
         target = self.commit({"README.md": "target change\n"})
         self.git("checkout", "--quiet", "-b", "feature", self.base)
-        self.commit({"Packaging/Info.plist": "feature change\n"})
+        self.commit({"apps/macos/Packaging/Info.plist": "feature change\n"})
         self.assertPackage(True, base=target)
 
     def test_removing_packaging_input_triggers_packaging(self):
-        self.commit({"Packaging/Info.plist": None})
+        self.commit({"apps/macos/Packaging/Info.plist": None})
         self.assertPackage(True)
 
     def test_moving_file_out_of_packaging_triggers_packaging(self):
-        self.git("mv", "Packaging/Info.plist", "Info.plist")
+        self.git("mv", "apps/macos/Packaging/Info.plist", "Info.plist")
         self.commit({})
         self.assertPackage(True)
 
@@ -110,7 +114,7 @@ class PackagePolicyTests(unittest.TestCase):
     def test_manual_runs_follow_explicit_selection(self):
         self.assertPackage(False, "workflow_dispatch")
         self.assertPackage(True, "workflow_dispatch", package="true")
-        self.commit({"Packaging/Info.plist": "updated\n"})
+        self.commit({"apps/macos/Packaging/Info.plist": "updated\n"})
         self.assertPackage(False, "workflow_dispatch")
 
     def test_invalid_manual_selection_fails(self):

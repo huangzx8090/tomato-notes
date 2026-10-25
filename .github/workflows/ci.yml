@@ -40,6 +40,10 @@ jobs:
         run: Scripts/check-branch-policy.sh "$BASE_REF" "$HEAD_REF"
       - name: 验证打包触发规则
         run: python3 Scripts/test-ci-package-policy.py
+      - name: 核对产品与两端版本
+        run: |
+          python3 Scripts/test-version-policy.py
+          python3 Scripts/check-versions.py
       - name: 判断是否需要验证安装包
         id: package
         env:
@@ -69,13 +73,13 @@ jobs:
           swift --version
       - name: 检查脚本与数据格式
         run: |
-          for script in Scripts/*.sh; do bash -n "$script"; done
-          plutil -lint Packaging/Info.plist
+          for script in Scripts/*.sh apps/macos/Scripts/*.sh; do bash -n "$script"; done
+          plutil -lint apps/macos/Packaging/Info.plist
           git diff --check
       - name: 运行规则与接口测试
-        run: Scripts/test.sh
+        run: apps/macos/Scripts/test.sh
       - name: 编译当前架构应用
-        run: swift build -c debug --product TomatoNotes
+        run: swift build --package-path apps/macos -c debug --product TomatoNotes
 
   windows-test-and-build:
     name: Windows 核心测试与编译
@@ -92,9 +96,9 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - name: 运行核心与模拟接口测试
-        run: dotnet run --project Windows/TomatoNotes.Tests/TomatoNotes.Tests.csproj -c Release
+        run: dotnet run --project apps/windows/TomatoNotes.Tests/TomatoNotes.Tests.csproj -c Release
       - name: 编译 WPF 应用
-        run: dotnet build Windows/TomatoNotes/TomatoNotes.csproj -c Release
+        run: dotnet build apps/windows/TomatoNotes/TomatoNotes.csproj -c Release
 
   windows-package:
     name: Windows 安装包验证
@@ -114,7 +118,7 @@ jobs:
       - name: 安装 Inno Setup 并打包
         run: |
           choco install innosetup --yes --no-progress
-          powershell -ExecutionPolicy Bypass -File Scripts/package-windows.ps1
+          powershell -ExecutionPolicy Bypass -File apps/windows/Scripts/package-windows.ps1
       - name: 保存安装包
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -138,7 +142,7 @@ jobs:
         with:
           persist-credentials: false
       - name: 构建并验证 Universal ZIP 与 DMG
-        run: Scripts/package-release.sh
+        run: apps/macos/Scripts/package-release.sh
       - name: 保存安装包
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:

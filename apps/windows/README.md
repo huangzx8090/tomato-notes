@@ -1,7 +1,7 @@
 # 番茄小记 Windows 客户端
 
 这是同一仓库内的原生 **WPF / .NET 8** 客户端，不是把 SwiftUI 直接条件编译到 Windows。
-macOS 源码保持在 `Sources/`，由 macOS 维护者负责；`Windows/` 由 Windows 维护者负责。目录职责与协作规则见 [双端协作维护](../docs/双端协作维护.md)。Windows 代码按核心与系统界面拆分：
+macOS 工程位于 `apps/macos/`，由 macOS 维护者负责；`apps/windows/` 由 Windows 维护者负责。目录职责与协作规则见 [双端协作维护](../../docs/双端协作维护.md)。Windows 代码按核心与系统界面拆分：
 
 - `TomatoNotes.Core/`：跨平台资料模型、macOS 日期编码兼容、计时、统计、备份与 AI 协议。
 - `TomatoNotes/`：WPF 界面、Win32 前台进程/全局快捷键、系统托盘、DPAPI 密钥、图片导入。
@@ -28,12 +28,12 @@ Keychain 密钥不会也不应迁移到 Windows，需在 Windows 设置中重新
 
 ## 构建与测试
 
-在 Windows 10/11 x64 + .NET 8 SDK 上：
+在 Windows 10/11 x64 + .NET 8 SDK 上，从仓库根目录执行：
 
 ```powershell
-dotnet run --project Windows/TomatoNotes.Tests/TomatoNotes.Tests.csproj
-dotnet run --project Windows/TomatoNotes/TomatoNotes.csproj -- --ui-test
-powershell -ExecutionPolicy Bypass -File Scripts/package-windows.ps1
+dotnet run --project apps/windows/TomatoNotes.Tests/TomatoNotes.Tests.csproj
+dotnet run --project apps/windows/TomatoNotes/TomatoNotes.csproj -- --ui-test
+powershell -ExecutionPolicy Bypass -File apps/windows/Scripts/package-windows.ps1
 ```
 
 打包需要 Inno Setup 6。输出为
@@ -44,10 +44,16 @@ powershell -ExecutionPolicy Bypass -File Scripts/package-windows.ps1
 macOS / Linux 可用 .NET 8 SDK 验证核心，并用以下参数交叉编译 WPF：
 
 ```bash
-dotnet build Windows/TomatoNotes/TomatoNotes.csproj -p:EnableWindowsTargeting=true
-dotnet publish Windows/TomatoNotes/TomatoNotes.csproj -c Release -r win-x64 \
+dotnet build apps/windows/TomatoNotes/TomatoNotes.csproj -p:EnableWindowsTargeting=true
+dotnet publish apps/windows/TomatoNotes/TomatoNotes.csproj -c Release -r win-x64 \
   --self-contained true -p:EnableWindowsTargeting=true -o build/windows/publish
 ```
 
 跨平台编译和安装器内容校验不等于 Windows 实机验收。托盘、通知、快捷键、
 安装/卸载、权限与真实 AI 请求需在 Windows 上单独验证。
+
+## 协作与版本
+
+产品版本来自根目录 `VERSION`，Windows 打包仅核对自身 csproj 与该版本，不读取 macOS 配置；公共 CI 校验两端一致。根目录 `Scripts/package-windows.ps1` 保留为兼容入口。
+
+分支示例：`feat/windows-history-search`、`fix/windows-tray-menu`。AI 交付前需检查 macOS 是否应跟进，优先使用 `gh` 查重并创建 / 补充适用的 issue；纯 Windows 特有问题记录跳过原因，完整规则见[双端协作维护](../../docs/双端协作维护.md)。

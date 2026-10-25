@@ -3,13 +3,24 @@
 ## 分支与交付
 
 - `main` 是稳定发布分支，`develop` 是日常集成分支；仓库默认分支保持 `main`。
-- 功能与修复从最新 `origin/develop` 建立短分支，使用 `<类型>/<简短英文描述>`，例如 `feat/progress-timeline`、`fix/timer-display`，不加个人名前缀。
+- 功能与修复从最新 `origin/develop` 建立短分支，使用 `<类型>/<平台>-<简短英文描述>`；平台为 `macos`、`windows` 或 `shared`，例如 `feat/macos-history-search`、`fix/windows-tray-menu`、`refactor/shared-directory-layout`，不加个人名前缀。历史分支不强制改名，发布分支仍为 `release/vX.Y.Z`。
 - 类型为 `feat`、`fix`、`docs`、`chore`、`refactor`、`test`、`ci`、`release` 或 `hotfix`。
 - 普通 PR 进入 `develop`；发布 PR 为 `develop` → `main`；发布后的同步 PR 可为 `main` → `develop`。
 - 不直接推送 main / develop，不改写已发布标签，不绕过检查；提交信息使用中文。
 - 合并需要用户明确授权；同一会话已经给出的授权不重复询问，未经授权不自动合并。
 - 先检查工作区，不丢弃或覆盖他人未提交内容。旧分支保留，不在其他任务中顺手删除。
 - 详细操作见 CONTRIBUTING.md；新克隆执行 Scripts/setup-dev.sh，快速开分支用 Scripts/start-work.sh。
+
+## 双端目录与 AI 协作
+
+- `apps/macos/` 是 macOS 工程，`apps/windows/` 是 Windows 工程；平台源码、测试、打包资源和实现脚本留在各自目录。根目录维护 `Compatibility/`、`VERSION`、仓库协作脚本、CI 和公共文档。
+- macOS 维护者为 @huangzx8090，Windows 维护者为 @blakceyes（khalil），路径责任见 `.github/CODEOWNERS`；适用的跟进 issue 指派目标端维护者。
+- 一端的正常维护只修改该端；数据契约、版本、CI 和发布流程需要双方评审。目录职责与完整流程见 `docs/双端协作维护.md`。
+- AI 每次交付功能、修复或改进前，必须检查另一端是否存在对应能力或同类问题：新增另一端缺少且适用的功能、修复共同逻辑缺陷、提供可复用的体验或维护改进时，自动为另一端创建跟进 issue；规则双向适用。
+- 仅影响某一平台 API、系统权限、托盘、签名或安装器等特有实现，且另一端无同类问题时，不创建跨端 issue。纯目录整理、内部等价重构、文档修改或另一端已实现的行为也不重复提 issue。
+- issue 操作优先使用 `gh`：先搜索已有 open / closed issue 并阅读相关内容；有对应事项则补充，避免重复创建。正文通过临时文件和 `--body-file` 提交，附目标端、来源 PR / commit、适用依据、预期行为与验收条件；来源未合并时明确标记。
+- 创建本仓库跨端跟进 issue 属于上述协作流程，满足条件时直接执行；跟进 issue 不授权自动修改另一端或自动合并。`gh` 不可用时可使用已连接的 GitHub 工具；仍失败时保留标题和正文并报告原因，不声称已通知。
+- PR 和最终交付必须记录跨端判断：已创建 / 已补充的 issue 链接，或无需提 issue 的具体原因。禁止用源端 PR 的 `Closes` / `Fixes` 提前关闭目标端跟进事项。
 
 ## 验证与资料
 
@@ -18,7 +29,7 @@
 - 不用个人待办、便签或重要浏览标签做破坏性测试。用户要求暂停实机测试时继续遵守。
 - 日常使用和交付用户操作的预览共用固定本机资料库，普通启动并复用已有实例；不要把带独立 `--data-dir` 的测试实例当成日常入口。自动化或破坏性验证显式使用 `--ui-test` / 独立资料，交付时说明隔离状态。
 - 不提交 Key、.build、build 或个人数据；日志不得输出密钥。
-- 发版同时更新 Info.plist 的版本与 build、CHANGELOG、docs/releases/<tag>.md。版本标签只能指向 main 中的提交。
+- 发版同时更新根目录 `VERSION`、`apps/macos/Packaging/Info.plist` 的版本与 build、Windows csproj 版本、CHANGELOG、docs/releases/<tag>.md。`Scripts/check-versions.py` 检查三者一致；版本标签只能指向 main 中的提交。
 
 ## 当前平台限制
 

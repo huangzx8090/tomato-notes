@@ -34,7 +34,9 @@ fi
 
 # 禁用重命名检测，移出这些目录的文件也会按删除触发验证。
 if git diff --quiet --no-renames "$comparison" -- \
-    .github/workflows/ Packaging/ Windows/ Scripts/ Package.swift Package.resolved; then
+    .github/workflows/ Scripts/ VERSION apps/macos/Packaging/ apps/macos/Scripts/ \
+    apps/macos/Package.swift apps/macos/Package.resolved apps/windows/ \
+    Packaging/ Windows/ Package.swift Package.resolved; then
     printf 'false\n'
 else
     diff_status=$?
