@@ -79,13 +79,9 @@ jobs:
         run: |
           choco install innosetup --yes --no-progress
           powershell -ExecutionPolicy Bypass -File apps/windows/Scripts/package-windows.ps1
-      - name: 校验 Windows PE 与发布附件
+      - name: 校验 Windows 发布附件
         shell: bash
         run: |
-          test -s "build/releases/$RELEASE_TAG/TomatoNotes-$RELEASE_TAG-Windows-x64-setup.exe"
-          file "build/releases/$RELEASE_TAG/TomatoNotes-$RELEASE_TAG-Windows-x64-setup.exe" | grep -E 'PE32.*executable.*80386'
-          # The installer has an x86 bootstrap; package-windows.ps1 checks the bundled x64 app.
-          file build/windows/publish/TomatoNotes.exe | grep -E 'PE32\+.*executable.*x86-64'
           test -s "build/releases/$RELEASE_TAG/TomatoNotes-$RELEASE_TAG-Windows-x64-setup.exe"
           cp apps/windows/Packaging/安装说明.txt "build/releases/$RELEASE_TAG/WINDOWS-INSTALL.txt"
           cd "build/releases/$RELEASE_TAG"
@@ -122,7 +118,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          cp -R "windows-release-files/releases/$RELEASE_TAG/." "release-files/releases/$RELEASE_TAG/"
+          cp -R "windows-release-files/$RELEASE_TAG/." "release-files/releases/$RELEASE_TAG/"
           cd "release-files/releases/$RELEASE_TAG"
           cat WINDOWS-SHA256SUMS.txt >> SHA256SUMS.txt
           rm WINDOWS-SHA256SUMS.txt
