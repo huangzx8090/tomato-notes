@@ -2,6 +2,13 @@
 
 ## 未发布
 
+## 1.6.1 · 2026-10-25
+
+macOS 应用 build 13；Windows 应用版本 1.6.1.0。本版承接 v1.6.0 的双端功能；v1.6.0 标签已推送且保持不变，但此前没有生成 GitHub Release。
+
+- 修复 Windows Release 校验因重复执行 `git fetch origin main`、而检出步骤不保留 Git 凭据导致的认证失败。完整分支历史已由 checkout 提供。
+- 重新打包 v1.6.0 功能线并提升双端版本号；产品功能说明见 [v1.6.0 发布说明](docs/releases/v1.6.0.md)。
+
 ## 1.6.0 · 2026-10-25
 
 macOS 应用 build 12；Windows 应用版本 1.6.0.0。
