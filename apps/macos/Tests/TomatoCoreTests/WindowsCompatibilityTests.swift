@@ -7,6 +7,7 @@ struct WindowsCompatibilityTests {
     private var fixtureURL: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Compatibility/data-contract-v4.json")
     }
 

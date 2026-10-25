@@ -24,13 +24,13 @@ macOS 菜单栏与 Windows 桌面工具，集成番茄钟、待办、浮动便�
 3. 使用 `Ctrl+Alt+P / T / N` 控制计时、快速待办与便签；Keychain 由 Windows DPAPI 替代，系统通知由托盘气泡替代。
 4. 暂不提供 macOS Liquid Glass、合盖策略及 AppleScript / 截图式 Chrome 自动关闭。Windows 资料保存在 `%APPDATA%\TomatoNotes`。
 
-Windows 安装程序目前未使用 Authenticode 商业签名，SmartScreen 可能提示。请核对来源与 `SHA256SUMS.txt`。功能范围、源码构建和 Windows 实机验收边界见 **[Windows 客户端说明](Windows/README.md)**；安装后也可查看 Release 的 `WINDOWS-INSTALL.txt`。
+Windows 安装程序目前未使用 Authenticode 商业签名，SmartScreen 可能提示。请核对来源与 `SHA256SUMS.txt`。功能范围、源码构建和 Windows 实机验收边界见 **[Windows 客户端说明](apps/windows/README.md)**；安装后也可查看 Release 的 `WINDOWS-INSTALL.txt`。
 
 ### macOS 14+
 
 Universal 包同时包含 **Apple Silicon 与 Intel** 架构。
 
-当前版本 **v1.6.1（macOS build 13；Windows 1.6.1.0）**，承接 v1.6.0 的双端功能与改进，并修复 Windows Release 标签校验失败。详见[本次发布说明](docs/releases/v1.6.1.md)。
+当前版本 **v1.6.2（macOS build 14；Windows 1.6.2.0）**，承接 v1.6.0 的双端功能与改进，并修复 Windows 发布校验与双端附件汇总。详见[本次发布说明](docs/releases/v1.6.2.md)。
 
 1. 推荐下载 `.dmg`，打开后把“番茄小记”拖入 **Applications**；也可解压 `.zip` 后移入“应用程序”。
 2. 从“应用程序”打开，在屏幕顶部菜单栏点击计时图标。默认不显示 Dock 图标，可在 **设置 → 在 Dock 中显示图标** 开启。
@@ -169,20 +169,32 @@ Universal 包同时包含 **Apple Silicon 与 Intel** 架构。
 - 计时使用单调时钟，约每 2 秒保存恢复检查点，关键动作立即原子保存。同一数据目录只有一个进程可写，重复启动会唤出原实例；读取失败保留原文件并停止写入。
 - 日常启动始终共用上述固定目录，包括从其他位置打开应用副本、手动打开验证包。多次打开共用同一个正在运行的计时和记录，不额外启动一个独立番茄钟。保存位置和备份入口位于“设置 → 数据与隐私”。
 - 只有显式 `--ui-test` 或 `--data-dir` 才使用独立资料；面板会显示“独立测试资料”，可保存当前内容后打开本机共用资料库。已有独立资料保持原位，不自动将测试记录混入日常历史；需要保留的旧记录可按[资料合并说明](docs/本地资料保存与统一.md)备份后合并。
-- **设置 → 数据与隐私 → 备份数据** 同时保存 JSON 和关联图片。备份 JSON 与同名 `.assets/Attachments/` 目录须一同保留；恢复步骤见指南。备份不含钥匙串 Key。v1.6.1 使用 v4 资料格式，保存活动记录与待办安排历史，升级前自动备份；v1.4.0 等旧版不能读取 v4，回退前需恢复兼容备份。
+- **设置 → 数据与隐私 → 备份数据** 同时保存 JSON 和关联图片。备份 JSON 与同名 `.assets/Attachments/` 目录须一同保留；恢复步骤见指南。备份不含钥匙串 Key。v1.6.2 使用 v4 资料格式，保存活动记录与待办安排历史，升级前自动备份；v1.4.0 等旧版不能读取 v4，回退前需恢复兼容备份。
 - Key 按服务商保存在本机钥匙串，不写入 JSON、Git 或日志；启动进程内的 `AI_API_KEY`、对应服务商环境变量优先于钥匙串，兼容旧 DeepSeek Key。终端的临时变量通常不会传给 Dock 启动的应用，推荐直接在设置中填写。
 - 待办删除可从底部连续撤销，关闭提示或退出后撤销记录失效。便签删除确认后无法在应用内撤销；“收起窗口”会保留便签。
 - 当前没有云同步、账号或自动更新器。除主动触发或开启的 AI 功能外，其余资料在本机处理。
 
 ## 从源码构建
 
+两端工程平级放置：
+
+```text
+apps/macos/     SwiftPM 工程、源码、测试与 macOS 打包
+apps/windows/   WPF 工程、核心、测试与 Windows 安装器
+Compatibility/ 两端共用数据契约
+VERSION        产品版本号
+Scripts/       仓库协作、版本检查与旧命令兼容入口
+```
+
+各端维护者通常只修改对应工程；分支命名、共享变更评审和 AI 跨端 issue 跟进见[双端协作维护](docs/双端协作维护.md)。根目录常用构建脚本保留为兼容入口，实际调用对应平台脚本。
+
 需要 **macOS + Xcode 26 或更新工具链及 macOS 26+ SDK**；尽管最低运行系统为 macOS 14，编译原生玻璃 API 需要较新的 SDK。完整 Xcode 可用，匹配 SDK 的 Command Line Tools 也可构建。没有第三方 Swift 依赖。
 
 ```bash
 git clone https://github.com/huangzx8090/tomato-notes.git
 cd tomato-notes
-Scripts/test.sh
-Scripts/build-app.sh
+apps/macos/Scripts/test.sh
+apps/macos/Scripts/build-app.sh
 open 'build/番茄小记.app'
 ```
 
@@ -190,31 +202,31 @@ open 'build/番茄小记.app'
 
 ```bash
 # 双架构正式应用（arm64 + x86_64）
-Scripts/build-app.sh release --universal
+apps/macos/Scripts/build-app.sh release --universal
 
-# DMG、ZIP、安装说明与校验文件；标签必须匹配 Info.plist
-Scripts/package-release.sh v1.6.1
+# DMG、ZIP、安装说明与校验文件；标签必须匹配根目录 VERSION 和本端配置
+apps/macos/Scripts/package-release.sh v1.6.2
 
 # 独立验证包和资料，不接触正式数据
-Scripts/build-app.sh release --qa
+apps/macos/Scripts/build-app.sh release --qa
 open -n 'build/番茄小记验证.app' --args \
   --data-dir "$PWD/build/my-qa-data" --show-panel --ui-test
 
 # 可选集成检查：需要已登录的图形会话，会临时注册测试快捷键
-Scripts/check-integration.sh
+apps/macos/Scripts/check-integration.sh
 ```
 
 `--guard-qa` 生成专注守护验证包，Bundle ID 独立。验证时必须带 `--ui-test`，或通过 `--data-dir` 显式指定独立资料；单纯在 Finder 中打开验证包会使用日常共用资料。`--ui-test` 未指定目录时使用 `TomatoNotes-QA`（守护验证包使用 `TomatoNotes-GuardQA`），并拒绝指向日常目录及其符号链接。构建会整体替换应用包，已运行的进程需要正常退出重开后才使用新代码。
 
 ### 开发分支
 
-`main` 保持稳定，`develop` 集成开发；工作分支命名为 `<类型>/<描述>`，例如 `feat/progress-timeline`、`fix/timer-display`，通过 PR 进入 develop，发布时再由 develop PR 到 main。参见 [开发与分支约定](CONTRIBUTING.md)。首次克隆执行 `Scripts/setup-dev.sh` 开启本地推送拦截。
+`main` 保持稳定，`develop` 集成开发；工作分支命名为 `<类型>/<平台>-<描述>`，例如 `feat/macos-history-search`、`fix/windows-tray-menu`、`chore/shared-ci-policy`，通过 PR 进入 develop，发布时再由 develop PR 到 main。参见 [开发与分支约定](CONTRIBUTING.md)。首次克隆执行 `Scripts/setup-dev.sh` 开启本地推送拦截。
 
 当前私有仓库的 GitHub 分支保护受账号计划限制，CI 与本地 hook **不能替代服务端保护**。仓库同时维护 macOS 与 Windows 客户端；目录职责、跨端评审与版本同步见 [双端协作维护](docs/双端协作维护.md)。
 
 ### Actions 与发布
 
-- [macOS 与 Windows CI](https://github.com/huangzx8090/tomato-notes/actions/workflows/ci.yml)：PR、main / develop 推送和手动运行，执行两端测试与编译。`Packaging/`、`Windows/`、`Scripts/`、工作流或 SwiftPM 配置变更时额外执行 Universal 与 Windows 安装包校验；无法可靠比较提交时也执行打包。手动运行勾选 `package` 可生成预览安装包，暂存 7 天，不发布 Release。
+- [macOS 与 Windows CI](https://github.com/huangzx8090/tomato-notes/actions/workflows/ci.yml)：PR、main / develop 推送和手动运行，执行两端测试与编译。`VERSION`、`apps/macos/Packaging/`、平台脚本、`apps/windows/`、仓库脚本、工作流或 SwiftPM 配置变更时额外执行 Universal 与 Windows 安装包校验；无法可靠比较提交时也执行打包。手动运行勾选 `package` 可生成预览安装包，暂存 7 天，不发布 Release。
 - [发布 macOS 与 Windows 应用](https://github.com/huangzx8090/tomato-notes/actions/workflows/release.yml)：推送 `vX.Y.Z` 标签，检查两端版本与主分支归属，重新测试和并行打包，全部附件齐备后正式发布。
 - 测试使用模拟 AI 响应，**不需要在 Actions 填写 DeepSeek Key**。发布使用仓库自动提供的 `GITHUB_TOKEN`；只有上传 Release 的 job 获得 `contents: write`。
 - 后续发版步骤、工具链选择、失败重跑和签名限制见 [发布流程](docs/发布流程.md)。
