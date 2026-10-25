@@ -1,0 +1,53 @@
+# 番茄小记 Windows 客户端
+
+这是同一仓库内的原生 **WPF / .NET 8** 客户端，不是把 SwiftUI 直接条件编译到 Windows。
+macOS 源码保持在 `Sources/`；Windows 代码按核心与系统界面拆分：
+
+- `TomatoNotes.Core/`：跨平台资料模型、macOS 日期编码兼容、计时、统计、备份与 AI 协议。
+- `TomatoNotes/`：WPF 界面、Win32 前台进程/全局快捷键、系统托盘、DPAPI 密钥、图片导入。
+- `TomatoNotes.Tests/`：无外部依赖的规则和模拟 HTTP 测试。
+- `Packaging/TomatoNotes.iss`：Inno Setup 安装/卸载配置。
+
+## 功能与边界
+
+保留番茄钟、暂停恢复、待办与撤销、历史统计、独立浮动便签、TXT 导出、前台应用投入、
+本地备份、AI 模型查询和文字/图片回顾、自动回顾。托盘气泡代替 macOS 通知，
+Ctrl+Alt 快捷键代替 Control+Option，DPAPI 当前用户加密代替 Keychain。
+
+Liquid Glass、macOS 合盖检测、AppleScript Chrome 页面读取/截图/自动关闭不移植。
+Windows 版不展示不可用的守护设置。不会假装支持这些系统接口。
+
+## 资料兼容
+
+默认位置为 `%APPDATA%\TomatoNotes`，支持 macOS v1–v4 资料格式（Apple 2001 基准秒数日期），
+写入采用相同的 v4 JSON 字段。未知字段和 macOS 专属字段通过扩展数据原样保留。
+这表示可通过备份迁移资料，**不表示两台电脑会自动同步**。不要通过网络共享目录让两端同时写入。
+
+Keychain 密钥不会也不应迁移到 Windows，需在 Windows 设置中重新填写。
+`--ui-test` 和 `--data-dir <目录>` 用于隔离测试资料，不用日常资料做破坏性验证。
+
+## 构建与测试
+
+在 Windows 10/11 x64 + .NET 8 SDK 上：
+
+```powershell
+dotnet run --project Windows/TomatoNotes.Tests/TomatoNotes.Tests.csproj
+dotnet run --project Windows/TomatoNotes/TomatoNotes.csproj -- --ui-test
+powershell -ExecutionPolicy Bypass -File Scripts/package-windows.ps1
+```
+
+打包需要 Inno Setup 6。输出为
+`build/releases/v<版本>/TomatoNotes-v<版本>-Windows-x64-setup.exe`。
+应用自包含 .NET 8 运行时，安装机器无需另装运行时。未配置 Authenticode 签名，
+首次运行可能有 SmartScreen 提示，应核对 Release 的 SHA-256。
+
+macOS / Linux 可用 .NET 8 SDK 验证核心，并用以下参数交叉编译 WPF：
+
+```bash
+dotnet build Windows/TomatoNotes/TomatoNotes.csproj -p:EnableWindowsTargeting=true
+dotnet publish Windows/TomatoNotes/TomatoNotes.csproj -c Release -r win-x64 \
+  --self-contained true -p:EnableWindowsTargeting=true -o build/windows/publish
+```
+
+跨平台编译和安装器内容校验不等于 Windows 实机验收。托盘、通知、快捷键、
+安装/卸载、权限与真实 AI 请求需在 Windows 上单独验证。

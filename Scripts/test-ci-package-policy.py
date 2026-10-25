@@ -69,7 +69,7 @@ class PackagePolicyTests(unittest.TestCase):
         previous = self.base
         for path in ("Packaging/Info.plist", "Scripts/build-app.sh",
                      "Scripts/ci-package-needed.sh", ".github/workflows/ci.yml",
-                     ".github/workflows/release.yml", "Package.swift", "Package.resolved"):
+                     ".github/workflows/release.yml", "Windows/TomatoNotes/App.xaml.cs", "Windows/Packaging/TomatoNotes.iss", "Package.swift", "Package.resolved"):
             with self.subTest(path=path):
                 head = self.commit({path: "changed\n"})
                 self.assertPackage(True, base=previous, head=head)

@@ -1,4 +1,4 @@
-name: 发布 macOS 应用
+name: 发布 macOS 与 Windows 应用
 
 on:
   push:
@@ -22,7 +22,7 @@ env:
 
 jobs:
   build:
-    name: 验证标签并构建安装包
+    name: 验证标签并构建 macOS 安装包
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -53,9 +53,52 @@ jobs:
           retention-days: 7
           compression-level: 0
 
+  build-windows:
+    name: 构建 Windows 安装包
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: 检出标签与完整历史
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 核对标签、版本与主分支
+        shell: bash
+        run: |
+          git fetch origin main
+          Scripts/validate-release.sh "$RELEASE_TAG"
+      - name: 安装 .NET 8 SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+      - name: 运行 Windows 核心与模拟接口测试
+        run: dotnet run --project Windows/TomatoNotes.Tests/TomatoNotes.Tests.csproj -c Release
+      - name: 安装 Inno Setup 并打包
+        run: |
+          choco install innosetup --yes --no-progress
+          powershell -ExecutionPolicy Bypass -File Scripts/package-windows.ps1
+      - name: 校验 Windows PE 与发布附件
+        shell: bash
+        run: |
+          test -s "build/releases/$RELEASE_TAG/TomatoNotes-$RELEASE_TAG-Windows-x64-setup.exe"
+          file "build/releases/$RELEASE_TAG/TomatoNotes-$RELEASE_TAG-Windows-x64-setup.exe" | grep -E 'PE32\+.*executable.*x86-64'
+          cp Windows/Packaging/安装说明.txt "build/releases/$RELEASE_TAG/WINDOWS-INSTALL.txt"
+          cd "build/releases/$RELEASE_TAG"
+          sha256sum -c WINDOWS-SHA256SUMS.txt
+      - name: 保存 Windows 发布文件
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: windows-release-files
+          path: build/releases/*/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
   publish:
     name: 上传并发布 GitHub Release
-    needs: build
+    needs: [build, build-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -66,12 +109,20 @@ jobs:
         with:
           name: release-files
           path: release-files
+      - name: 获取 Windows 安装包
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: windows-release-files
+          path: windows-release-files
       - name: 发布版本与附件
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          cp -R "windows-release-files/releases/$RELEASE_TAG/." "release-files/releases/$RELEASE_TAG/"
           cd "release-files/releases/$RELEASE_TAG"
+          cat WINDOWS-SHA256SUMS.txt >> SHA256SUMS.txt
+          rm WINDOWS-SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
           if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > release-state.txt 2>/dev/null; then
             if [ "$(cat release-state.txt)" != true ]; then
@@ -83,10 +134,11 @@ jobs:
               --title "番茄小记 $RELEASE_TAG" \
               --notes-file ../../release-notes.md
           fi
-          gh release upload "$RELEASE_TAG" ./*.dmg ./*.zip SHA256SUMS.txt INSTALL.txt --clobber
-          expected_assets="$(printf '%s\n' INSTALL.txt SHA256SUMS.txt \
+          gh release upload "$RELEASE_TAG" ./*.dmg ./*.zip ./*.exe SHA256SUMS.txt INSTALL.txt WINDOWS-INSTALL.txt --clobber
+          expected_assets="$(printf '%s\n' INSTALL.txt WINDOWS-INSTALL.txt SHA256SUMS.txt \
             "TomatoNotes-$RELEASE_TAG-macOS-universal.dmg" \
-            "TomatoNotes-$RELEASE_TAG-macOS-universal.zip" | sort)"
+            "TomatoNotes-$RELEASE_TAG-macOS-universal.zip" \
+            "TomatoNotes-$RELEASE_TAG-Windows-x64-setup.exe" | sort)"
           actual_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '[.assets[].name] | sort | .[]')"
           if [ "$actual_assets" != "$expected_assets" ]; then
             echo '服务器上的附件名与校验清单不一致，保留草稿供排查。' >&2
