@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       package: ${{ steps.package.outputs.required }}
+      run_ci: ${{ steps.run-ci.outputs.required }}
     steps:
       - name: 检出规则
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -40,6 +41,27 @@ jobs:
         run: Scripts/check-branch-policy.sh "$BASE_REF" "$HEAD_REF"
       - name: 验证打包触发规则
         run: python3 Scripts/test-ci-package-policy.py
+      - name: 判断是否需要重复运行完整 CI
+        id: run-ci
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_BASE_REF: ${{ github.base_ref }}
+          CI_HEAD_REF: ${{ github.head_ref }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          required=true
+          if [[ "$CI_EVENT_NAME" == pull_request \
+              && ( "$CI_BASE_REF" == main && "$CI_HEAD_REF" == develop \
+                  || "$CI_BASE_REF" == develop && "$CI_HEAD_REF" == main ) ]]; then
+            if git cat-file -e "$CI_HEAD_SHA^{commit}" 2>/dev/null \
+                && [[ "$(git rev-parse "$CI_HEAD_SHA^{tree}")" == "$(git rev-parse 'HEAD^{tree}')" ]]; then
+              echo 'main 与 develop 的同步 PR 合并结果和来源分支内容一致，来源分支已有 push CI，跳过重复的完整 CI。'
+              required=false
+            else
+              echo 'PR 合并结果与来源分支内容不同，保留完整 CI。'
+            fi
+          fi
+          echo "required=$required" >> "$GITHUB_OUTPUT"
       - name: 判断是否需要验证安装包
         id: package
         env:
@@ -54,6 +76,7 @@ jobs:
   test-and-build:
     name: 测试与编译
     needs: branch-policy
+    if: needs.branch-policy.outputs.run_ci == 'true'
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -80,6 +103,7 @@ jobs:
   windows-test-and-build:
     name: Windows 核心测试与编译
     needs: branch-policy
+    if: needs.branch-policy.outputs.run_ci == 'true'
     runs-on: windows-2022
     timeout-minutes: 20
     steps:
