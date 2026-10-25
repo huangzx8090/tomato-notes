@@ -38,8 +38,12 @@ struct FocusGuardSetupView: View {
     @ObservedObject var state: AppState
     @ObservedObject var controller: FocusGuardController
     @ObservedObject var recommender: FocusWhitelistRecommender
+    @ObservedObject var goalGenerator: FocusGoalGenerator
     var onClose: () -> Void
-    @ViewState private var goal = ""
+    private var goal: String {
+        get { goalGenerator.goal }
+        nonmutating set { goalGenerator.goal = newValue }
+    }
     @ViewState private var allowedApps: Set<String> = []
     @ViewState private var pages: [FocusPageRule] = []
     @ViewState private var manualPage = ""
@@ -58,6 +62,7 @@ struct FocusGuardSetupView: View {
     private var unavailableReason: String? {
         if goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "填写这轮要做的事，再开始专注" }
         if goal.count > 300 { return "目标请控制在 300 字内" }
+        if goalGenerator.loading { return "AI 正在生成名称…" }
         if recommender.loading { return "AI 正在推荐，也可以勾选清单切回手动" }
         let plan = confirmedPlan
         if plan.appIDs.isEmpty && plan.pages.isEmpty { return "勾选至少一项，或选“仅计时”" }
@@ -82,6 +87,14 @@ struct FocusGuardSetupView: View {
         return apps.filter { seen.insert($0.bundleID).inserted }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
+    private var goalContext: FocusGoalContext {
+        let plan = confirmedPlan
+        let apps = plan.appIDs.sorted().compactMap { id -> AppIdentity? in
+            guard let app = selectableApps.first(where: { $0.bundleID == id }), app.name != id else { return nil }
+            return app
+        }
+        return FocusGoalContext(plan: plan, apps: apps, tabs: controller.availableTabs)
+    }
     private var unfinishedTodos: [TodoItem] {
         Array(state.data.todos.filter { $0.effectiveScheduledDay == state.todayKey && !$0.isCompleted }.prefix(12))
     }
@@ -98,7 +111,18 @@ struct FocusGuardSetupView: View {
             FocusWhitelistPickerHeader { state.guardSetupPresented = false }
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    FocusWhitelistGoalCard(goal: $goal, todos: unfinishedTodos)
+                    FocusWhitelistGoalCard(
+                        goal: Binding(get: { goal }, set: { goal = $0 }),
+                        todos: unfinishedTodos,
+                        canGenerate: state.hasAPIKey && !goalContext.isEmpty && !recommender.loading,
+                        isGenerating: goalGenerator.loading,
+                        hasGenerated: goalGenerator.generatedGoal != nil,
+                        status: goalGenerator.status,
+                        providerName: controller.aiProvider.name,
+                        hasKey: state.hasAPIKey,
+                        onGenerate: { updateGoalGeneration(force: true) },
+                        onCancel: { goalGenerator.cancel() }
+                    )
                     appsCard
                     pagesCard
                     DisclosureGroup("更多选项", isExpanded: $moreExpanded) {
@@ -129,19 +153,43 @@ struct FocusGuardSetupView: View {
             if controller.plan == nil, !state.focusGoalDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 goal = state.focusGoalDraft
             }
+            updateGoalGeneration()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in hasCapture = FocusPageCapture.hasPermission }
-        .onChange(of: goal) { _, _ in
+        .onChange(of: goal) { previous, value in
+            if goalGenerator.generatedGoal == value {
+                // 起名会使推荐结果过期；保留当前勾选项，仍由底部按钮最终确认。
+                let draft = FocusGuardPlan(goal: previous.trimmingCharacters(in: .whitespacesAndNewlines),
+                                           appIDs: allowedApps, pages: pages, allowAIClosing: allowClosing)
+                let selected = recommender.confirmedPlan(from: draft, provider: controller.aiProvider)
+                allowedApps = selected.appIDs
+                pages = selected.pages
+            }
             if recommender.loading || !recommender.suggestions.isEmpty {
                 recommender.cancel(message: "目标已修改，可重新读取并推荐。")
             }
+            updateGoalGeneration()
         }
-        .onChange(of: state.settings.ai) { _, _ in recommender.cancel(message: "AI 配置已修改，请重新推荐。") }
-        .onDisappear { recommender.cancel() }
+        .onChange(of: goalContext) { _, _ in updateGoalGeneration() }
+        .onChange(of: recommender.loading) { _, _ in updateGoalGeneration() }
+        .onChange(of: state.hasAPIKey) { _, _ in updateGoalGeneration() }
+        .onChange(of: state.settings.ai) { _, _ in
+            recommender.cancel(message: "AI 配置已修改，请重新推荐。")
+            updateGoalGeneration()
+        }
+        .onDisappear { recommender.cancel(); goalGenerator.cancel() }
         .onChange(of: state.guardSetupPresented) { _, presented in
-            if !presented { recommender.cancel(); onClose() }
+            if !presented { recommender.cancel(); goalGenerator.cancel(); onClose() }
         }
         .onExitCommand { state.guardSetupPresented = false }
+    }
+
+    private func updateGoalGeneration(force: Bool = false) {
+        goalGenerator.update(context: goalContext, provider: controller.aiProvider,
+                             hasKey: state.hasAPIKey,
+                             ready: state.guardSetupPresented && !recommender.loading &&
+                                    (force || recommender.suggestions.isEmpty),
+                             force: force)
     }
 
     private var appsCard: some View {
@@ -374,6 +422,7 @@ struct RuleChipsView: View {
 final class FocusGuardSetupWindowController: NSWindowController, NSWindowDelegate {
     private let state: AppState
     private let recommender = FocusWhitelistRecommender()
+    private let goalGenerator = FocusGoalGenerator()
     var onClosed: (() -> Void)?
     init(state: AppState) {
         self.state = state
@@ -387,7 +436,7 @@ final class FocusGuardSetupWindowController: NSWindowController, NSWindowDelegat
         window.titlebarAppearsTransparent = true
         window.backgroundColor = Theme.backgroundNS
         window.contentView = makePaperHostingView(rootView: FocusGuardSetupView(state: state, controller: state.guardController,
-                                                                             recommender: recommender,
+                                                                             recommender: recommender, goalGenerator: goalGenerator,
                                                                              onClose: { [weak self] in self?.window?.close() }),
                                                   size: NSSize(width: 590, height: height))
         window.delegate = self
@@ -396,6 +445,7 @@ final class FocusGuardSetupWindowController: NSWindowController, NSWindowDelegat
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func windowWillClose(_ notification: Notification) {
         recommender.cancel()
+        goalGenerator.cancel()
         state.guardSetupPresented = false
         onClosed?()
     }

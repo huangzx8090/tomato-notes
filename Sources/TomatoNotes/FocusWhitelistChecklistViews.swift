@@ -22,6 +22,14 @@ struct FocusWhitelistPickerHeader: View {
 struct FocusWhitelistGoalCard: View {
     @Binding var goal: String
     let todos: [TodoItem]
+    let canGenerate: Bool
+    let isGenerating: Bool
+    let hasGenerated: Bool
+    let status: String
+    let providerName: String
+    let hasKey: Bool
+    var onGenerate: () -> Void
+    var onCancel: () -> Void
 
     var body: some View {
         PaperCard {
@@ -29,17 +37,39 @@ struct FocusWhitelistGoalCard: View {
                 HStack {
                     Text("这轮做什么").font(.system(size: 13, weight: .semibold))
                     Spacer()
+                    if isGenerating {
+                        ProgressView().controlSize(.small)
+                        Button("取消生成", action: onCancel).buttonStyle(SubtleButtonStyle())
+                    } else {
+                        Button(action: onGenerate) {
+                            Label(hasGenerated ? "重新生成" : "AI 起名", systemImage: "sparkles")
+                        }.buttonStyle(SubtleButtonStyle())
+                            .disabled(!canGenerate)
+                            .accessibilityLabel("根据本轮白名单生成学习名称")
+                    }
                     if !todos.isEmpty {
                         Menu("从待办选择") {
                             ForEach(todos) { todo in Button(todo.text) { goal = todo.text } }
                         }.font(.system(size: 11))
                     }
                 }
-                TextField("例如：复习第三章", text: $goal).textFieldStyle(.roundedBorder)
+                TextField("可先勾选下方白名单，让 AI 自动起名，也可手动填写", text: $goal)
+                    .textFieldStyle(.roundedBorder)
                     .accessibilityLabel("本轮目标")
                     .accessibilityIdentifier("guard.goal")
                 if goal.count > 300 {
                     Text("目标请控制在 300 字内").font(.system(size: 11)).foregroundStyle(Theme.accent)
+                }
+                Text("AI 会在名称为空时，根据已选白名单补全；手写名称会保留。")
+                    .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                Text("起名仅将已选 App 名称、网页标题与网站发送给 \(providerName)。")
+                    .font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                if !status.isEmpty {
+                    Text(status).font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                }
+                if !hasKey {
+                    Text("自动起名需先在设置 → AI 助手中保存 API Key 并选择模型，也可直接手动填写。")
+                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
                 }
             }
         }
