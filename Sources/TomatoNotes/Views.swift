@@ -8,6 +8,7 @@ struct MainPanel: View {
     var openNote: (UUID) -> Void
     var continueNote: (UUID) -> Void
     var deleteNote: (UUID) -> Void
+    var exportNote: (UUID) -> Void
     var openWork: (WorkScope) -> Void
     var openHistorySearch: () -> Void
     var openFocusHeatmap: () -> Void
@@ -27,8 +28,8 @@ struct MainPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            LocalDataStatusView(state: state)
+            AppBrandHeader()
+            if !state.repository.isSharedLibrary { LocalDataStatusView(state: state) }
             PanelNavigation(selection: Binding(get: { tab }, set: requestTab))
             .padding(.horizontal, 22).padding(.bottom, 12)
 
@@ -62,7 +63,8 @@ struct MainPanel: View {
                             case .notes:
                                 NotesListView(notes: state.data.notes, today: state.todayKey,
                                               showsHistory: $showsNoteHistory, createNote: createNote,
-                                              openNote: openNote, continueNote: continueNote, deleteNote: deleteNote)
+                                              openNote: openNote, continueNote: continueNote, deleteNote: deleteNote,
+                                              exportNote: exportNote)
                             case .settings:
                                 SettingsView(state: state, page: $settingsPage, hasUnsavedChanges: $settingsHaveUnsavedChanges,
                                              openFocus: { navigate(to: .focus) }, testReminder: testReminder,
@@ -139,21 +141,6 @@ struct MainPanel: View {
             if let destinationPage { settingsPage = destinationPage }
             tab = destination
         }
-    }
-
-    private var header: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "leaf.fill")
-                .font(.system(size: 16, weight: .medium)).foregroundStyle(Theme.accent)
-                .frame(width: 32, height: 32).background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 10))
-            VStack(alignment: .leading, spacing: 2) {
-                Text("番茄小记").font(.system(size: 16, weight: .semibold))
-                Text("把时间留给在意的事").font(.system(size: 10)).foregroundStyle(Theme.secondary)
-            }
-            Spacer()
-            Text(Date(), format: .dateTime.month(.twoDigits).day(.twoDigits))
-                .font(.system(size: 11, design: .rounded)).foregroundStyle(Theme.secondary)
-        }.padding(.horizontal, 23).padding(.top, 20).padding(.bottom, 18)
     }
 
     private var focus: some View {

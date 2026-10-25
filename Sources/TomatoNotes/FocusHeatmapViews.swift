@@ -9,7 +9,6 @@ struct FocusHeatmapCompactView: View {
     let onShowAll: () -> Void
 
     @ViewState private var range: FocusHeatmapRange
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(state: AppState, selectedDay: String?, onSelectDay: @escaping (String) -> Void,
          onShowAll: @escaping () -> Void) {
@@ -22,19 +21,49 @@ struct FocusHeatmapCompactView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        FocusHeatmapCompactContent(range: range, selectedDay: selectedDay,
+                                   onSelectDay: onSelectDay, onShowAll: onShowAll)
+            .onChange(of: state.focusHeatmapRevision) { _, _ in rebuildRange() }
+            .preferredColorScheme(state.settings.appearance.colorScheme)
+            .environment(\.locale, Locale(identifier: "zh_CN"))
+    }
+
+    private func rebuildRange() {
+        range = FocusHeatmapRange.build(intervals: state.data.intervals, weekCount: 13,
+                                        today: Date(), calendar: .current)
+    }
+}
+
+// 只依赖范围值，便于用合成资料离屏预览，不创建 AppState 或读取个人资料。
+struct FocusHeatmapCompactContent: View {
+    let range: FocusHeatmapRange
+    let selectedDay: String?
+    let onSelectDay: (String) -> Void
+    let onShowAll: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
             HStack(alignment: .firstTextBaseline) {
                 Text("专注热力图").font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Text("\(heatmapDuration(range.totalSeconds)) · \(range.activeDays) 天")
-                    .font(.system(size: 11)).foregroundStyle(Theme.secondary)
                 Button("查看全部", action: onShowAll)
                     .buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent)
                     .accessibilityIdentifier("heatmap.showAll")
             }
+            Text("\(heatmapDuration(range.totalSeconds)) · 有记录 \(range.activeDays) 天")
+                .font(.system(size: 12, weight: .medium)).monospacedDigit()
             FocusHeatmapGrid(range: range, selectedDay: selectedDay, compact: true, onSelectDay: onSelectDay)
-                .transaction { if reduceMotion { $0.animation = nil } }
-            FocusHeatmapLegend(compact: true)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    dateRange
+                    Spacer(minLength: 0)
+                    FocusHeatmapLegend(compact: true)
+                }
+                VStack(alignment: .leading, spacing: 7) {
+                    dateRange
+                    FocusHeatmapLegend(compact: true)
+                }
+            }
             if range.activeDays == 0 {
                 Text("完成第一段专注后，这里会留下记录")
                     .font(.system(size: 11)).foregroundStyle(Theme.secondary)
@@ -43,14 +72,15 @@ struct FocusHeatmapCompactView: View {
         .padding(13)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.border.opacity(0.65), lineWidth: 0.7))
-        .onChange(of: state.focusHeatmapRevision) { _, _ in rebuildRange() }
-        .preferredColorScheme(state.settings.appearance.colorScheme)
-        .environment(\.locale, Locale(identifier: "zh_CN"))
+        .foregroundStyle(Theme.primary)
     }
 
-    private func rebuildRange() {
-        range = FocusHeatmapRange.build(intervals: state.data.intervals, weekCount: 13,
-                                        today: Date(), calendar: .current)
+    private var dateRange: some View {
+        Text("\(range.startDay) — \(range.endDay)")
+            .font(.system(size: 10)).monospacedDigit()
+            .foregroundStyle(Theme.secondary)
+            .fixedSize()
+            .accessibilityLabel("日期范围：\(range.startDay) 至 \(range.endDay)")
     }
 }
 
@@ -117,6 +147,7 @@ private struct FocusHeatmapWindowView: View {
             }
             .transaction { if reduceMotion { $0.animation = nil } }
             FocusHeatmapLegend(compact: false)
+                .frame(maxWidth: .infinity, alignment: .trailing)
             detail
             Spacer(minLength: 0)
         }
@@ -157,9 +188,11 @@ private struct FocusHeatmapWindowView: View {
     private var detail: some View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("当前范围").font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                Text("\(heatmapDuration(range.totalSeconds)) · 有记录 \(range.activeDays) 天")
-                    .font(.system(size: 14, weight: .semibold))
+                Text(heatmapDuration(range.totalSeconds))
+                    .font(.system(size: 16, weight: .semibold)).monospacedDigit()
+                    .accessibilityLabel("当前范围累计专注 \(heatmapDuration(range.totalSeconds))")
+                Text("有记录 \(range.activeDays) 天")
+                    .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 if range.activeDays == 0 {
                     Text("完成第一段专注后，这里会留下记录")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
@@ -208,7 +241,7 @@ private struct FocusHeatmapWindowView: View {
     }
 }
 
-private struct FocusHeatmapGrid: View {
+struct FocusHeatmapGrid: View {
     let range: FocusHeatmapRange
     let selectedDay: String?
     let compact: Bool
@@ -217,92 +250,136 @@ private struct FocusHeatmapGrid: View {
     private let weekdays = ["一", "二", "三", "四", "五", "六", "日"]
     @ViewState private var hoveredDay: String?
     @ViewState private var hoverTask: Task<Void, Never>?
-    private var cellSide: CGFloat { compact ? 9 : 12 }
-    private var cellPitch: CGFloat { compact ? 13 : 19 }
-    private var weekHeader: CGFloat { compact ? 11 : 16 }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(range: FocusHeatmapRange, selectedDay: String?, compact: Bool,
+         onSelectDay: @escaping (String) -> Void) {
+        self.range = range
+        self.selectedDay = selectedDay
+        self.compact = compact
+        self.onSelectDay = onSelectDay
+    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: compact ? 5 : 8) {
-            VStack(spacing: compact ? 3 : 5) {
-                Color.clear.frame(height: weekHeader)
-                ForEach(Array(weekdays.enumerated()), id: \.offset) { item in
-                    Text(item.element).font(.system(size: compact ? 8 : 10))
-                        .foregroundStyle(Theme.secondary)
-                        .frame(width: compact ? 10 : 16, height: cellPitch - (compact ? 0 : 1))
-                        .accessibilityLabel("星期\(item.element)")
-                }
-            }
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal) {
-                    HStack(alignment: .top, spacing: 0) {
-                        ForEach(Array(range.weeks.enumerated()), id: \.element.id) { item in
-                            let index = item.offset
-                            let week = item.element
-                            VStack(alignment: .leading, spacing: 0) {
-                                let month = monthLabel(for: week, previous: index > 0 ? range.weeks[index - 1] : nil)
-                                Text(month)
-                                    .font(.system(size: compact ? 8 : 10, weight: .medium))
-                                    .foregroundStyle(Theme.secondary)
-                                    .fixedSize()
-                                    .frame(width: cellPitch, height: weekHeader, alignment: .leading)
-                                    .accessibilityLabel(compact ? "\(month)月" : month)
-                                VStack(spacing: compact ? 3 : 5) {
-                                    ForEach(week.days) { day in
-                                        dayButton(day)
-                                    }
-                                }
-                            }
-                            .frame(width: cellPitch, alignment: .leading)
-                            .id(week.id)
-                        }
+        FocusHeatmapSizingLayout(weekCount: range.weeks.count, compact: compact) {
+            GeometryReader { geometry in
+                let metrics = FocusHeatmapMetrics(width: geometry.size.width,
+                                                   weekCount: range.weeks.count, compact: compact)
+                HStack(alignment: .top, spacing: metrics.labelGap) {
+                    weekdayLabels(metrics)
+                    if metrics.needsScrolling {
+                        scrollingWeeks(metrics)
+                    } else {
+                        weekColumns(metrics)
                     }
-                    .padding(.vertical, 2)
-                }
-                .scrollIndicators(compact ? .hidden : .visible)
-                .onAppear {
-                    if let latestWeek = range.weeks.last?.id {
-                        DispatchQueue.main.async { proxy.scrollTo(latestWeek, anchor: .trailing) }
-                    }
-                }
-                .onChange(of: range.weeks.last?.id) { _, latestWeek in
-                    guard let latestWeek else { return }
-                    proxy.scrollTo(latestWeek, anchor: .trailing)
                 }
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("按周排列的每日专注热力图，周一至周日")
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onDisappear {
-            hoverTask?.cancel()
-            hoveredDay = nil
+        .accessibilityHint("内框表示今天，外框表示选中的日期。选择日期可查看当天记录。")
+        .transaction { if reduceMotion { $0.animation = nil } }
+        .onChange(of: range.startDay) { _, _ in clearHover() }
+        .onDisappear(perform: clearHover)
+    }
+
+    private func weekdayLabels(_ metrics: FocusHeatmapMetrics) -> some View {
+        VStack(spacing: 0) {
+            // 固定整列宽度，顶部占位不能参与 HStack 的横向扩张。
+            Color.clear.frame(width: metrics.weekdayWidth, height: metrics.monthHeaderHeight)
+            ForEach(Array(weekdays.enumerated()), id: \.offset) { item in
+                Text(item.element).font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Theme.secondary)
+                    .frame(width: metrics.weekdayWidth, height: metrics.cellPitch)
+                    .accessibilityLabel("星期\(item.element)")
+            }
+        }
+        .frame(width: metrics.weekdayWidth)
+        .fixedSize()
+    }
+
+    private func scrollingWeeks(_ metrics: FocusHeatmapMetrics) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                weekColumns(metrics)
+            }
+            .scrollIndicators(compact ? .hidden : .visible)
+            .defaultScrollAnchor(.trailing)
+            .frame(width: metrics.viewportWidth, height: metrics.height, alignment: .topLeading)
+            .onAppear {
+                if let latestWeek = range.weeks.last?.id {
+                    DispatchQueue.main.async { proxy.scrollTo(latestWeek, anchor: .trailing) }
+                }
+            }
+            .onChange(of: range.weeks.last?.id) { _, latestWeek in
+                guard let latestWeek else { return }
+                proxy.scrollTo(latestWeek, anchor: .trailing)
+            }
         }
     }
 
-    @ViewBuilder private func dayButton(_ day: FocusHeatmapDay) -> some View {
-        let label = heatmapAccessibilityLabel(day)
-        Button {
+    private func weekColumns(_ metrics: FocusHeatmapMetrics) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                ForEach(monthMarkers(metrics)) { marker in
+                    Text(marker.text)
+                        .font(.system(size: metrics.monthFontSize, weight: .medium))
+                        .foregroundStyle(Theme.secondary)
+                        .fixedSize()
+                        .frame(width: marker.width, height: metrics.monthHeaderHeight, alignment: .leading)
+                        .offset(x: marker.x)
+                }
+            }
+            .frame(width: metrics.gridWidth, height: metrics.monthHeaderHeight, alignment: .topLeading)
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(range.weeks) { week in
+                    VStack(spacing: 0) {
+                        ForEach(week.days) { day in
+                            dayButton(day, metrics: metrics)
+                        }
+                    }
+                    .id(week.id)
+                }
+            }
+        }
+        .frame(width: metrics.gridWidth, height: metrics.contentHeight, alignment: .topLeading)
+    }
+
+    private func dayButton(_ day: FocusHeatmapDay, metrics: FocusHeatmapMetrics) -> some View {
+        let label = day.isFuture ? heatmapAccessibilityLabel(day)
+            : "\(heatmapAccessibilityLabel(day))，颜色等级：\(heatmapLevelDescription(day.intensity))"
+        return Button {
             if !day.isFuture { onSelectDay(day.day) }
         } label: {
-            RoundedRectangle(cornerRadius: compact ? 2 : 3)
-                .fill(heatmapColor(day))
-                .frame(width: cellSide, height: cellSide)
+            RoundedRectangle(cornerRadius: 3)
+                .fill(heatmapLevelColor(day.intensity))
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 3))
+                .frame(width: metrics.cellSide, height: metrics.cellSide)
                 .overlay {
-                    RoundedRectangle(cornerRadius: compact ? 2 : 3)
-                        .stroke(day.isToday ? Theme.accent : .clear, lineWidth: compact ? 1 : 1.4)
-                        .padding(-1)
+                    RoundedRectangle(cornerRadius: 3)
+                        .strokeBorder(day.intensity == 0 ? Theme.border : Theme.accent.opacity(0.22), lineWidth: 0.6)
                 }
                 .overlay {
-                    RoundedRectangle(cornerRadius: compact ? 2 : 3)
-                        .stroke(day.id == selectedDay ? Theme.primary : .clear, lineWidth: compact ? 1.5 : 2)
-                        .padding(-3)
+                    if day.isToday {
+                        RoundedRectangle(cornerRadius: 2)
+                            .strokeBorder(day.intensity >= 3 ? Theme.surface : Theme.accent, lineWidth: 1.2)
+                            .padding(1.5)
+                    }
                 }
-                .frame(width: cellPitch, height: cellPitch)
+                .overlay {
+                    if day.id == selectedDay {
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(Theme.primary, lineWidth: 1.5)
+                            .padding(-1.5)
+                    }
+                }
+                .opacity(day.isFuture ? 0 : 1)
+                // 四边各留半个间距，命中区域与整齐的行列使用相同尺寸。
+                .frame(width: metrics.cellPitch, height: metrics.cellPitch)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(day.isFuture)
-        .help(label)
         .accessibilityLabel(label)
         .accessibilityValue(day.isFuture ? "未来日期" : "专注时长：\(heatmapExactDuration(day.seconds))")
         .accessibilityAddTraits(day.id == selectedDay ? .isSelected : [])
@@ -310,38 +387,121 @@ private struct FocusHeatmapGrid: View {
         .popover(isPresented: Binding(
             get: { hoveredDay == day.day },
             set: { isPresented in
-                if !isPresented && hoveredDay == day.day { hoveredDay = nil }
+                if !isPresented && hoveredDay == day.day { setHoveredDay(nil) }
             }
         ), arrowEdge: .bottom) {
             heatmapHoverDetail(day)
         }
         .onHover { isHovering in
             hoverTask?.cancel()
+            hoverTask = nil
             guard isHovering, !day.isFuture else {
-                if hoveredDay == day.day { hoveredDay = nil }
+                if hoveredDay == day.day { setHoveredDay(nil) }
                 return
             }
             hoverTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 350_000_000)
+                try? await Task.sleep(nanoseconds: 60_000_000)
                 guard !Task.isCancelled else { return }
-                hoveredDay = day.day
+                setHoveredDay(day.day)
             }
         }
         .zIndex(hoveredDay == day.day ? 2 : 0)
     }
 
-    private func monthLabel(for week: FocusHeatmapWeek, previous: FocusHeatmapWeek?) -> String {
+    private func monthMarkers(_ metrics: FocusHeatmapMetrics) -> [FocusHeatmapMonthMarker] {
         let calendar = Calendar.current
-        // 固定用周四作为每周月份锚点，避免某周含月初、下一周仍落在同月时重复标记。
-        guard let anchor = week.days.dropFirst(3).first?.date else { return "" }
-        let month = calendar.component(.month, from: anchor)
-        let year = calendar.component(.year, from: anchor)
-        if let previous, let previousAnchor = previous.days.dropFirst(3).first?.date {
-            let previousMonth = calendar.component(.month, from: previousAnchor)
-            let previousYear = calendar.component(.year, from: previousAnchor)
-            guard month != previousMonth || year != previousYear else { return "" }
+        let font = NSFont.systemFont(ofSize: metrics.monthFontSize, weight: .medium)
+        var previousMonth: DateComponents?
+        var candidates: [FocusHeatmapMonthMarker] = []
+        for (index, week) in range.weeks.enumerated() {
+            // 沿用周四作为月份锚点，每个自然月只生成一次标记。
+            guard let anchor = week.days.dropFirst(3).first?.date else { continue }
+            let month = calendar.dateComponents([.year, .month], from: anchor)
+            guard month != previousMonth else { continue }
+            previousMonth = month
+            let text = "\(month.month ?? 1)月"
+            let width = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+            let x = min(CGFloat(index) * metrics.cellPitch + metrics.cellGap / 2,
+                        max(0, metrics.gridWidth - width - metrics.cellGap / 2))
+            candidates.append(FocusHeatmapMonthMarker(id: index, text: text, x: x, width: width))
         }
-        return compact ? "\(month)" : "\(month)月"
+        var markers: [FocusHeatmapMonthMarker] = []
+        for (index, marker) in candidates.enumerated() {
+            // 首列可能仅有上个月的尾周；与下月相邻时优先保留下月，不挤成“7月8月”。
+            if index == 0, candidates.count > 1,
+               marker.x + marker.width + 8 > candidates[1].x { continue }
+            if let last = markers.last, last.x + last.width + 8 > marker.x { continue }
+            markers.append(marker)
+        }
+        return markers
+    }
+
+    private func setHoveredDay(_ day: String?) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            hoveredDay = day
+        }
+    }
+
+    private func clearHover() {
+        hoverTask?.cancel()
+        hoverTask = nil
+        setHoveredDay(nil)
+    }
+}
+
+private struct FocusHeatmapMonthMarker: Identifiable {
+    let id: Int
+    let text: String
+    let x: CGFloat
+    let width: CGFloat
+}
+
+private struct FocusHeatmapMetrics {
+    let weekdayWidth: CGFloat = 18
+    let labelGap: CGFloat = 8
+    let cellGap: CGFloat = 4
+    let monthHeaderHeight: CGFloat = 22
+    let monthFontSize: CGFloat
+    let viewportWidth: CGFloat
+    let cellPitch: CGFloat
+    let gridWidth: CGFloat
+    let needsScrolling: Bool
+    let scrollbarHeight: CGFloat
+
+    var cellSide: CGFloat { cellPitch - cellGap }
+    var contentHeight: CGFloat { monthHeaderHeight + 7 * cellPitch }
+    var height: CGFloat { contentHeight + scrollbarHeight }
+
+    init(width: CGFloat, weekCount: Int, compact: Bool) {
+        let columns = CGFloat(max(1, weekCount))
+        viewportWidth = max(0, width - weekdayWidth - labelGap)
+        // compact 自适应填满宽度；full 保留至少 19pt 命中区域，窄窗滚动而不压缩色块。
+        cellPitch = max(compact ? 20 : 19, viewportWidth / columns)
+        gridWidth = columns * cellPitch
+        needsScrolling = gridWidth > viewportWidth + 0.5
+        scrollbarHeight = needsScrolling && !compact ? 12 : 0
+        monthFontSize = compact ? 10 : 11
+    }
+}
+
+// 提前按宽度确定高度，避免 GeometryReader 占满父容器或依赖异步测量才能离屏渲染。
+private struct FocusHeatmapSizingLayout: Layout {
+    let weekCount: Int
+    let compact: Bool
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let fallbackWidth: CGFloat = compact ? 320 : CGFloat(max(1, weekCount)) * 19 + 26
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? fallbackWidth
+        let metrics = FocusHeatmapMetrics(width: width, weekCount: weekCount, compact: compact)
+        return CGSize(width: width, height: metrics.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for subview in subviews {
+            subview.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
+        }
     }
 }
 
@@ -353,6 +513,9 @@ private func heatmapHoverDetail(_ day: FocusHeatmapDay) -> some View {
         Text("专注 \(heatmapExactDuration(day.seconds))")
             .font(.system(size: 11))
             .foregroundStyle(Theme.secondary)
+        Text("颜色等级：\(heatmapLevelDescription(day.intensity))")
+            .font(.system(size: 10))
+            .foregroundStyle(Theme.secondary)
     }
     .padding(.horizontal, 11)
     .padding(.vertical, 9)
@@ -361,14 +524,23 @@ private func heatmapHoverDetail(_ day: FocusHeatmapDay) -> some View {
     .fixedSize()
 }
 
-private func heatmapColor(_ day: FocusHeatmapDay) -> Color {
-    guard !day.isFuture else { return .clear }
-    switch day.intensity {
-    case 0: return Theme.border.opacity(0.28)
-    case 1: return Theme.accentSoft
-    case 2: return Theme.accent.opacity(0.52)
-    case 3: return Theme.accent.opacity(0.76)
+private func heatmapLevelColor(_ intensity: Int) -> Color {
+    switch intensity {
+    case 0: return Theme.border.opacity(0.65)
+    case 1: return Theme.accent.opacity(0.28)
+    case 2: return Theme.accent.opacity(0.50)
+    case 3: return Theme.accent.opacity(0.74)
     default: return Theme.accent
+    }
+}
+
+private func heatmapLevelDescription(_ intensity: Int) -> String {
+    switch intensity {
+    case 0: return "0 分钟"
+    case 1: return "大于 0 且少于 30 分钟"
+    case 2: return "30 至不足 60 分钟"
+    case 3: return "60 至不足 120 分钟"
+    default: return "120 分钟及以上"
     }
 }
 
@@ -402,29 +574,32 @@ private struct FocusHeatmapLegend: View {
     let compact: Bool
 
     var body: some View {
-        HStack(spacing: compact ? 7 : 10) {
-            item(color: Theme.border.opacity(0.28), label: "0")
-            item(color: Theme.accentSoft, label: "<30分")
-            item(color: Theme.accent.opacity(0.52), label: "30–<60分")
-            item(color: Theme.accent.opacity(0.76), label: "60–<120分")
-            item(color: Theme.accent, label: "≥120分")
-            Spacer(minLength: 0)
+        HStack(spacing: 6) {
+            Text("少")
+            HStack(spacing: 3) {
+                ForEach(0..<5) { intensity in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(heatmapLevelColor(intensity))
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 2))
+                        .frame(width: compact ? 10 : 11, height: compact ? 10 : 11)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 2)
+                                .strokeBorder(intensity == 0 ? Theme.border : Theme.accent.opacity(0.22), lineWidth: 0.6)
+                        }
+                        .help(heatmapLevelDescription(intensity))
+                }
+            }
+            Text("多")
         }
-        .font(.system(size: compact ? 8 : 10))
+        .font(.system(size: compact ? 10 : 11))
         .foregroundStyle(Theme.secondary)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("每日颜色等级：0 分钟、少于 30 分钟、30 至不足 60 分钟、60 至不足 120 分钟、120 分钟及以上")
+        .fixedSize()
+        .help(thresholds)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(thresholds)
     }
 
-    private func item(color: Color, label: String) -> some View {
-        HStack(spacing: 4) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(color)
-                .frame(width: compact ? 8 : 10, height: compact ? 8 : 10)
-                .overlay(RoundedRectangle(cornerRadius: 2).stroke(Theme.border.opacity(0.55), lineWidth: 0.5))
-                .accessibilityHidden(true)
-            Text(label).fixedSize()
-        }
-        .fixedSize()
+    private var thresholds: String {
+        "每日专注时长，固定颜色等级：" + (0..<5).map(heatmapLevelDescription).joined(separator: "、")
     }
 }

@@ -78,6 +78,10 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuItemValidatio
             openNote: { [weak self] id in self?.hidePanel(); self?.notes.open(id) },
             continueNote: { [weak self] id in self?.hidePanel(); self?.notes.continueNote(id) },
             deleteNote: { [weak self] id in self?.notes.delete(id) },
+            exportNote: { [weak self] id in
+                guard let self else { return }
+                self.notes.export(id, from: self.mainPanel)
+            },
             openWork: { [weak self] scope in self?.hidePanel(); self?.work.open(scope) },
             openHistorySearch: { [weak self] in self?.showHistorySearch() },
             openFocusHeatmap: { [weak self] in self?.showFocusHeatmap() },
@@ -372,8 +376,11 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuItemValidatio
     private func installSystemObservers() {
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
             guard let self else { return event }
-            if self.panelPresented, event.window !== self.mainPanel,
-               event.window !== self.statusItem.button?.window { self.hidePanel() }
+            if self.panelPresented,
+               PanelDismissalPolicy.shouldDismiss(clickedWindow: event.window, panel: self.mainPanel,
+                                                  statusWindow: self.statusItem.button?.window) {
+                self.hidePanel()
+            }
             return event
         }
         let workspace = NSWorkspace.shared.notificationCenter

@@ -34,12 +34,32 @@ final class NoteWindows {
         controllers.removeValue(forKey: id)?.close()
     }
 
+    func export(_ id: UUID, from window: NSWindow?) {
+        let snapshot = controllers[id]?.currentNoteForExport() ?? state.note(id)
+        guard let snapshot else { state.feedback = "记录已不存在"; return }
+        NoteTextExportPresenter.present(note: snapshot, from: window) { [weak self] result in
+            guard let self else { return }
+            let message: String
+            switch result {
+            case .success(nil): return
+            case .success: message = "TXT 已导出"
+            case .failure(let error): message = "导出失败：\(error.localizedDescription)"
+            }
+            if let controller = self.controllers[id], let window, window === controller.window {
+                controller.showFeedback(message)
+            } else { self.state.feedback = message }
+        }
+    }
+
     func open(_ id: UUID, activate: Bool = true) {
         guard let note = state.note(id) else { return }
         let controller: NoteWindowController
         if let existing = controllers[id] { controller = existing }
         else {
-            controller = NoteWindowController(note: note, state: state)
+            controller = NoteWindowController(note: note, state: state) { [weak self] in
+                guard let self else { return }
+                self.export(id, from: self.controllers[id]?.window)
+            }
             controllers[id] = controller
         }
         state.setNoteOpen(id, isOpen: true)
@@ -62,14 +82,17 @@ final class NoteWindows {
 private final class NoteWindowController: NSWindowController, NSWindowDelegate, NSTextViewDelegate {
     private let id: UUID
     private let state: AppState
+    private let onExport: () -> Void
     private let editor = LinedTextView(frame: .zero)
-    private let feedbackLabel = NSTextField(labelWithString: "自动保存 · 始终置顶")
+    private let feedbackLabel = NSTextField(labelWithString: "")
     private var saveTask: DispatchWorkItem?
     private var frameTask: DispatchWorkItem?
+    private var feedbackTask: DispatchWorkItem?
 
-    init(note: StickyNote, state: AppState) {
+    init(note: StickyNote, state: AppState, onExport: @escaping () -> Void) {
         self.id = note.id
         self.state = state
+        self.onExport = onExport
         let size = NSSize(width: note.width, height: note.height)
         let offset = Double(state.data.notes.filter { $0.isOpen }.count % 8) * 24
         let origin = NSPoint(x: note.x ?? (180 + offset), y: note.y ?? (240 + offset))
@@ -96,8 +119,17 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
         convert.font = .systemFont(ofSize: 11, weight: .medium)
         convert.contentTintColor = Theme.noteAction
         convert.toolTip = "将选中文字（没有选区时使用全文）的非空行添加为今天的待办"
+        let export = NSButton(title: "导出 TXT", target: self, action: #selector(exportText))
+        export.bezelStyle = .inline
+        export.font = .systemFont(ofSize: 11, weight: .medium)
+        export.contentTintColor = Theme.noteAction
+        export.toolTip = "选择保存位置，导出完整原文"
+        export.setAccessibilityIdentifier("note.exportTXT")
         feedbackLabel.font = .systemFont(ofSize: 10)
         feedbackLabel.textColor = .secondaryLabelColor
+        feedbackLabel.lineBreakMode = .byTruncatingTail
+        feedbackLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        feedbackLabel.isHidden = true
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -111,7 +143,6 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
         editor.backgroundColor = Theme.notePaper
         editor.textColor = Theme.noteInk
         editor.insertionPointColor = Theme.noteInk
-        editor.font = .systemFont(ofSize: 15)
         editor.isVerticallyResizable = true
         editor.isHorizontallyResizable = false
         editor.autoresizingMask = [.width]
@@ -121,31 +152,28 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
         editor.textContainer?.widthTracksTextView = true
         editor.textContainer?.containerSize = NSSize(width: size.width, height: CGFloat.greatestFiniteMagnitude)
         editor.textContainerInset = NSSize(width: 15, height: 7)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.minimumLineHeight = 26
-        paragraph.maximumLineHeight = 26
-        editor.defaultParagraphStyle = paragraph
-        editor.typingAttributes = [.font: NSFont.systemFont(ofSize: 15), .paragraphStyle: paragraph]
-        editor.string = note.text
-        editor.textStorage?.addAttributes([.paragraphStyle: paragraph], range: NSRange(location: 0, length: (note.text as NSString).length))
+        NoteTypography.apply(to: editor, text: note.text)
         editor.delegate = self
         scroll.documentView = editor
 
         content.addSubview(toolbar)
         content.addSubview(scroll)
         toolbar.addSubview(feedbackLabel)
+        toolbar.addSubview(export)
         toolbar.addSubview(convert)
-        for view in [toolbar, scroll, feedbackLabel, convert] { view.translatesAutoresizingMaskIntoConstraints = false }
+        for view in [toolbar, scroll, feedbackLabel, export, convert] { view.translatesAutoresizingMaskIntoConstraints = false }
         NSLayoutConstraint.activate([
             toolbar.topAnchor.constraint(equalTo: content.topAnchor),
             toolbar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: 30),
+            toolbar.heightAnchor.constraint(equalToConstant: 34),
             feedbackLabel.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: 19),
             feedbackLabel.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
             convert.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor, constant: -14),
             convert.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            convert.leadingAnchor.constraint(greaterThanOrEqualTo: feedbackLabel.trailingAnchor, constant: 6),
+            export.trailingAnchor.constraint(equalTo: convert.leadingAnchor, constant: -10),
+            export.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+            export.leadingAnchor.constraint(greaterThanOrEqualTo: feedbackLabel.trailingAnchor, constant: 6),
             scroll.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -159,7 +187,6 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
 
     func textDidChange(_ notification: Notification) {
         saveTask?.cancel()
-        feedbackLabel.stringValue = "正在保存…"
         let task = DispatchWorkItem { [weak self] in self?.saveText() }
         saveTask = task
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: task)
@@ -187,6 +214,28 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
         if let window { state.updateNoteFrame(id, frame: window.frame) }
     }
 
+    func currentNoteForExport() -> StickyNote? {
+        saveTask?.cancel()
+        saveText()
+        guard var note = state.note(id) else { return nil }
+        // 保存失败时仍可导出编辑器中尚未落盘的原文。
+        note.text = editor.string
+        return note
+    }
+
+    func showFeedback(_ message: String) {
+        feedbackTask?.cancel()
+        feedbackLabel.stringValue = message
+        feedbackLabel.toolTip = message
+        feedbackLabel.isHidden = false
+        let task = DispatchWorkItem { [weak self] in
+            self?.feedbackLabel.stringValue = ""
+            self?.feedbackLabel.isHidden = true
+        }
+        feedbackTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: task)
+    }
+
     func fitToScreen() {
         guard let window else { return }
         let screen = NSScreen.screens.max { a, b in
@@ -202,9 +251,11 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
     }
 
     private func saveText() {
-        state.updateNoteText(id, text: editor.string)
+        if let note = state.note(id), note.text != editor.string {
+            state.updateNoteText(id, text: editor.string)
+            if !state.canWrite { showFeedback("保存失败，可导出 TXT 保留文字") }
+        }
         window?.title = state.note(id)?.title ?? "新便签"
-        feedbackLabel.stringValue = "已保存 · 始终置顶"
     }
 
     private func scheduleFrameSave() {
@@ -222,29 +273,10 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
         let range = editor.selectedRange()
         let text = range.length > 0 ? (editor.string as NSString).substring(with: range) : editor.string
         let count = state.convertNoteToTodos(id, text: text)
-        feedbackLabel.stringValue = count > 0 ? "已添加 \(count) 条待办" : "没有新增待办"
+        showFeedback(count > 0 ? "已添加 \(count) 条待办" : "没有新增待办")
     }
-}
 
-private final class LinedTextView: NSTextView {
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
-    }
-    override func drawBackground(in rect: NSRect) {
-        super.drawBackground(in: rect)
-        Theme.noteRule.setStroke()
-        let path = NSBezierPath()
-        path.lineWidth = 0.5
-        let first = floor(rect.minY / 26) * 26 + 29
-        var y = first
-        while y < rect.maxY + 26 {
-            path.move(to: NSPoint(x: 19, y: y))
-            path.line(to: NSPoint(x: bounds.width - 19, y: y))
-            y += 26
-        }
-        path.stroke()
-    }
+    @objc private func exportText() { onExport() }
 }
 
 private extension NSSize {

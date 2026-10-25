@@ -9,6 +9,7 @@ struct NotesListView: View {
     var openNote: (UUID) -> Void
     var continueNote: (UUID) -> Void
     var deleteNote: (UUID) -> Void
+    var exportNote: (UUID) -> Void
     @ViewState private var pendingDeletion: StickyNote?
 
     private var todaysNotes: [StickyNote] { NoteLibrary.notes(on: today, in: notes) }
@@ -18,12 +19,8 @@ struct NotesListView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(showsHistory ? "翻翻旧便签" : "今天的便签")
-                        .font(.system(size: 21, weight: .semibold, design: .serif))
-                    Text(showsHistory ? "旧想法，也可以接着写。" : "记下想法，让它留在眼前。")
-                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                }
+                Text(showsHistory ? "翻翻旧便签" : "今天的便签")
+                    .font(NoteTypography.font(size: 21, weight: .semibold))
                 Spacer(minLength: 0)
                 Button(action: createNote) { Image(systemName: "plus").frame(width: 26, height: 26) }
                     .buttonStyle(SubtleButtonStyle()).accessibilityLabel("新建今天的便签")
@@ -61,10 +58,6 @@ struct NotesListView: View {
                 if todaysNotes.isEmpty { emptyState(history: false) }
                 ForEach(todaysNotes) { note in noteCard(note, historical: false) }
             }
-
-            Text(showsHistory ? "“继续使用”会放一份副本到今天，历史原稿保留；再次点击会打开已有的今日副本。" : "便签自动保存。以前的便签收在历史里；选中文字或全文可按行转为今天的待办。")
-                .font(.system(size: 11)).foregroundStyle(Theme.secondary).lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .alert("删除这张便签？", isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
                presenting: pendingDeletion) { note in
@@ -80,17 +73,18 @@ struct NotesListView: View {
             Button { openNote(note.id) } label: {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
-                        Text(note.title).font(.system(size: 15, weight: .medium, design: .serif)).lineLimit(1)
+                        Text(note.title).font(NoteTypography.font(size: 15, weight: .medium)).lineLimit(1)
                         Spacer(minLength: 0)
                         Image(systemName: note.isOpen ? "pin.fill" : "arrow.up.right")
                             .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                     }
                     Text(previewText(note))
-                        .font(.system(size: 12)).lineSpacing(4).foregroundStyle(Theme.secondary).lineLimit(3)
+                        .font(NoteTypography.font(size: 14)).lineSpacing(4).foregroundStyle(Theme.secondary).lineLimit(3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
                 .accessibilityLabel(historical ? "查看历史便签：\(note.title)" : "打开便签：\(note.title)")
+                .accessibilityValue(note.isOpen ? "已在桌面打开" : "已收起")
 
             Rectangle().fill(Color(nsColor: Theme.noteRule).opacity(0.6)).frame(height: 0.5)
 
@@ -102,11 +96,17 @@ struct NotesListView: View {
                     }.buttonStyle(SubtleButtonStyle())
                         .accessibilityLabel("继续使用便签：\(note.title)")
                         .accessibilityIdentifier("notes.continue.\(note.id)")
-                } else {
-                    Text(note.continuedFromNoteID == nil ? (note.isOpen ? "已在桌面打开" : "已收起 · 点击打开") : "接着上次的想法")
-                        .font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                        .help("复制到今天继续编辑，保留历史原稿")
                 }
                 Spacer(minLength: 0)
+                Button { exportNote(note.id) } label: {
+                    Label("导出 TXT", systemImage: "square.and.arrow.down")
+                        .font(.system(size: 11, weight: .medium))
+                        .padding(.vertical, 6)
+                }.buttonStyle(.plain).foregroundStyle(Theme.primary)
+                    .help("选择保存位置，导出这张便签的原文")
+                    .accessibilityLabel("导出便签为 TXT：\(note.title)")
+                    .accessibilityIdentifier("notes.export.\(note.id)")
                 Button { pendingDeletion = note } label: {
                     Image(systemName: "trash").font(.system(size: 12))
                         .frame(width: 28, height: 28).contentShape(Rectangle())
@@ -126,7 +126,7 @@ struct NotesListView: View {
     private func emptyState(history: Bool) -> some View {
         VStack(spacing: 14) {
             Image(systemName: history ? "tray" : "note.text").font(.system(size: 34, weight: .ultraLight)).foregroundStyle(Theme.accent)
-            Text(history ? "还没有历史便签" : "给今天的想法，一张小小的纸。")
+            Text(history ? "还没有历史便签" : "还没有便签")
                 .font(.system(size: 13)).foregroundStyle(Theme.secondary)
             if !history { Button("写一张便签", action: createNote).buttonStyle(SubtleButtonStyle()) }
         }.frame(maxWidth: .infinity).padding(.vertical, 35)
@@ -134,7 +134,7 @@ struct NotesListView: View {
 
     private func previewText(_ note: StickyNote) -> String {
         let text = note.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return "一张等待落笔的纸。" }
+        guard !text.isEmpty else { return "空白便签" }
         let body = note.text.components(separatedBy: .newlines).dropFirst().joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return body.isEmpty ? text : body

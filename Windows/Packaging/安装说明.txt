@@ -1,0 +1,28 @@
+番茄小记 for Windows
+====================
+
+系统：64 位 Windows 10（1809 或更新）/ Windows 11。
+安装包内已包含 .NET 8 运行库，不需要另外安装 .NET。
+
+1. 下载 TomatoNotes-vX.Y.Z-Windows-x64-setup.exe。
+2. 运行安装程序，可按提示选择安装位置。安装后从开始菜单或桌面打开。
+3. 关闭主窗口后，应用继续驻留在右下角系统托盘；双击托盘图标重新打开。
+4. 要真正退出，请右击托盘图标选择“退出”。退出会暂停计时并保存。
+
+Windows 安装程序目前未使用商业代码签名证书。若 SmartScreen 提示，请确认下载来源，
+并核对 Release 附件 SHA256SUMS.txt 中的 SHA-256，确认无误后再运行。
+
+默认快捷键：Ctrl+Alt+P 开始/暂停，Ctrl+Alt+T 快速待办，Ctrl+Alt+N 新建便签。
+可在设置中换键或留空停用；与其他程序冲突时请更换组合。
+
+资料：%APPDATA%\TomatoNotes\data.json
+图片：%APPDATA%\TomatoNotes\Attachments\
+备份：%APPDATA%\TomatoNotes\Backups\
+API Key 使用 Windows DPAPI 按当前用户加密，不写入 JSON，也不包含在备份中。
+
+保留功能：番茄钟、待办、历史统计、浮动便签、TXT 导出、前台 App 统计、
+成果文字/图片、AI 服务商连接与手动/自动回顾、全局快捷键、备份。
+暂不包含 macOS 专属的 Liquid Glass、合盖策略，以及依赖 AppleScript 和窗口截图的
+Chrome 页面守护/自动关闭。本版用托盘气泡替代 macOS 通知。
+
+卸载不会主动删除上述个人资料与备份。不要从不可信来源导入资料或密钥。

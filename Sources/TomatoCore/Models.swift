@@ -40,7 +40,7 @@ public struct Hotkey: Codable, Equatable, Sendable {
     }
 }
 
-public struct AppSettings: Codable, Sendable {
+public struct AppSettings: Codable, ExtraFieldPreserving, Sendable {
     public var focusMinutes = 25
     public var shortBreakMinutes = 5
     public var longBreakMinutes = 15
@@ -59,6 +59,9 @@ public struct AppSettings: Codable, Sendable {
     public var timerHotkey = Hotkey(letter: "P")
     public var todoHotkey = Hotkey(letter: "T")
     public var noteHotkey = Hotkey(letter: "N")
+
+    /// 未知设置字段：Windows 或未来版本保存的内容，macOS 不理解但必须原样保留。
+    public var extraFields: [String: JSONValue] = [:]
 
     public init() {}
 
@@ -89,6 +92,34 @@ public struct AppSettings: Codable, Sendable {
         timerHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .timerHotkey) ?? Hotkey(letter: "P")
         todoHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .todoHotkey) ?? Hotkey(letter: "T")
         noteHotkey = try values.decodeIfPresent(Hotkey.self, forKey: .noteHotkey) ?? Hotkey(letter: "N")
+        extraFields = try Self.captureExtraFields(from: decoder, known: [
+            "focusMinutes", "shortBreakMinutes", "longBreakMinutes", "longBreakEvery",
+            "soundEnabled", "notificationsEnabled", "recordingEnabled", "allowClamshellWithExternalDisplay",
+            "showDockIcon", "glassControlsEnabled", "appearance", "focusGuard", "review", "ai",
+            "activityRecording", "timerHotkey", "todoHotkey", "noteHotkey"])
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(focusMinutes, forKey: .focusMinutes)
+        try container.encode(shortBreakMinutes, forKey: .shortBreakMinutes)
+        try container.encode(longBreakMinutes, forKey: .longBreakMinutes)
+        try container.encode(longBreakEvery, forKey: .longBreakEvery)
+        try container.encode(soundEnabled, forKey: .soundEnabled)
+        try container.encode(notificationsEnabled, forKey: .notificationsEnabled)
+        try container.encode(recordingEnabled, forKey: .recordingEnabled)
+        try container.encode(allowClamshellWithExternalDisplay, forKey: .allowClamshellWithExternalDisplay)
+        try container.encode(showDockIcon, forKey: .showDockIcon)
+        try container.encode(glassControlsEnabled, forKey: .glassControlsEnabled)
+        try container.encode(appearance, forKey: .appearance)
+        try container.encode(focusGuard, forKey: .focusGuard)
+        try container.encode(review, forKey: .review)
+        try container.encode(ai, forKey: .ai)
+        try container.encode(activityRecording, forKey: .activityRecording)
+        try container.encode(timerHotkey, forKey: .timerHotkey)
+        try container.encode(todoHotkey, forKey: .todoHotkey)
+        try container.encode(noteHotkey, forKey: .noteHotkey)
+        try encodeExtraFields(to: encoder)
     }
 
     public func duration(for stage: TimerStage) -> Double {
@@ -265,7 +296,7 @@ public struct StickyNote: Codable, Identifiable, Sendable {
     }
 }
 
-public struct AppData: Codable, Sendable {
+public struct AppData: Codable, ExtraFieldPreserving, Sendable {
     // v4 为同期新增的本地记录字段共用迁移版本。
     public static let currentSchemaVersion = 4
     public var schemaVersion = currentSchemaVersion
@@ -280,6 +311,8 @@ public struct AppData: Codable, Sendable {
     public var focusActivities: [FocusActivity] = []
     public var lastReviewAttemptDay: String?
     public var lastReviewError: String?
+    /// 未知根字段：Windows 或未来版本保存的内容，macOS 不理解但必须原样保留。
+    public var extraFields: [String: JSONValue] = [:]
 
     public init() {}
 
@@ -301,5 +334,25 @@ public struct AppData: Codable, Sendable {
         focusActivities = try values.decodeIfPresent([FocusActivity].self, forKey: .focusActivities) ?? []
         lastReviewAttemptDay = try values.decodeIfPresent(String.self, forKey: .lastReviewAttemptDay)
         lastReviewError = try values.decodeIfPresent(String.self, forKey: .lastReviewError)
+        extraFields = try Self.captureExtraFields(from: decoder, known: [
+            "schemaVersion", "settings", "timer", "sessions", "intervals", "usage", "todos",
+            "notes", "workRecords", "focusActivities", "lastReviewAttemptDay", "lastReviewError"])
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(settings, forKey: .settings)
+        try container.encode(timer, forKey: .timer)
+        try container.encode(sessions, forKey: .sessions)
+        try container.encode(intervals, forKey: .intervals)
+        try container.encode(usage, forKey: .usage)
+        try container.encode(todos, forKey: .todos)
+        try container.encode(notes, forKey: .notes)
+        try container.encode(workRecords, forKey: .workRecords)
+        try container.encode(focusActivities, forKey: .focusActivities)
+        try container.encode(lastReviewAttemptDay, forKey: .lastReviewAttemptDay)
+        try container.encode(lastReviewError, forKey: .lastReviewError)
+        try encodeExtraFields(to: encoder)
     }
 }

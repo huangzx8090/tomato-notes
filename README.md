@@ -11,13 +11,26 @@
   <a href="CHANGELOG.md">更新记录</a>
 </p>
 
-原生 macOS 菜单栏工具，集成番茄钟、纸感待办、浮动便签、每轮进展与可选 AI 回顾。无需每次结束都填写复盘：先让应用记下目标、真实投入和完成的待办，需要时再补充一句话或一张成果图。
+macOS 菜单栏与 Windows 桌面工具，集成番茄钟、待办、浮动便签、每轮进展与可选 AI 回顾。无需每次结束都填写复盘：先让应用记下目标、真实投入和完成的待办，需要时再补充一句话或一张成果图。
 
 ## 下载与安装
 
-前往 **[GitHub Releases](https://github.com/huangzx8090/tomato-notes/releases/latest)** 下载。声明支持 **macOS 14+**；Universal 包同时包含 **Apple Silicon 与 Intel** 架构。
+前往同一 **[GitHub Releases](https://github.com/huangzx8090/tomato-notes/releases/latest)** 页面按系统下载。
 
-当前版本 **v1.5.0（build 11）**，新增热力图、历史搜索、手动待办结转、AI 白名单推荐和可选 AI 自动记录。详见[本次发布说明](docs/releases/v1.5.0.md)。
+### Windows 10 / 11（x64）
+
+1. 下载 `TomatoNotes-vX.Y.Z-Windows-x64-setup.exe`，运行中文安装程序。安装包自包含 .NET 8，无需另装运行时。
+2. 从开始菜单或可选桌面快捷方式打开。主窗口关闭后驻留系统托盘；右击托盘图标可快速待办、新建便签或退出。
+3. 使用 `Ctrl+Alt+P / T / N` 控制计时、快速待办与便签；Keychain 由 Windows DPAPI 替代，系统通知由托盘气泡替代。
+4. 暂不提供 macOS Liquid Glass、合盖策略及 AppleScript / 截图式 Chrome 自动关闭。Windows 资料保存在 `%APPDATA%\TomatoNotes`。
+
+Windows 安装程序目前未使用 Authenticode 商业签名，SmartScreen 可能提示。请核对来源与 `SHA256SUMS.txt`。功能范围、源码构建和 Windows 实机验收边界见 **[Windows 客户端说明](Windows/README.md)**；安装后也可查看 Release 的 `WINDOWS-INSTALL.txt`。
+
+### macOS 14+
+
+Universal 包同时包含 **Apple Silicon 与 Intel** 架构。
+
+当前版本 **v1.6.0（macOS build 12）**，首次提供 Windows x64 客户端和安装包；同时优化白名单清单、热力图提示与便签 TXT 导出。详见[本次发布说明](docs/releases/v1.6.0.md)。
 
 1. 推荐下载 `.dmg`，打开后把“番茄小记”拖入 **Applications**；也可解压 `.zip` 后移入“应用程序”。
 2. 从“应用程序”打开，在屏幕顶部菜单栏点击计时图标。默认不显示 Dock 图标，可在 **设置 → 在 Dock 中显示图标** 开启。
@@ -94,9 +107,9 @@
 
 ## Chrome 专注守护
 
-在 **专注 → 专注守护** 选择本轮目标、允许的 App，以及 Chrome 页面 / 网站白名单。
+在 **专注 → 专注范围** 填写本轮目标，直接勾选允许使用的应用和 Chrome 网页，取消勾选就移出。“全选”只选择当前列出的网页；手动整站和常用网页在“更多选项”中。
 
-也可以填写目标后点击 **读取当前 App 与网页并推荐**，让 AI 逐项给出推荐、可能需要或不推荐及理由。推荐项默认勾选，可逐项修改；点击“设置并开始专注”或“保存本轮白名单”后才加入本轮。已有手选规则保留。详见 [AI 白名单推荐](docs/AI白名单推荐.md)。
+也可以在 **更多选项 → AI 帮我勾选** 中请求推荐当前 App 与网页。建议显示在同一份勾选清单里，可以直接取消或补选，点击“开始专注”或“保存选择”后才应用到本轮。详见 [AI 白名单推荐](docs/AI白名单推荐.md)。
 
 ```text
 本机检查前台 App / 当前普通 Chrome 标签
@@ -154,7 +167,7 @@
 ```
 
 - 计时使用单调时钟，约每 2 秒保存恢复检查点，关键动作立即原子保存。同一数据目录只有一个进程可写，重复启动会唤出原实例；读取失败保留原文件并停止写入。
-- 日常启动始终共用上述固定目录，包括从其他位置打开应用副本、手动打开验证包。多次打开共用同一个正在运行的计时和记录，不额外启动一个独立番茄钟。面板顶部的“本机共用资料”可查看实际保存位置和备份。
+- 日常启动始终共用上述固定目录，包括从其他位置打开应用副本、手动打开验证包。多次打开共用同一个正在运行的计时和记录，不额外启动一个独立番茄钟。保存位置和备份入口位于“设置 → 数据与隐私”。
 - 只有显式 `--ui-test` 或 `--data-dir` 才使用独立资料；面板会显示“独立测试资料”，可保存当前内容后打开本机共用资料库。已有独立资料保持原位，不自动将测试记录混入日常历史；需要保留的旧记录可按[资料合并说明](docs/本地资料保存与统一.md)备份后合并。
 - **设置 → 数据与隐私 → 备份数据** 同时保存 JSON 和关联图片。备份 JSON 与同名 `.assets/Attachments/` 目录须一同保留；恢复步骤见指南。备份不含钥匙串 Key。v1.5.0 使用 v4 资料格式，保存活动记录与待办安排历史，升级前自动备份；v1.4.0 等旧版不能读取 v4，回退前需恢复兼容备份。
 - Key 按服务商保存在本机钥匙串，不写入 JSON、Git 或日志；启动进程内的 `AI_API_KEY`、对应服务商环境变量优先于钥匙串，兼容旧 DeepSeek Key。终端的临时变量通常不会传给 Dock 启动的应用，推荐直接在设置中填写。
@@ -180,7 +193,7 @@ open 'build/番茄小记.app'
 Scripts/build-app.sh release --universal
 
 # DMG、ZIP、安装说明与校验文件；标签必须匹配 Info.plist
-Scripts/package-release.sh v1.5.0
+Scripts/package-release.sh v1.6.0
 
 # 独立验证包和资料，不接触正式数据
 Scripts/build-app.sh release --qa
@@ -197,12 +210,12 @@ Scripts/check-integration.sh
 
 `main` 保持稳定，`develop` 集成开发；工作分支命名为 `<类型>/<描述>`，例如 `feat/progress-timeline`、`fix/timer-display`，通过 PR 进入 develop，发布时再由 develop PR 到 main。参见 [开发与分支约定](CONTRIBUTING.md)。首次克隆执行 `Scripts/setup-dev.sh` 开启本地推送拦截。
 
-当前私有仓库的 GitHub 分支保护受账号计划限制，CI 与本地 hook **不能替代服务端保护**。
+当前私有仓库的 GitHub 分支保护受账号计划限制，CI 与本地 hook **不能替代服务端保护**。仓库同时维护 macOS 与 Windows 客户端；目录职责、跨端评审与版本同步见 [双端协作维护](docs/双端协作维护.md)。
 
 ### Actions 与发布
 
-- [macOS CI](https://github.com/huangzx8090/tomato-notes/actions/workflows/ci.yml)：PR、main / develop 推送和手动运行，执行测试、Universal 打包与完整性校验，安装包暂存 7 天。
-- [发布 macOS 应用](https://github.com/huangzx8090/tomato-notes/actions/workflows/release.yml)：推送 `vX.Y.Z` 标签，检查版本与主分支归属，重新测试和打包，先创建草稿、上传全部附件，再正式发布。
+- [macOS 与 Windows CI](https://github.com/huangzx8090/tomato-notes/actions/workflows/ci.yml)：PR、main / develop 推送和手动运行，执行两端测试与编译。`Packaging/`、`Windows/`、`Scripts/`、工作流或 SwiftPM 配置变更时额外执行 Universal 与 Windows 安装包校验；无法可靠比较提交时也执行打包。手动运行勾选 `package` 可生成预览安装包，暂存 7 天，不发布 Release。
+- [发布 macOS 与 Windows 应用](https://github.com/huangzx8090/tomato-notes/actions/workflows/release.yml)：推送 `vX.Y.Z` 标签，检查两端版本与主分支归属，重新测试和并行打包，全部附件齐备后正式发布。
 - 测试使用模拟 AI 响应，**不需要在 Actions 填写 DeepSeek Key**。发布使用仓库自动提供的 `GITHUB_TOKEN`；只有上传 Release 的 job 获得 `contents: write`。
 - 后续发版步骤、工具链选择、失败重跑和签名限制见 [发布流程](docs/发布流程.md)。
 
@@ -224,7 +237,7 @@ SwiftUI / AppKit 面板、快捷键、浮动便签
 
 ## 验证范围
 
-当前 **119 项规则与接口测试** 覆盖计时、跨日、资料兼容与备份、共用资料与测试隔离、便签历史、待办删除撤销、进展归属、白名单外时长、定时去重、图片处理、服务商模型列表、AI 白名单推荐完整性与分批取消、Chrome 多窗口读取、守护白名单边界及保守关闭条件。发布流程另校验双架构二进制、签名、ZIP 解包后的执行位、DMG 与 SHA-256。
+当前 **155 项 macOS 规则与模拟接口测试**覆盖计时、跨日、资料兼容与备份、共用资料与测试隔离、便签 TXT 导出、待办结转与撤销、进展归属、白名单选择与推荐、Chrome 多窗口读取、守护白名单边界及保守关闭条件。发布流程另校验双架构二进制、签名、ZIP 解包后的执行位、DMG 与 SHA-256；Windows 核心与模拟接口测试由 CI 单独运行。
 
 自动化检查不代表所有系统版本和机器上的通知、授权、Chrome 截图与关闭、全屏多屏、玻璃动画均已实机验收。**本次发布未完成 Chrome 截图与自动关闭的端到端人工验收。** 已知限制与排查见 [使用指南](docs/使用指南与权限.md)，详细历史验收见 [体验优化与后续建议](docs/体验优化与后续建议.md)。
 

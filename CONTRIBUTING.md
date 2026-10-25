@@ -51,7 +51,7 @@ git switch -c fix/timer-display origin/develop
 1. 只修改本次范围；不混入个人资料、Key、build 或 .build 目录。
 2. 执行与变更相称的检查，明确哪些是真实验证、哪些仅规则测试，哪些仍未验证。
 3. 使用中文提交，推送同名工作分支，创建目标为 **develop** 的 PR。
-4. CI 的 **分支约定**、**测试与双架构打包** 均通过，再获得用户明确的合并授权。
+4. CI 的 **分支约定**、**测试与编译** 均通过；修改打包输入时，额外通过 **双架构安装包验证**，再获得用户明确的合并授权。普通应用源码与文档变更会跳过安装包 job；`Packaging/`、`Scripts/`、`.github/workflows/`、`Package.swift` 或 `Package.resolved` 变更会触发打包。
 5. 合并后从最新 develop 开始下一项工作，不长期复用已经合并的功能分支。
 
 ```bash
@@ -69,6 +69,10 @@ git push -u origin feat/progress-timeline
 - 从最新 main 创建并推送注释标签，触发发布工作流。具体见 [发布流程](docs/发布流程.md)。
 - 如果 main 出现 develop 不包含的提交，创建 **main → develop** 同步 PR；不直接从本地推送 develop。
 - 已发布标签不改写；安装包内容或发布逻辑需要修复时发新版本。Release 文字可以补充已知问题。
+
+## 双端协作
+
+仓库同时维护 macOS（`Sources/`）与 Windows（`Windows/`）两个客户端。目录职责、代码所有者配置与跨端评审规则见 [双端协作维护](docs/双端协作维护.md)：macOS 由 @huangzx8090 主要维护，Windows 由同伴主要维护；`Compatibility/`、发布脚本和 GitHub Actions 属于双端共享，修改需要双方知情。两端共用同一版本号与资料契约，Release 必须两端构建全部成功才会公开。
 
 ## 三层约束与实际限制
 

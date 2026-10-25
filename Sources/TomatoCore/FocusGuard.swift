@@ -1,11 +1,13 @@
 import Foundation
 
-public struct FocusGuardSettings: Codable, Sendable {
+public struct FocusGuardSettings: Codable, ExtraFieldPreserving, Sendable {
     public var enabled = false
     public var remindAfterSeconds = 60
     public var graceSeconds = 60
     public var maxChecks = 3
     public var reuseLastPlan = false
+    /// 未知字段：Windows 或未来版本保存的守护设置，macOS 不理解但必须原样保留。
+    public var extraFields: [String: JSONValue] = [:]
     public init() {}
     private enum CodingKeys: String, CodingKey { case enabled, remindAfterSeconds, graceSeconds, maxChecks, reuseLastPlan, lastGoal, lastAppIDs, lastPages, lastAllowAIClosing, favoritePages }
     public init(from decoder: Decoder) throws {
@@ -20,19 +22,23 @@ public struct FocusGuardSettings: Codable, Sendable {
         lastPages = try values.decodeIfPresent([FocusPageRule].self, forKey: .lastPages) ?? []
         lastAllowAIClosing = try values.decodeIfPresent(Bool.self, forKey: .lastAllowAIClosing) ?? false
         favoritePages = try values.decodeIfPresent([FocusPageRule].self, forKey: .favoritePages) ?? []
+        extraFields = try Self.captureExtraFields(from: decoder, known: [
+            "enabled", "remindAfterSeconds", "graceSeconds", "maxChecks", "reuseLastPlan",
+            "lastGoal", "lastAppIDs", "lastPages", "lastAllowAIClosing", "favoritePages"])
     }
     public func encode(to encoder: Encoder) throws {
-        var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(enabled, forKey: .enabled)
-        try values.encode(remindAfterSeconds, forKey: .remindAfterSeconds)
-        try values.encode(graceSeconds, forKey: .graceSeconds)
-        try values.encode(maxChecks, forKey: .maxChecks)
-        try values.encode(reuseLastPlan, forKey: .reuseLastPlan)
-        try values.encode(lastGoal, forKey: .lastGoal)
-        try values.encode(lastAppIDs, forKey: .lastAppIDs)
-        try values.encode(lastPages, forKey: .lastPages)
-        try values.encode(false, forKey: .lastAllowAIClosing)
-        try values.encode(favoritePages, forKey: .favoritePages)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(enabled, forKey: .enabled)
+        try container.encode(remindAfterSeconds, forKey: .remindAfterSeconds)
+        try container.encode(graceSeconds, forKey: .graceSeconds)
+        try container.encode(maxChecks, forKey: .maxChecks)
+        try container.encode(reuseLastPlan, forKey: .reuseLastPlan)
+        try container.encode(lastGoal, forKey: .lastGoal)
+        try container.encode(lastAppIDs, forKey: .lastAppIDs)
+        try container.encode(lastPages, forKey: .lastPages)
+        try container.encode(false, forKey: .lastAllowAIClosing)
+        try container.encode(favoritePages, forKey: .favoritePages)
+        try encodeExtraFields(to: encoder)
     }
     /// 跨轮次保留的常用白名单；由用户在设置弹窗里显式保存或清除。
     /// 仅在用户开启沿用时保存候选名单；生效计划绑定新一轮，不带关闭授权。

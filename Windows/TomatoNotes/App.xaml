@@ -1,0 +1,25 @@
+<Application x:Class="TomatoNotes.Windows.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" ShutdownMode="OnExplicitShutdown">
+  <Application.Resources>
+    <ResourceDictionary>
+      <SolidColorBrush x:Key="Background" Color="#F7F3EB" />
+      <SolidColorBrush x:Key="Surface" Color="#FFFCF7" />
+      <SolidColorBrush x:Key="Ink" Color="#39362F" />
+      <SolidColorBrush x:Key="Secondary" Color="#7C786E" />
+      <SolidColorBrush x:Key="Accent" Color="#C86345" />
+      <SolidColorBrush x:Key="Green" Color="#68836D" />
+      <SolidColorBrush x:Key="Border" Color="#E5DDD0" />
+      <FontFamily x:Key="UIFont">Microsoft YaHei UI, Segoe UI</FontFamily>
+      <Style TargetType="Window"><Setter Property="FontFamily" Value="{StaticResource UIFont}" /><Setter Property="Foreground" Value="{StaticResource Ink}" /><Setter Property="Background" Value="{StaticResource Background}" /></Style>
+      <Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap" /><Setter Property="VerticalAlignment" Value="Center" /></Style>
+      <Style TargetType="Button"><Setter Property="FontFamily" Value="{StaticResource UIFont}" /><Setter Property="Padding" Value="12,8" /><Setter Property="Cursor" Value="Hand" /><Setter Property="Background" Value="{StaticResource Surface}" /><Setter Property="Foreground" Value="{StaticResource Ink}" /><Setter Property="BorderBrush" Value="{StaticResource Border}" /><Setter Property="BorderThickness" Value="1" /></Style>
+      <Style TargetType="TextBox"><Setter Property="Padding" Value="9,7" /><Setter Property="Background" Value="{StaticResource Surface}" /><Setter Property="BorderBrush" Value="{StaticResource Border}" /><Setter Property="VerticalContentAlignment" Value="Center" /></Style>
+      <Style TargetType="ComboBox"><Setter Property="Padding" Value="7,5" /></Style>
+      <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="{StaticResource Accent}" /><Setter Property="Foreground" Value="White" /><Setter Property="BorderThickness" Value="0" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+      <Style x:Key="LinkButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Foreground" Value="{StaticResource Accent}" /><Setter Property="Padding" Value="5" /></Style>
+      <Style x:Key="Card" TargetType="Border"><Setter Property="Background" Value="{StaticResource Surface}" /><Setter Property="BorderBrush" Value="{StaticResource Border}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="12" /><Setter Property="Padding" Value="16" /><Setter Property="Margin" Value="0,0,0,14" /></Style>
+      <Style x:Key="TitleText" TargetType="TextBlock"><Setter Property="FontSize" Value="17" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+      <Style x:Key="HintText" TargetType="TextBlock"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="{StaticResource Secondary}" /><Setter Property="LineHeight" Value="18" /></Style>
+      <BooleanToVisibilityConverter x:Key="BoolVisibility" />
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>
