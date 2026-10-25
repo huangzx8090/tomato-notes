@@ -21,8 +21,12 @@ public struct FocusWhitelistSnapshot: Sendable {
         for app in apps.sorted(by: { $0.name.localizedStandardCompare($1.name) == .orderedAscending }) {
             guard !app.bundleID.isEmpty, app.bundleID != "com.google.Chrome",
                   !app.bundleID.hasPrefix("com.zixuan.TomatoNotes"), seenApps.insert(app.bundleID).inserted else { continue }
+            // 使用本机应用标识识别已知联网工具，避免只因与学科无直接关系而被排除；标识不发送。
+            let support: FocusWhitelistCandidate.Support? = app.bundleID == "io.github.clash-verge-rev.clash-verge-rev" ? .network : nil
             let candidate = FocusWhitelistCandidate(id: "app-\(entries.count)", kind: .app,
-                                                     name: String(app.name.prefix(240)), detail: "当前正在运行的应用")
+                                                     name: String(app.name.prefix(240)),
+                                                     detail: support == .network ? "网络连接辅助工具，支持访问学习资料和 AI 服务" : "当前正在运行的应用",
+                                                     support: support)
             entries.append(Item(candidate: candidate, appID: app.bundleID, pageRule: nil))
         }
         var seenPages: Set<String> = []

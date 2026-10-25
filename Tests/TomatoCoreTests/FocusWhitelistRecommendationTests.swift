@@ -56,7 +56,7 @@ struct FocusWhitelistRecommendationTests {
         }
         let goal = String(repeating: "学", count: 300)
         #expect(try FocusWhitelistRecommendation.validateContext(goal: " \n" + goal + "\t ", candidates: candidates) == goal)
-        let suggestions = candidates.map { FocusWhitelistSuggestion(id: $0.id, disposition: .excluded, reason: String(repeating: "理", count: 200)) }
+        let suggestions = candidates.map { FocusWhitelistSuggestion(id: $0.id, disposition: .excluded, reason: String(repeating: "理", count: 200), purpose: .distraction) }
         #expect(try FocusWhitelistRecommendation.validateResponse(response(suggestions), goal: goal, candidates: candidates) == suggestions)
     }
 
@@ -105,9 +105,54 @@ struct FocusWhitelistRecommendationTests {
         #expect(validated[1].reason == "可用于本轮课程练习")
     }
 
-    @Test func everyCandidateMayLegitimatelyBeExcluded() throws {
-        let suggestions = candidates.map { FocusWhitelistSuggestion(id: $0.id, disposition: .excluded, reason: "与当前目标无关") }
+    @Test func allDistractionCandidatesMayLegitimatelyBeExcluded() throws {
+        let candidates: [FocusWhitelistCandidate] = [
+            .init(id: "game", kind: .app, name: "游戏对局", detail: "游戏应用"),
+            .init(id: "drama", kind: .page, name: "电视剧全集", detail: "娱乐剧集")
+        ]
+        let suggestions = candidates.map { FocusWhitelistSuggestion(id: $0.id, disposition: .excluded, reason: "本轮无关的游戏或追剧内容", purpose: .distraction) }
         #expect(try FocusWhitelistRecommendation.validateResponse(response(suggestions), goal: "练习写作", candidates: candidates) == suggestions)
+    }
+
+    @Test func oldResponsesCannotExcludeToolsJustForNotMatchingTheSubject() throws {
+        let suggestions = candidates.map { FocusWhitelistSuggestion(id: $0.id, disposition: .excluded, reason: "与软考学习无直接关系") }
+        let validated = try FocusWhitelistRecommendation.validateResponse(response(suggestions), goal: "软考复习", candidates: candidates)
+        #expect(validated.allSatisfy { $0.disposition == .optional && $0.reason.contains("缺少明确的娱乐或分心依据") })
+    }
+
+    @Test(arguments: [FocusWhitelistPurpose.learning, .support, .distraction, .uncertain])
+    func purposeControlsDispositionAndCorrectsContradictoryReasons(purpose: FocusWhitelistPurpose) throws {
+        let wrongDisposition: FocusWhitelistDisposition = purpose == .distraction ? .recommended : .excluded
+        let suggestions = candidates.map {
+            FocusWhitelistSuggestion(id: $0.id, disposition: wrongDisposition, reason: "矛盾的旧理由", purpose: purpose)
+        }
+        let validated = try FocusWhitelistRecommendation.validateResponse(response(suggestions), goal: "软考复习", candidates: candidates)
+        #expect(validated.allSatisfy { $0.disposition == purpose.disposition && $0.purpose == purpose && $0.reason != "矛盾的旧理由" })
+    }
+
+    @Test func locallyIdentifiedNetworkSupportIsKeptEvenWhenAIExcludesIt() throws {
+        let candidates: [FocusWhitelistCandidate] = [
+            .init(id: "network", kind: .app, name: "Clash Verge", detail: "网络连接辅助工具", support: .network)
+        ]
+        let suggestions: [FocusWhitelistSuggestion] = [
+            .init(id: "network", disposition: .excluded, reason: "代理工具与软考无直接关系", purpose: .distraction)
+        ]
+        let result = try #require(try FocusWhitelistRecommendation.validateResponse(response(suggestions), goal: "软考复习", candidates: candidates).first)
+        #expect(result.disposition == .recommended && result.purpose == .support && result.reason.contains("提供网络连接"))
+        #expect(try JSONDecoder().decode([FocusWhitelistCandidate].self, from: JSONEncoder().encode(candidates)) == candidates)
+        var invalid = candidates
+        invalid[0].kind = .page
+        expectInvalidContext(candidates: invalid)
+    }
+
+    @Test func rejectsUnknownNullAndNonStringPurposes() throws {
+        for purpose in ["unrecognized", NSNull(), 123] as [Any] {
+            let entries: [[String: Any]] = [
+                ["id": "a0", "disposition": "recommended", "reason": "学习辅助", "purpose": purpose],
+                ["id": "p0", "disposition": "recommended", "reason": "学习资料", "purpose": "learning"]
+            ]
+            expectInvalidResponse(try JSONSerialization.data(withJSONObject: ["suggestions": entries]))
+        }
     }
 
     @Test func rejectsUnknownDuplicateMissingAndExtraIDs() throws {
