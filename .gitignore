@@ -1,6 +1,7 @@
-.build/
+**/.build/
 **/bin/
 **/obj/
 build/
 .DS_Store
 *.xcuserstate
+/PROJECT_PROGRESS.md

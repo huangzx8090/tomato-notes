@@ -4,9 +4,20 @@
 
 ## 分支
 
-- 功能 / 修复：`<类型>/<描述>` → `develop`，例如 `feat/progress-timeline`、`fix/timer-display`
+- 功能 / 修复：`<类型>/<平台>-<描述>` → `develop`，例如 `feat/macos-history-search`、`fix/windows-tray-menu`、`chore/shared-ci-policy`
 - 发布：`develop` → `main`
 - 发布后回同步：`main` → `develop`
+
+## 跨端跟进
+
+影响平台：macOS / Windows / 双端。
+
+- [ ] 已检查另一端的对应功能或同类问题，并优先通过 `gh` 搜索已有 issue
+- [ ] 有跨端价值时已创建 / 补充目标端跟进 issue；无需跟进时已说明原因
+
+跟进 issue 链接或跳过原因：
+
+来源未合并时，跟进 issue 须标记“来源 PR 待合入”。纯平台特有问题无需提跨端 issue。此处使用普通关联链接，不使用 `Closes` / `Fixes` 自动关闭另一端事项。
 
 ## 验证
 

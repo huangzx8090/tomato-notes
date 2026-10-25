@@ -2,17 +2,17 @@
 
 采用初稿 C：柔和立体的陶土番茄、鼠尾草绿双叶与奶油白指针，配暖白底。
 
-- 设计原图：`Packaging/AppIcon.png`，由内置 image_gen 生成；保留完整正方形底图，避免自动抠图留下杂点。
-- 应用图标：`Scripts/make-icon.swift` 读取原图，高质量缩放后统一应用圆角和 7% 透明边距，生成 16–1024 px 的标准 iconset；现有打包流程将其转换为 `AppIcon.icns`。
+- 设计原图：`apps/macos/Packaging/AppIcon.png`，由内置 image_gen 生成；保留完整正方形底图，避免自动抠图留下杂点。
+- 应用图标：`apps/macos/Scripts/make-icon.swift` 读取原图，高质量缩放后统一应用圆角和 7% 透明边距，生成 16–1024 px 的标准 iconset；现有打包流程将其转换为 `AppIcon.icns`。
 - README 预览：`docs/assets/app-icon.png`，使用同一流程的 512 px 输出。
 - 菜单栏状态符号沿用原有实现，以便清楚区分运行、暂停与休息。
 
 更新预览与应用图标：
 
 ```bash
-swift Scripts/make-icon.swift build/AppIcon.iconset
+swift apps/macos/Scripts/make-icon.swift build/AppIcon.iconset
 cp build/AppIcon.iconset/icon_256x256@2x.png docs/assets/app-icon.png
-Scripts/build-app.sh release --universal
+apps/macos/Scripts/build-app.sh release --universal
 ```
 
 ## 最终生图提示词

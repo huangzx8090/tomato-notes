@@ -1,0 +1,48 @@
+name: 双端功能与修复跟进
+description: 将一端适用的功能、修复或改进交给另一端跟进
+title: "[跨端跟进] "
+body:
+  - type: dropdown
+    id: target
+    attributes:
+      label: 目标平台
+      options:
+        - macOS
+        - Windows
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: 来源平台与 PR / commit
+      description: 附来源链接，并注明来源 PR 待合入或已合入。
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: 来源端的行为与改动
+      description: 新增了什么；修复类请说明触发条件、根因与修复方式。
+    validations:
+      required: true
+  - type: textarea
+    id: applicability
+    attributes:
+      label: 目标端现状与适用依据
+      description: 附目标端对应代码或行为；尚未证实的问题明确标记待确认，并说明查重结果。
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: 建议实现与兼容要求
+      description: 共同业务规则、目标平台实现建议，以及数据契约或迁移影响。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收条件与验证边界
+      description: 列出目标端可执行的验收条件，区分来源端已验证和目标端待验证内容。
+    validations:
+      required: true
