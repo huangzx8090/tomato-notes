@@ -67,7 +67,7 @@ jobs:
       - name: 核对标签、版本与主分支
         shell: bash
         run: |
-          git fetch origin main
+          # checkout fetch-depth 0 已检出完整分支历史；凭据不持久化时不要重复访问远程。
           Scripts/validate-release.sh "$RELEASE_TAG"
       - name: 安装 .NET 8 SDK
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
