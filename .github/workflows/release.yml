@@ -83,7 +83,10 @@ jobs:
         shell: bash
         run: |
           test -s "build/releases/$RELEASE_TAG/TomatoNotes-$RELEASE_TAG-Windows-x64-setup.exe"
-          file "build/releases/$RELEASE_TAG/TomatoNotes-$RELEASE_TAG-Windows-x64-setup.exe" | grep -E 'PE32\+.*executable.*x86-64'
+          file "build/releases/$RELEASE_TAG/TomatoNotes-$RELEASE_TAG-Windows-x64-setup.exe" | grep -E 'PE32.*executable.*80386'
+          # The installer has an x86 bootstrap; package-windows.ps1 checks the bundled x64 app.
+          file build/windows/publish/TomatoNotes.exe | grep -E 'PE32\+.*executable.*x86-64'
+          test -s "build/releases/$RELEASE_TAG/TomatoNotes-$RELEASE_TAG-Windows-x64-setup.exe"
           cp Windows/Packaging/安装说明.txt "build/releases/$RELEASE_TAG/WINDOWS-INSTALL.txt"
           cd "build/releases/$RELEASE_TAG"
           sha256sum -c WINDOWS-SHA256SUMS.txt

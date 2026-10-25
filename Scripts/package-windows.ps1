@@ -17,6 +17,10 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 $Exe = Join-Path $Output "TomatoNotes.exe"
 $Icon = Join-Path $Output "Assets/AppIcon.ico"
 if (-not (Test-Path $Exe) -or -not (Test-Path $Icon)) { throw "Publish output is incomplete" }
+$Bytes = [IO.File]::ReadAllBytes($Exe)
+$PE = [BitConverter]::ToInt32($Bytes, 60)
+$Machine = [BitConverter]::ToUInt16($Bytes, $PE + 4)
+if ($Machine -ne 0x8664) { throw "Application must be PE32+ x86-64" }
 $ISCC = Get-Command iscc.exe -ErrorAction SilentlyContinue
 if (-not $ISCC) { $ISCC = Get-Command iscc -ErrorAction SilentlyContinue }
 if (-not $ISCC) {
@@ -28,5 +32,5 @@ if (-not $ISCC) { throw "Inno Setup 6 (ISCC.exe) is required" }
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
 $Setup = "build/releases/v$Version/TomatoNotes-v$Version-Windows-x64-setup.exe"
 $Hash = (Get-FileHash $Setup -Algorithm SHA256).Hash.ToLowerInvariant()
-"$Hash  TomatoNotes-v$Version-Windows-x64-setup.exe" | Set-Content "build/releases/v$Version/WINDOWS-SHA256SUMS.txt" -Encoding ascii
+[IO.File]::WriteAllText((Join-Path $Root "build/releases/v$Version/WINDOWS-SHA256SUMS.txt"), "$Hash  TomatoNotes-v$Version-Windows-x64-setup.exe`n", [Text.UTF8Encoding]::new($false))
 Write-Host "Created: $Setup"
