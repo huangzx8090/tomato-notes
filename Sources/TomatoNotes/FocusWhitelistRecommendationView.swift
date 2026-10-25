@@ -14,7 +14,7 @@ struct FocusWhitelistRecommendationView: View {
     var body: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 12) {
-                Label("让 AI 帮你选白名单", systemImage: "sparkles").font(.system(size: 13, weight: .semibold))
+                Label("AI 帮我勾选", systemImage: "sparkles").font(.system(size: 13, weight: .semibold))
                 Text("读取当前运行的 App 和 Chrome 所有普通窗口的网页，按本轮目标逐项推荐，由你确认。")
                     .font(.system(size: 11)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
                 if model.loading {
@@ -28,7 +28,7 @@ struct FocusWhitelistRecommendationView: View {
                 } else {
                     Button(model.suggestions.isEmpty ? "读取当前 App 与网页并推荐" : "重新读取并推荐", action: onRecommend)
                         .buttonStyle(SubtleButtonStyle()).disabled(!hasKey || !canRecommend)
-                        .accessibilityLabel("AI 推荐本轮白名单")
+                        .accessibilityLabel("AI 推荐允许的应用和网页")
                     Text("将目标、App 名称、网页标题与网站发送给 \(providerName)。网页仅放行勾选的页面。")
                         .font(.system(size: 10)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
                     if !hasKey {
@@ -61,7 +61,7 @@ struct FocusWhitelistRecommendationView: View {
                         DisclosureGroup("不推荐（\(count(.excluded))）", isExpanded: $excludedExpanded) { rows(.excluded).padding(.top, 8) }
                             .font(.system(size: 11)).tint(Theme.secondary)
                     }
-                    Text("勾选的建议将在下方确认本轮时加入白名单，已手选的项目保留。")
+                    Text("建议会显示在上方清单中，可继续取消或补选，点底部确认后生效。")
                         .font(.system(size: 11)).foregroundStyle(Theme.green).fixedSize(horizontal: false, vertical: true)
                     Text("推荐用量：输入 \(model.inputTokens) / 输出 \(model.outputTokens) Tokens")
                         .font(.system(size: 10)).foregroundStyle(Theme.secondary)

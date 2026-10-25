@@ -380,7 +380,6 @@ struct FocusHeatmapGrid: View {
         }
         .buttonStyle(.plain)
         .disabled(day.isFuture)
-        .help(label)
         .accessibilityLabel(label)
         .accessibilityValue(day.isFuture ? "未来日期" : "专注时长：\(heatmapExactDuration(day.seconds))")
         .accessibilityAddTraits(day.id == selectedDay ? .isSelected : [])
@@ -388,21 +387,22 @@ struct FocusHeatmapGrid: View {
         .popover(isPresented: Binding(
             get: { hoveredDay == day.day },
             set: { isPresented in
-                if !isPresented && hoveredDay == day.day { hoveredDay = nil }
+                if !isPresented && hoveredDay == day.day { setHoveredDay(nil) }
             }
         ), arrowEdge: .bottom) {
             heatmapHoverDetail(day)
         }
         .onHover { isHovering in
             hoverTask?.cancel()
+            hoverTask = nil
             guard isHovering, !day.isFuture else {
-                if hoveredDay == day.day { hoveredDay = nil }
+                if hoveredDay == day.day { setHoveredDay(nil) }
                 return
             }
             hoverTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 350_000_000)
+                try? await Task.sleep(nanoseconds: 60_000_000)
                 guard !Task.isCancelled else { return }
-                hoveredDay = day.day
+                setHoveredDay(day.day)
             }
         }
         .zIndex(hoveredDay == day.day ? 2 : 0)
@@ -436,10 +436,18 @@ struct FocusHeatmapGrid: View {
         return markers
     }
 
+    private func setHoveredDay(_ day: String?) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            hoveredDay = day
+        }
+    }
+
     private func clearHover() {
         hoverTask?.cancel()
         hoverTask = nil
-        hoveredDay = nil
+        setHoveredDay(nil)
     }
 }
 
