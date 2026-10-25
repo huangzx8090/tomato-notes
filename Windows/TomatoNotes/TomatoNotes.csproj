@@ -10,9 +10,9 @@
     <AssemblyName>TomatoNotes</AssemblyName>
     <RootNamespace>TomatoNotes.Windows</RootNamespace>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
-    <VersionPrefix>1.6.0</VersionPrefix>
-    <AssemblyVersion>1.6.0.0</AssemblyVersion>
-    <FileVersion>1.6.0.0</FileVersion>
+    <VersionPrefix>1.6.1</VersionPrefix>
+    <AssemblyVersion>1.6.1.0</AssemblyVersion>
+    <FileVersion>1.6.1.0</FileVersion>
     <Product>番茄小记</Product>
     <Description>把时间留给在意的事</Description>
     <Company>TomatoNotes</Company>
