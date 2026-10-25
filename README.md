@@ -201,7 +201,7 @@ Scripts/check-integration.sh
 
 ### Actions 与发布
 
-- [macOS CI](https://github.com/huangzx8090/tomato-notes/actions/workflows/ci.yml)：PR、main / develop 推送和手动运行，执行测试、Universal 打包与完整性校验，安装包暂存 7 天。
+- [macOS CI](https://github.com/huangzx8090/tomato-notes/actions/workflows/ci.yml)：PR、main / develop 推送和手动运行，执行测试与当前架构编译。仅 `Packaging/`、`Scripts/`、`.github/workflows/`、`Package.swift` 或 `Package.resolved` 变更时额外执行 Universal 打包与完整性校验；无法可靠比较提交时也执行打包。手动运行勾选 `package` 可生成预览安装包，暂存 7 天，不发布 Release。
 - [发布 macOS 应用](https://github.com/huangzx8090/tomato-notes/actions/workflows/release.yml)：推送 `vX.Y.Z` 标签，检查版本与主分支归属，重新测试和打包，先创建草稿、上传全部附件，再正式发布。
 - 测试使用模拟 AI 响应，**不需要在 Actions 填写 DeepSeek Key**。发布使用仓库自动提供的 `GITHUB_TOKEN`；只有上传 Release 的 job 获得 `contents: write`。
 - 后续发版步骤、工具链选择、失败重跑和签名限制见 [发布流程](docs/发布流程.md)。

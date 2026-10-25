@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
+    inputs:
+      package:
+        description: 生成 Universal ZIP 与 DMG 预览安装包（不发布 Release）
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,10 +24,13 @@ jobs:
     name: 分支约定
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      package: ${{ steps.package.outputs.required }}
     steps:
       - name: 检出规则
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          fetch-depth: 0
           persist-credentials: false
       - name: 检查 PR 来源与目标
         if: github.event_name == 'pull_request'
@@ -30,9 +38,21 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           HEAD_REF: ${{ github.head_ref }}
         run: Scripts/check-branch-policy.sh "$BASE_REF" "$HEAD_REF"
+      - name: 验证打包触发规则
+        run: python3 Scripts/test-ci-package-policy.py
+      - name: 判断是否需要验证安装包
+        id: package
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_PACKAGE: ${{ inputs.package || false }}
+        run: |
+          required="$(Scripts/ci-package-needed.sh)"
+          echo "required=$required" >> "$GITHUB_OUTPUT"
 
-  test-and-package:
-    name: 测试与双架构打包
+  test-and-build:
+    name: 测试与编译
     needs: branch-policy
     runs-on: macos-15
     timeout-minutes: 30
@@ -54,6 +74,22 @@ jobs:
           git diff --check
       - name: 运行规则与接口测试
         run: Scripts/test.sh
+      - name: 编译当前架构应用
+        run: swift build -c debug --product TomatoNotes
+
+  package:
+    name: 双架构安装包验证
+    needs: [branch-policy, test-and-build]
+    if: needs.branch-policy.outputs.package == 'true'
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: 构建并验证 Universal ZIP 与 DMG
         run: Scripts/package-release.sh
       - name: 保存安装包
