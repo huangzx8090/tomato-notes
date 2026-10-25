@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 4,
+  "settings": {
+    "focusMinutes": 25,
+    "shortBreakMinutes": 5,
+    "longBreakMinutes": 15,
+    "longBreakEvery": 4,
+    "appearance": "system",
+    "review": { "scheduleEnabled": false, "autoSummarizeSessions": false, "hour": 21, "minute": 30 },
+    "ai": { "providerID": "deepseek", "customBaseURL": "", "modelOverride": "" },
+    "timerHotkey": { "enabled": true, "letter": "P", "modifier": "controlOption" },
+    "focusGuard": { "enabled": false, "macOSOnlyRule": "preserve-me" },
+    "activityRecording": { "enabled": false },
+    "futureSettingFromEitherPlatform": { "keep": true }
+  },
+  "timer": {
+    "stage": "focus",
+    "phase": "idle",
+    "targetSeconds": 1500,
+    "remainingSeconds": 1500,
+    "completedInSet": 0,
+    "updatedAt": 0
+  },
+  "sessions": [{
+    "id": "00000000-0000-0000-0000-000000000001",
+    "startedAt": 0,
+    "endedAt": 60,
+    "endedLocalDay": "2001-01-01",
+    "completed": true,
+    "goal": "跨端资料兼容"
+  }],
+  "intervals": [{
+    "id": "00000000-0000-0000-0000-000000000002",
+    "sessionID": "00000000-0000-0000-0000-000000000001",
+    "startedAt": 0,
+    "endedAt": 60,
+    "localDay": "2001-01-01",
+    "timeZoneID": "Asia/Shanghai",
+    "seconds": 60
+  }],
+  "usage": [],
+  "todos": [{
+    "id": "00000000-0000-0000-0000-000000000003",
+    "text": "核对资料",
+    "localDay": "2001-01-01",
+    "createdAt": 0,
+    "completedAt": 60,
+    "completedLocalDay": "2001-01-01",
+    "scheduledDays": ["2001-01-01"]
+  }],
+  "notes": [{
+    "id": "00000000-0000-0000-0000-000000000004",
+    "text": "中文、emoji 👍 和换行\n都应保留",
+    "createdAt": 0,
+    "updatedAt": 60,
+    "width": 320,
+    "height": 360,
+    "isOpen": false,
+    "localDay": "2001-01-01"
+  }],
+  "workRecords": [{
+    "id": "00000000-0000-0000-0000-000000000005",
+    "localDay": "2001-01-01",
+    "userText": "本机成果",
+    "images": [{
+      "id": "A51C4E5B-0AA4-467D-A615-36B6D5327E68",
+      "name": "成果.png",
+      "createdAt": 60
+    }],
+    "activityTopic": {
+      "groupID": "00000000-0000-0000-0000-000000000007",
+      "title": "保留 macOS 扩展",
+      "confidence": 0.8,
+      "evidenceIDs": ["00000000-0000-0000-0000-000000000006"],
+      "model": "test-model",
+      "generatedAt": 60,
+      "futureField": 42
+    },
+    "updatedAt": 60
+  }],
+  "focusActivities": [{
+    "id": "00000000-0000-0000-0000-000000000006",
+    "sessionID": "00000000-0000-0000-0000-000000000001",
+    "kind": "noteEdited",
+    "title": "便签变更",
+    "detail": "写下文字",
+    "sourceID": "00000000-0000-0000-0000-000000000004",
+    "startedAt": 30,
+    "endedAt": 60,
+    "localDay": "2001-01-01",
+    "seconds": 30,
+    "futureField": "keep"
+  }],
+  "lastReviewAttemptDay": null,
+  "lastReviewError": null,
+  "futureRootField": "must-survive-roundtrip"
+}

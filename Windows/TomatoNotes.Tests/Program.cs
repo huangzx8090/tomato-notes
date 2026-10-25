@@ -4,6 +4,7 @@ using System.Text.Json;
 using TomatoNotes.Core;
 
 var tests = new (string Name, Func<Task> Run)[] {
+    ("双端共享 v4 资料契约", () => SharedCompatibilityFixture()),
     ("读取 macOS 参考时间与默认设置", () => CheckAppleDates()),
     ("保存时保留平台扩展字段", () => PreserveUnknownFields()),
     ("读取失败禁止覆盖原始资料", () => ProtectInvalidData()),
@@ -25,6 +26,19 @@ foreach (var test in tests)
 Console.WriteLine($"{tests.Length - failed}/{tests.Length} tests passed");
 return failed == 0 ? 0 : 1;
 
+static Task SharedCompatibilityFixture()
+{
+    var directory = new DirectoryInfo(AppContext.BaseDirectory); string? fixture = null;
+    while (directory is not null && fixture is null) { var candidate = Path.Combine(directory.FullName, "Compatibility", "data-contract-v4.json"); if (File.Exists(candidate)) fixture = candidate; directory = directory.Parent; }
+    if (fixture is null) throw new FileNotFoundException("Shared compatibility fixture not found");
+    var data = JsonSerializer.Deserialize<AppData>(File.ReadAllText(fixture), TomatoJson.Options)!;
+    Equal(new DateTimeOffset(2001,1,1,0,0,0,TimeSpan.Zero), data.Timer.UpdatedAt); Equal("跨端资料兼容", data.Sessions[0].Goal);
+    Equal("2001-01-01", data.Todos[0].CompletionDay); Equal(true, data.Notes[0].Text.Contains("👍")); Equal("A51C4E5B-0AA4-467D-A615-36B6D5327E68.jpg", data.WorkRecords[0].Images[0].FileName);
+    var saved = JsonSerializer.Serialize(data, TomatoJson.Options); var root = JsonDocument.Parse(saved).RootElement;
+    Equal("must-survive-roundtrip", root.GetProperty("futureRootField").GetString()); Equal("preserve-me", root.GetProperty("settings").GetProperty("focusGuard").GetProperty("macOSOnlyRule").GetString()); Equal(true, root.GetProperty("settings").GetProperty("futureSettingFromEitherPlatform").GetProperty("keep").GetBoolean());
+    Equal("keep", root.GetProperty("focusActivities")[0].GetProperty("futureField").GetString());
+    return Task.CompletedTask;
+}
 static Task CheckAppleDates()
 {
     var data = JsonSerializer.Deserialize<AppData>("""{"schemaVersion":4,"settings":{},"timer":{"updatedAt":0},"sessions":[{"id":"00000000-0000-0000-0000-000000000001","startedAt":86400,"completed":false}],"intervals":[],"usage":[],"todos":[],"notes":[],"workRecords":[]}""", TomatoJson.Options)!;

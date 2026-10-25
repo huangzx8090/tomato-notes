@@ -1,7 +1,7 @@
 # 番茄小记 Windows 客户端
 
 这是同一仓库内的原生 **WPF / .NET 8** 客户端，不是把 SwiftUI 直接条件编译到 Windows。
-macOS 源码保持在 `Sources/`；Windows 代码按核心与系统界面拆分：
+macOS 源码保持在 `Sources/`，由 macOS 维护者负责；`Windows/` 由 Windows 维护者负责。目录职责与协作规则见 [双端协作维护](../docs/双端协作维护.md)。Windows 代码按核心与系统界面拆分：
 
 - `TomatoNotes.Core/`：跨平台资料模型、macOS 日期编码兼容、计时、统计、备份与 AI 协议。
 - `TomatoNotes/`：WPF 界面、Win32 前台进程/全局快捷键、系统托盘、DPAPI 密钥、图片导入。

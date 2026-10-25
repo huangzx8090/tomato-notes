@@ -70,6 +70,10 @@ git push -u origin feat/progress-timeline
 - 如果 main 出现 develop 不包含的提交，创建 **main → develop** 同步 PR；不直接从本地推送 develop。
 - 已发布标签不改写；安装包内容或发布逻辑需要修复时发新版本。Release 文字可以补充已知问题。
 
+## 双端协作
+
+仓库同时维护 macOS（`Sources/`）与 Windows（`Windows/`）两个客户端。目录职责、代码所有者配置与跨端评审规则见 [双端协作维护](docs/双端协作维护.md)：macOS 由 @huangzx8090 主要维护，Windows 由同伴主要维护；`Compatibility/`、发布脚本和 GitHub Actions 属于双端共享，修改需要双方知情。两端共用同一版本号与资料契约，Release 必须两端构建全部成功才会公开。
+
 ## 三层约束与实际限制
 
 | 层面 | 已落实的约束 | 边界 |

@@ -210,7 +210,7 @@ Scripts/check-integration.sh
 
 `main` 保持稳定，`develop` 集成开发；工作分支命名为 `<类型>/<描述>`，例如 `feat/progress-timeline`、`fix/timer-display`，通过 PR 进入 develop，发布时再由 develop PR 到 main。参见 [开发与分支约定](CONTRIBUTING.md)。首次克隆执行 `Scripts/setup-dev.sh` 开启本地推送拦截。
 
-当前私有仓库的 GitHub 分支保护受账号计划限制，CI 与本地 hook **不能替代服务端保护**。
+当前私有仓库的 GitHub 分支保护受账号计划限制，CI 与本地 hook **不能替代服务端保护**。仓库同时维护 macOS 与 Windows 客户端；目录职责、跨端评审与版本同步见 [双端协作维护](docs/双端协作维护.md)。
 
 ### Actions 与发布
 
