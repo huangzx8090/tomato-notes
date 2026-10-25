@@ -30,7 +30,7 @@ Windows 安装程序目前未使用 Authenticode 商业签名，SmartScreen 可�
 
 Universal 包同时包含 **Apple Silicon 与 Intel** 架构。
 
-当前版本 **v1.5.0（build 11）**，新增热力图、历史搜索、手动待办结转、AI 白名单推荐和可选 AI 自动记录。详见[本次发布说明](docs/releases/v1.5.0.md)。
+当前版本 **v1.6.0（macOS build 12）**，首次提供 Windows x64 客户端和安装包；同时优化白名单清单、热力图提示与便签 TXT 导出。详见[本次发布说明](docs/releases/v1.6.0.md)。
 
 1. 推荐下载 `.dmg`，打开后把“番茄小记”拖入 **Applications**；也可解压 `.zip` 后移入“应用程序”。
 2. 从“应用程序”打开，在屏幕顶部菜单栏点击计时图标。默认不显示 Dock 图标，可在 **设置 → 在 Dock 中显示图标** 开启。
@@ -193,7 +193,7 @@ open 'build/番茄小记.app'
 Scripts/build-app.sh release --universal
 
 # DMG、ZIP、安装说明与校验文件；标签必须匹配 Info.plist
-Scripts/package-release.sh v1.5.0
+Scripts/package-release.sh v1.6.0
 
 # 独立验证包和资料，不接触正式数据
 Scripts/build-app.sh release --qa
@@ -237,7 +237,7 @@ SwiftUI / AppKit 面板、快捷键、浮动便签
 
 ## 验证范围
 
-当前 **119 项规则与接口测试** 覆盖计时、跨日、资料兼容与备份、共用资料与测试隔离、便签历史、待办删除撤销、进展归属、白名单外时长、定时去重、图片处理、服务商模型列表、AI 白名单推荐完整性与分批取消、Chrome 多窗口读取、守护白名单边界及保守关闭条件。发布流程另校验双架构二进制、签名、ZIP 解包后的执行位、DMG 与 SHA-256。
+当前 **155 项 macOS 规则与模拟接口测试**覆盖计时、跨日、资料兼容与备份、共用资料与测试隔离、便签 TXT 导出、待办结转与撤销、进展归属、白名单选择与推荐、Chrome 多窗口读取、守护白名单边界及保守关闭条件。发布流程另校验双架构二进制、签名、ZIP 解包后的执行位、DMG 与 SHA-256；Windows 核心与模拟接口测试由 CI 单独运行。
 
 自动化检查不代表所有系统版本和机器上的通知、授权、Chrome 截图与关闭、全屏多屏、玻璃动画均已实机验收。**本次发布未完成 Chrome 截图与自动关闭的端到端人工验收。** 已知限制与排查见 [使用指南](docs/使用指南与权限.md)，详细历史验收见 [体验优化与后续建议](docs/体验优化与后续建议.md)。
 
