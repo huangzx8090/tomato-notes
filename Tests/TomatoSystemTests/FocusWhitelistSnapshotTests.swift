@@ -4,6 +4,16 @@ import TomatoCore
 import TomatoSystem
 
 struct FocusWhitelistSnapshotTests {
+    @Test func networkSupportUsesLocalIdentityWithoutSendingItOrTrustingTheDisplayName() throws {
+        let networkID = "io.github.clash-verge-rev.clash-verge-rev"
+        let snapshot = FocusWhitelistSnapshot(apps: [.init(name: "Clash Verge", bundleID: networkID),
+                                                   .init(name: "Clash Verge", bundleID: "local.unrelated")], pages: [])
+        #expect(snapshot.items.first(where: { $0.appID == networkID })?.candidate.support == .network)
+        #expect(snapshot.items.first(where: { $0.appID == "local.unrelated" })?.candidate.support == nil)
+        let json = String(decoding: try JSONEncoder().encode(snapshot.candidates), as: UTF8.self)
+        #expect(json.contains("network") && !json.contains(networkID) && !json.contains("local.unrelated"))
+    }
+
     private func page(_ url: String, title: String = "课程资料", privateWindow: Bool = false) -> GuardPage {
         .init(windowID: "private-window-id", tabID: UUID().uuidString, url: url, title: title,
               isPrivate: privateWindow, bounds: .init(x: 0, y: 0, width: 1000, height: 700))

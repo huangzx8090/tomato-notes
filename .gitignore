@@ -1,4 +1,6 @@
 .build/
+**/bin/
+**/obj/
 build/
 .DS_Store
 *.xcuserstate

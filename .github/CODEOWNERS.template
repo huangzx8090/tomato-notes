@@ -1,0 +1,24 @@
+# 复制为 .github/CODEOWNERS 后生效。
+# 替换 @WINDOWS_MAINTAINER 为 Windows 维护者的实际 GitHub 用户名；
+# @huangzx8090 为 macOS 维护者，如有多人可在同一行追加。
+
+# 默认：所有变更至少通知 macOS 维护者
+*                               @huangzx8090
+
+# Windows 客户端、测试与安装器
+/Windows/                        @WINDOWS_MAINTAINER
+/Scripts/package-windows.ps1     @WINDOWS_MAINTAINER
+
+# macOS 客户端与打包
+/Sources/                        @huangzx8090
+/Tests/                          @huangzx8090
+/Packaging/                      @huangzx8090
+/Scripts/build-app.sh            @huangzx8090
+/Scripts/package-release.sh      @huangzx8090
+/Package.swift                   @huangzx8090
+
+# 双端共享：资料契约与发布流程，需要双方评审
+/Compatibility/                  @huangzx8090 @WINDOWS_MAINTAINER
+/Scripts/validate-release.sh     @huangzx8090 @WINDOWS_MAINTAINER
+/Scripts/test-ci-package-policy.py @huangzx8090 @WINDOWS_MAINTAINER
+/.github/workflows/              @huangzx8090 @WINDOWS_MAINTAINER

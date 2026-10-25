@@ -163,6 +163,8 @@ struct FocusWhitelistClientTests {
             #expect(instructions.contains("optional"))
             #expect(instructions.contains("中文"))
             #expect(instructions.contains("全部放行"))
+            #expect(instructions.contains("只有 distraction 才能对应 excluded"))
+            #expect(instructions.contains("Clash Verge") && instructions.contains("音乐可能是学习背景音"))
             let text = try #require(messages[1]["content"] as? String)
             let factsJSON = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
             #expect(Set(factsJSON.keys) == ["goal", "candidates"])
@@ -342,12 +344,40 @@ struct FocusWhitelistClientTests {
         }
     }
 
-    @Test func allExcludedIsAValidRecommendation() async throws {
-        let input = candidates()
-        let expected = input.map { FocusWhitelistSuggestion(id: $0.id, disposition: .excluded, reason: "与当前练习目标无关") }
+    @Test func allDistractionsCanBeExcluded() async throws {
+        let input: [FocusWhitelistCandidate] = [.init(id: "game", kind: .app, name: "游戏", detail: "游戏娱乐"),
+                                                .init(id: "drama", kind: .page, name: "电视剧全集", detail: "追剧")]
+        let expected = input.map { FocusWhitelistSuggestion(id: $0.id, disposition: .excluded, reason: "本轮无关的游戏或追剧内容", purpose: .distraction) }
         FocusWhitelistStubProtocol.handler = { _ in try Self.reply(expected) }
         let result = try await client().recommendWhitelist(goal: "练习写作", candidates: input, apiKey: "fake-whitelist-key")
         #expect(result.suggestions == expected)
+    }
+
+    @Test func networkAndStudySupportAreRetainedWhileActualEntertainmentIsExcluded() async throws {
+        let input: [FocusWhitelistCandidate] = [
+            .init(id: "network", kind: .app, name: "Clash Verge", detail: "网络连接辅助工具", support: .network),
+            .init(id: "control", kind: .page, name: "AI API 控制台", detail: "127.0.0.1"),
+            .init(id: "project", kind: .page, name: "番茄小记 · Releases", detail: "github.com"),
+            .init(id: "music", kind: .app, name: "NetEaseMusic", detail: "当前运行的应用"),
+            .init(id: "course", kind: .page, name: "数据库课程", detail: "课程网站"),
+            .init(id: "drama", kind: .page, name: "追剧：电视剧全集", detail: "视频网站"),
+            .init(id: "game", kind: .app, name: "游戏对局", detail: "游戏应用")
+        ]
+        FocusWhitelistStubProtocol.handler = { request in
+            let facts = try Self.facts(request)
+            #expect(facts.candidates == input && facts.candidates[0].support == .network)
+            return try Self.reply([
+                .init(id: "network", disposition: .excluded, reason: "与软考无直接关系", purpose: .distraction),
+                .init(id: "control", disposition: .excluded, reason: "与软考无直接关系", purpose: .support),
+                .init(id: "project", disposition: .excluded, reason: "与软考无直接关系", purpose: .support),
+                .init(id: "music", disposition: .excluded, reason: "背景音乐用途待确认", purpose: .uncertain),
+                .init(id: "course", disposition: .recommended, reason: "提供数据库学习资料", purpose: .learning),
+                .init(id: "drama", disposition: .excluded, reason: "无关追剧活动", purpose: .distraction),
+                .init(id: "game", disposition: .excluded, reason: "游戏对局会分散本轮注意力", purpose: .distraction)
+            ])
+        }
+        let result = try await client().recommendWhitelist(goal: "软考复习", candidates: input, apiKey: "fake-whitelist-key")
+        #expect(result.suggestions.map(\.disposition) == [.recommended, .recommended, .recommended, .optional, .recommended, .excluded, .excluded])
     }
 
     @Test func batchesMoreThanOneHundredCandidatesAndAccumulatesUsage() async throws {

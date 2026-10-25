@@ -3,13 +3,17 @@ import Foundation
 /// 仅含可发送给 AI 的候选描述；真实应用、页面及窗口的映射留在 UI 本地。
 public struct FocusWhitelistCandidate: Codable, Sendable, Equatable, Identifiable {
     public enum Kind: String, Codable, Sendable { case app, page }
+    public enum Support: String, Codable, Sendable { case network }
     public var id: String
     public var kind: Kind
     public var name: String
     public var detail: String
+    /// 本机识别的辅助用途；不包含应用标识，AI 不能通过响应扩展此信息。
+    public var support: Support?
 
-    public init(id: String, kind: Kind, name: String, detail: String) {
+    public init(id: String, kind: Kind, name: String, detail: String, support: Support? = nil) {
         self.id = id; self.kind = kind; self.name = name; self.detail = detail
+        self.support = support
     }
 }
 
@@ -17,13 +21,27 @@ public enum FocusWhitelistDisposition: String, Codable, Sendable {
     case recommended, optional, excluded
 }
 
+public enum FocusWhitelistPurpose: String, Codable, Sendable {
+    case learning, support, distraction, uncertain
+
+    public var disposition: FocusWhitelistDisposition {
+        switch self {
+        case .learning, .support: .recommended
+        case .distraction: .excluded
+        case .uncertain: .optional
+        }
+    }
+}
+
 public struct FocusWhitelistSuggestion: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var disposition: FocusWhitelistDisposition
     public var reason: String
+    public var purpose: FocusWhitelistPurpose?
 
-    public init(id: String, disposition: FocusWhitelistDisposition, reason: String) {
+    public init(id: String, disposition: FocusWhitelistDisposition, reason: String, purpose: FocusWhitelistPurpose? = nil) {
         self.id = id; self.disposition = disposition; self.reason = reason
+        self.purpose = purpose
     }
 }
 
@@ -56,11 +74,12 @@ public struct FocusWhitelistRecommendation: Sendable {
         for candidate in candidates {
             guard !candidate.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   candidate.id.count <= 64, ids.insert(candidate.id).inserted,
-                  candidate.name.count <= 240, candidate.detail.count <= 160 else {
+                  candidate.name.count <= 240, candidate.detail.count <= 160,
+                  candidate.support == nil || candidate.kind == .app else {
                 throw FocusWhitelistRecommendationError.invalidContext
             }
             // 逐字段限额后再相加，避免极端大字符串引起计数溢出。
-            for field in [candidate.id, candidate.kind.rawValue, candidate.name, candidate.detail] {
+            for field in [candidate.id, candidate.kind.rawValue, candidate.name, candidate.detail, candidate.support?.rawValue ?? ""] {
                 guard field.utf8.count <= maximumBatchInputBytes - byteCount else {
                     throw FocusWhitelistRecommendationError.invalidContext
                 }
@@ -79,7 +98,11 @@ public struct FocusWhitelistRecommendation: Sendable {
               Set(object.keys) == ["suggestions"],
               let entries = object["suggestions"] as? [[String: Any]],
               entries.count == candidates.count,
-              entries.allSatisfy({ Set($0.keys) == ["id", "disposition", "reason"] }),
+              entries.allSatisfy({ entry in
+                  let keys = Set(entry.keys)
+                  return keys == ["id", "disposition", "reason"] ||
+                      (keys == ["id", "disposition", "reason", "purpose"] && entry["purpose"] is String)
+              }),
               let response = try? JSONDecoder().decode(Response.self, from: data) else {
             throw FocusWhitelistRecommendationError.invalidResponse
         }
@@ -91,13 +114,39 @@ public struct FocusWhitelistRecommendation: Sendable {
                   !reason.isEmpty, suggestion.reason.count <= 200 else {
                 throw FocusWhitelistRecommendationError.invalidResponse
             }
-            byID[suggestion.id] = .init(id: suggestion.id, disposition: suggestion.disposition, reason: reason)
+            byID[suggestion.id] = .init(id: suggestion.id, disposition: suggestion.disposition, reason: reason, purpose: suggestion.purpose)
         }
         guard byID.count == candidates.count else { throw FocusWhitelistRecommendationError.invalidResponse }
         return try candidates.map {
             guard let suggestion = byID[$0.id] else { throw FocusWhitelistRecommendationError.invalidResponse }
-            return suggestion
+            return applyingPurposePolicy(to: suggestion, candidate: $0)
         }
+    }
+
+    private static func applyingPurposePolicy(to suggestion: FocusWhitelistSuggestion,
+                                              candidate: FocusWhitelistCandidate) -> FocusWhitelistSuggestion {
+        var result = suggestion
+        if candidate.support == .network {
+            result.purpose = .support
+            result.disposition = .recommended
+            result.reason = "提供网络连接，支持访问学习资料和 AI 服务，建议保留。"
+        } else if let purpose = result.purpose {
+            let disposition = purpose.disposition
+            if result.disposition != disposition {
+                switch purpose {
+                case .learning: result.reason = "可用于本轮学习内容，建议保留。"
+                case .support: result.reason = "可为学习或工作提供辅助，建议保留。"
+                case .distraction: result.reason = "已识别为本轮无关的娱乐或分心内容，建议暂时收起。"
+                case .uncertain: result.reason = "用途尚不明确，可能有学习辅助作用，由你确认。"
+                }
+            }
+            result.disposition = disposition
+        } else if result.disposition == .excluded {
+            // 兼容旧响应，但“与学科无直接关系”不足以支持排除。
+            result.disposition = .optional
+            result.reason = "缺少明确的娱乐或分心依据，可能有学习辅助作用，由你确认。"
+        }
+        return result
     }
 
     private struct Response: Decodable {

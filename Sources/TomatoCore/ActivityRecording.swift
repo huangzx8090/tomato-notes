@@ -84,16 +84,39 @@ public struct FocusActivity: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
-public struct ActivityTopic: Codable, Sendable {
+public struct ActivityTopic: Codable, ExtraFieldPreserving, Sendable {
     public var groupID: UUID
     public var title: String
     public var confidence: Double
     public var evidenceIDs: [UUID]
     public var model: String
     public var generatedAt: Date
+    /// 未知字段：Windows 或未来版本保存的主题信息，macOS 不理解但必须原样保留。
+    public var extraFields: [String: JSONValue] = [:]
     public init(groupID: UUID = UUID(), title: String, confidence: Double, evidenceIDs: [UUID], model: String, generatedAt: Date = Date()) {
         self.groupID = groupID; self.title = title; self.confidence = confidence
         self.evidenceIDs = evidenceIDs; self.model = model; self.generatedAt = generatedAt
+    }
+    private enum CodingKeys: String, CodingKey { case groupID, title, confidence, evidenceIDs, model, generatedAt }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        groupID = try values.decodeIfPresent(UUID.self, forKey: .groupID) ?? UUID()
+        title = try values.decode(String.self, forKey: .title)
+        confidence = try values.decode(Double.self, forKey: .confidence)
+        evidenceIDs = try values.decode([UUID].self, forKey: .evidenceIDs)
+        model = try values.decodeIfPresent(String.self, forKey: .model) ?? ""
+        generatedAt = try values.decodeIfPresent(Date.self, forKey: .generatedAt) ?? Date()
+        extraFields = try Self.captureExtraFields(from: decoder, known: ["groupID", "title", "confidence", "evidenceIDs", "model", "generatedAt"])
+    }
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(groupID, forKey: .groupID)
+        try container.encode(title, forKey: .title)
+        try container.encode(confidence, forKey: .confidence)
+        try container.encode(evidenceIDs, forKey: .evidenceIDs)
+        try container.encode(model, forKey: .model)
+        try container.encode(generatedAt, forKey: .generatedAt)
+        try encodeExtraFields(to: encoder)
     }
 }
 
