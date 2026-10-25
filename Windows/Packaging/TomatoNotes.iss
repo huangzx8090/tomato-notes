@@ -9,6 +9,9 @@
 #ifndef PublishDir
   #define PublishDir "build\windows\publish"
 #endif
+#ifndef RepoRoot
+  #define RepoRoot "..\.."
+#endif
 [Setup]
 AppId={#AppId}
 AppName={#AppName}
@@ -16,7 +19,7 @@ AppVersion={#AppVersion}
 AppPublisher=TomatoNotes
 DefaultDirName={autopf}\TomatoNotes
 DefaultGroupName=番茄小记
-OutputDir=build\releases\v{#AppVersion}
+OutputDir={#RepoRoot}\build\releases\v{#AppVersion}
 OutputBaseFilename=TomatoNotes-v{#AppVersion}-Windows-x64-setup
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -25,14 +28,14 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
-SetupIconFile=Windows\TomatoNotes\Assets\AppIcon.ico
+SetupIconFile={#RepoRoot}\Windows\TomatoNotes\Assets\AppIcon.ico
 UninstallDisplayIcon={app}\TomatoNotes.exe
 DisableProgramGroupPage=yes
 CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion={#AppVersion}.0
 VersionInfoDescription=番茄小记 Windows 安装程序
-LicenseFile=Windows\Packaging\安装说明.txt
+LicenseFile={#RepoRoot}\Windows\Packaging\安装说明.txt
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"

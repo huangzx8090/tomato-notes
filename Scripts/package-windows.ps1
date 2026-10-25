@@ -24,7 +24,7 @@ if (-not $ISCC) {
     if (Test-Path $Default) { $ISCC = Get-Item $Default }
 }
 if (-not $ISCC) { throw "Inno Setup 6 (ISCC.exe) is required" }
-& $ISCC.Source "/DAppVersion=$Version" "/DPublishDir=$Output" "Windows/Packaging/TomatoNotes.iss"
+& $ISCC.Source "/DAppVersion=$Version" "/DPublishDir=$Output" "/DRepoRoot=$Root" "Windows/Packaging/TomatoNotes.iss"
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
 $Setup = "build/releases/v$Version/TomatoNotes-v$Version-Windows-x64-setup.exe"
 $Hash = (Get-FileHash $Setup -Algorithm SHA256).Hash.ToLowerInvariant()
