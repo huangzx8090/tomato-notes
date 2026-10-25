@@ -35,10 +35,10 @@ CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion={#AppVersion}.0
 VersionInfoDescription=番茄小记 Windows 安装程序
-LicenseFile={#RepoRoot}\Windows\Packaging\安装说明.txt
+InfoBeforeFile={#RepoRoot}\Windows\Packaging\安装说明.txt
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务："
