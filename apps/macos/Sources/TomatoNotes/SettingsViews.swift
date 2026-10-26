@@ -111,7 +111,7 @@ struct SettingsView: View {
                 menuRow(.ai, summary: "连接服务商与自动回顾", status: state.hasAPIKey ? "已配置" : "可选")
             }
             menuGroup("日常偏好") {
-                menuRow(.reminders, summary: "声音、系统通知与全局快捷键")
+                menuRow(.reminders, summary: "声音、系统通知、勿扰与全局快捷键")
                 Divider().overlay(Theme.border.opacity(0.4))
                 menuRow(.appearance, summary: "配色、Dock 图标与合盖计时", status: state.settings.appearance.label)
                 Divider().overlay(Theme.border.opacity(0.4))
@@ -338,6 +338,7 @@ private struct ReminderSettingsPane: View {
     @ViewState private var noteKey = Hotkey(letter: "N")
     @ViewState private var loaded = false
     @ViewState private var saveError: String?
+    @ViewState private var showShortcutSigningConfirmation = false
 
     private var dirty: Bool {
         loaded && (timerKey != state.settings.timerHotkey || todoKey != state.settings.todoHotkey || noteKey != state.settings.noteHotkey)
@@ -363,6 +364,29 @@ private struct ReminderSettingsPane: View {
                             NSWorkspace.shared.open(url)
                         }
                     }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.accent)
+                }
+            }
+            PaperCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("专注时开启勿扰模式", systemImage: "moon.zzz")
+                        .font(.system(size: 13, weight: .semibold))
+                    SettingsHelpText("安装时会先说明快捷指令签名与隐私；确认后 macOS 会在“快捷指令”中显示添加确认。添加完成即可选择是否启用。")
+                    Button(state.focusDoNotDisturbShortcutInstalled ? "查看勿扰快捷指令" : installButtonTitle) {
+                        if state.focusDoNotDisturbShortcutInstalled {
+                            state.openFocusDoNotDisturbShortcut()
+                        } else {
+                            showShortcutSigningConfirmation = true
+                        }
+                    }
+                        .buttonStyle(SettingsButtonStyle())
+                        .disabled(state.focusDoNotDisturbShortcutStatus.hasPrefix("正在准备")
+                                  || state.focusDoNotDisturbShortcutStatus.hasPrefix("请在“快捷指令”弹窗"))
+                    SettingsHelpText(state.focusDoNotDisturbShortcutStatus)
+                    Divider()
+                    SettingsToggleRow(title: "专注运行时开启电脑勿扰",
+                                      detail: "开始或继续专注时开启；暂停、结束时关闭。快捷指令不记录此前状态，原本已开启的勿扰会关闭，也不会恢复之前的其他专注模式。",
+                                      value: focusDoNotDisturbBinding)
+                        .disabled(!state.focusDoNotDisturbShortcutInstalled)
                 }
             }
             PaperCard {
@@ -392,6 +416,23 @@ private struct ReminderSettingsPane: View {
             loaded = true; hasUnsavedChanges = false
         }
         .onChange(of: dirty) { _, value in hasUnsavedChanges = value }
+        .alert("确认签名勿扰快捷指令", isPresented: $showShortcutSigningConfirmation) {
+            Button("继续并打开快捷指令") { state.installFocusDoNotDisturbShortcut() }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("为导入这条快捷指令，macOS 会将快捷指令副本发送给 Apple 验证。本应用使用“任何人”签名模式，不附带联系人信息；不会读取其他快捷指令的内容。继续后，还需在“快捷指令”中点击“添加快捷指令”。")
+        }
+    }
+
+    private var installButtonTitle: String {
+        if state.focusDoNotDisturbShortcutStatus.hasPrefix("正在准备") { return "正在准备…" }
+        if state.focusDoNotDisturbShortcutStatus.hasPrefix("请在“快捷指令”弹窗") { return "等待添加…" }
+        return "安装勿扰快捷指令"
+    }
+
+    private var focusDoNotDisturbBinding: Binding<Bool> {
+        Binding(get: { state.focusDoNotDisturbEnabled },
+                set: { state.setFocusDoNotDisturbEnabled($0) })
     }
 }
 
