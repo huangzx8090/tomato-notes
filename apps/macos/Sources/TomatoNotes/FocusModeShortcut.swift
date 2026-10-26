@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 @MainActor
-final class FocusDoNotDisturbShortcutController {
+final class FocusModeShortcutController {
     nonisolated private static let shortcutIDKey = "focusDoNotDisturbShortcutID"
     nonisolated private static let activatedByAppKey = "focusDoNotDisturbActivatedByApp"
     nonisolated private static let enabledKey = "focusDoNotDisturbEnabled"
@@ -10,7 +10,7 @@ final class FocusDoNotDisturbShortcutController {
 
     private let queue: OperationQueue = {
         let queue = OperationQueue()
-        queue.name = "TomatoNotes.FocusDoNotDisturbShortcut"
+        queue.name = "TomatoNotes.FocusModeShortcut"
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .utility
         return queue
@@ -31,7 +31,7 @@ final class FocusDoNotDisturbShortcutController {
 
     init() {
         isInstalled = UserDefaults.standard.string(forKey: Self.shortcutIDKey) != nil
-        status = isInstalled ? "快捷指令已安装。" : "首次使用前请安装勿扰快捷指令。"
+        status = isInstalled ? "快捷指令已安装。" : "首次使用前请安装专注模式快捷指令。"
     }
 
     func install() {
@@ -40,7 +40,7 @@ final class FocusDoNotDisturbShortcutController {
         publish(isInstalled: false, status: "正在准备本机快捷指令…")
 
         let suffix = String(UUID().uuidString.prefix(6)).uppercased()
-        let name = "TomatoNotes 勿扰控制 \(suffix)"
+        let name = "TomatoNotes 专注模式控制 \(suffix)"
         queue.addOperation { [weak self] in
             do {
                 let shortcutURL = try Self.makeSignedShortcut(named: name)
@@ -92,7 +92,7 @@ final class FocusDoNotDisturbShortcutController {
             guard active != wasActivatedByApp else { return }
             guard let identifier = defaults.string(forKey: Self.shortcutIDKey) else {
                 DispatchQueue.main.async { [weak self] in
-                    self?.publish(isInstalled: false, status: "请先安装勿扰快捷指令，再开启此选项。")
+                    self?.publish(isInstalled: false, status: "请先安装专注模式快捷指令，再开启此选项。")
                 }
                 return
             }
@@ -105,7 +105,7 @@ final class FocusDoNotDisturbShortcutController {
                 }
                 defaults.set(active, forKey: Self.activatedByAppKey)
                 DispatchQueue.main.async { [weak self] in
-                    self?.publish(isInstalled: true, status: active ? "专注勿扰已开启。" : "专注勿扰已关闭。")
+                    self?.publish(isInstalled: true, status: active ? "所选系统专注模式已开启。" : "所选系统专注模式已关闭。")
                 }
             } catch {
                 DispatchQueue.main.async { [weak self] in
@@ -139,7 +139,7 @@ final class FocusDoNotDisturbShortcutController {
                         self.isInstalling = false
                         self.lastRequestedActive = nil
                         Self.removeFile(at: fileURL)
-                        self.publish(isInstalled: true, status: "快捷指令已添加。现在可以开启上方选项。")
+                        self.publish(isInstalled: true, status: "快捷指令已添加。请先配置要使用的系统专注模式，再决定是否启用。")
                     } else if attempt < 59 {
                         self.pollForImport(named: name, fileURL: fileURL, attempt: attempt + 1)
                     } else {
@@ -193,7 +193,7 @@ final class FocusDoNotDisturbShortcutController {
     }
 
     nonisolated private static func workflow() -> [String: Any] {
-        // 快捷指令接收 on/off 输入，只切换系统“勿扰”专注模式并返回确认文本。
+        // 快捷指令接收 on/off 输入；用户可在系统快捷指令编辑器里选择目标专注模式。
         let inputID = UUID().uuidString.uppercased()
         var actions: [[String: Any]] = [
             action("is.workflow.actions.text.trimwhitespace", [
