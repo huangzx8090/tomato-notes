@@ -53,6 +53,7 @@ plutil -replace CFBundleName -string "$app_name" "$staged_app/Contents/Info.plis
 plutil -replace CFBundleDisplayName -string "$app_name" "$staged_app/Contents/Info.plist"
 swift Scripts/make-icon.swift "$repository_root/build/AppIcon.iconset"
 iconutil -c icns "$repository_root/build/AppIcon.iconset" -o "$staged_app/Contents/Resources/AppIcon.icns"
+cp Packaging/BrandMark.png "$staged_app/Contents/Resources/BrandMark.png"
 codesign --force --sign - "$staged_app"
 codesign --verify --deep --strict "$staged_app"
 # 替换整个包，避免截断正在运行的可执行文件。
