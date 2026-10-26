@@ -29,7 +29,7 @@ main ────────────── 稳定发布、版本标签
 Scripts/setup-dev.sh
 ```
 
-这只修改本仓库的 `core.hooksPath`，启用 `.githooks/pre-push`；如果已经有其他 hook 设置，脚本会停止，不覆盖。每份新克隆都需单独执行。
+这只修改本仓库的 `core.hooksPath`，启用 `.githooks/pre-commit` 和 `.githooks/pre-push`：提交时检查被忽略的本地文件，推送时拦截 main / develop；如果已经有其他 hook 设置，脚本会停止，不覆盖。每份新克隆都需单独执行。
 
 开始一项功能：
 
@@ -48,7 +48,7 @@ git switch -c fix/windows-timer-display origin/develop
 
 ## 完成开发
 
-1. 只修改本次范围；不混入个人资料、Key、build 或 .build 目录。
+1. 只修改本次范围；不混入个人资料、Key、build、.build 或本地开发过程文档。明确暂存本次文件，并检查 `git diff --cached`。
 2. 按[双端协作维护](docs/双端协作维护.md)检查另一端，优先使用 `gh` 查重并创建 / 补充适用的跨端 issue；平台特有问题记录跳过原因。执行与变更相称的检查，明确哪些是真实验证、哪些仅规则测试，哪些仍未验证。
 3. 使用中文提交，推送同名工作分支，创建目标为 **develop** 的 PR。
 4. CI 的 **分支约定**、**测试与编译** 均通过；修改打包输入时，额外通过 **双架构安装包验证**，再获得用户明确的合并授权。macOS 普通源码与公共文档变更会跳过安装包 job；`VERSION`、`apps/macos/Packaging/`、`apps/macos/Scripts/`、SwiftPM 配置、`apps/windows/`、根目录 `Scripts/` 或 `.github/workflows/` 变更会触发两端打包。
@@ -61,6 +61,13 @@ git push -u origin feat/macos-progress-timeline
 ```
 
 不直接推送 main / develop，不自动合并 PR；同一会话中用户已经给出的合并授权仍有效，不重复索要。合并 develop → main 时保留合并关系，不 squash 或 rebase 长期分支。
+
+## 文档提交范围
+
+- README、使用指南、开发维护约定、数据契约和版本记录随仓库维护。功能变化优先更新这些已有文档，不为每轮开发新增一份说明。
+- 临时计划、开发记录、实现过程、一次性验收清单、评估及后续建议放在 `.local-dev/`；进度文件可用 `PROJECT_PROGRESS.md`。这些路径已被忽略，不提交，也不通过受跟踪的归档目录变相保留。
+- 检查结果与交付记录写入 PR 描述；仍有效的操作、权限、隐私与限制归入正式指南。
+- 提交 hook 检查 Git 暂存区内被忽略的文件，包括通过 `git add -f` 强行加入的内容。已有跟踪文件不会因 `.gitignore` 自动移除，应从跟踪中删除；不要绕过 hook 提交本地过程资料。
 
 ## 发布与回同步
 
@@ -80,7 +87,7 @@ git push -u origin feat/macos-progress-timeline
 | --- | --- | --- |
 | 项目约定 | AGENTS.md、此文、PR 模板 | 需要开发者和代理遵守 |
 | GitHub Actions | PR 来源 / 目标校验、规则测试和安装包验证 | 没有服务端保护时，仍不能阻止有写权限者直接推送或忽略失败手动合并 |
-| 本地 pre-push hook | 拦截直接推送 main / develop，功能分支和标签可推送 | 只对安装了 hook 的克隆有效，可被绕过，不是服务端安全边界 |
+| 本地 Git hooks | pre-commit 拦截被忽略的本地文件；pre-push 拦截直接推送 main / develop | 只对安装了 hook 的克隆有效，可被绕过，不是服务端安全边界 |
 
 **2026-10-22 实际 API 核验：** 当前私有仓库的分支保护和 ruleset 接口返回 HTTP 403，要求升级 GitHub Pro 或公开仓库。因此没有声称已启用服务器强制保护，也没有更改可见性或付费计划。
 
