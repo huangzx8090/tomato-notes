@@ -34,11 +34,15 @@ final class AppState: ObservableObject {
     @Published private(set) var activityStatus = "开启后，专注时自动留下活动记录。"
     @Published private(set) var identifyingActivity = false
     @Published private(set) var activityErrors: [UUID: String] = [:]
+    @Published private(set) var focusModeShortcutInstalled = false
+    @Published private(set) var focusModeShortcutStatus = "尚未安装专注模式快捷指令。"
+    @Published private(set) var focusModeEnabled = false
 
     let repository: LocalRepository
     var onOpenSharedLibrary: (() -> Void)?
     let workImages: WorkImageStore
     let guardController = FocusGuardController()
+    private let focusModeShortcut = FocusModeShortcutController()
     var onGuardSetupRequired: (() -> Void)?
     private var guardSetupStartsTimer = false
     private var pendingGuardPlan: FocusGuardPlan?
@@ -114,6 +118,15 @@ final class AppState: ObservableObject {
             guard let self else { return (TimerSnapshot(), true, FocusGuardSettings()) }
             return (self.timer, self.deviceLocked, self.settings.focusGuard)
         }
+        focusModeShortcutInstalled = focusModeShortcut.isInstalled
+        focusModeShortcutStatus = focusModeShortcut.status
+        focusModeEnabled = focusModeShortcut.isEnabled
+        focusModeShortcut.onStateChange = { [weak self] installed, status in
+            self?.focusModeShortcutInstalled = installed
+            self?.focusModeShortcutStatus = status
+            self?.syncFocusMode()
+        }
+        syncFocusMode()
     }
 
     var canWrite: Bool { errorMessage == nil }
@@ -265,10 +278,15 @@ final class AppState: ObservableObject {
     func prepareForQuit() {
         guardController.stop()
         stopActivitySampling()
-        guard canWrite else { return }
+        guard canWrite else {
+            focusModeShortcut.setActive(false)
+            focusModeShortcut.waitForPendingOperations()
+            return
+        }
         advanceToNow()
         if timer.phase == .running { engine.pause(reason: "应用退出已暂停", at: Date()) }
         publish(focusHeatmapChanged: timer.stage == .focus)
+        focusModeShortcut.waitForPendingOperations()
     }
 
     var guardSetupActionTitle: String { guardSetupStartsTimer ? "设置并开始专注" : "保存本轮白名单" }
@@ -358,6 +376,22 @@ final class AppState: ObservableObject {
         markAutomaticRecording()
         feedback = "设置已保存"
         return true
+    }
+
+    func installFocusModeShortcut() {
+        focusModeShortcut.install()
+    }
+
+    func openFocusModeShortcut() {
+        focusModeShortcut.openInstalledShortcut()
+    }
+
+    func setFocusModeEnabled(_ enabled: Bool) {
+        guard !enabled || focusModeShortcutInstalled else { return }
+        guard focusModeEnabled != enabled else { return }
+        focusModeEnabled = enabled
+        focusModeShortcut.setEnabled(enabled)
+        syncFocusMode()
     }
 
     func addTodo(_ text: String) {
@@ -1072,7 +1106,13 @@ final class AppState: ObservableObject {
                 lastSavedUptime = ProcessInfo.processInfo.systemUptime
             } catch { errorMessage = "保存本地数据失败：\(error.localizedDescription)" }
         }
+        syncFocusMode()
         onDataChanged?()
+    }
+
+    private func syncFocusMode() {
+        let shouldEnable = focusModeEnabled && timer.stage == .focus && timer.phase == .running
+        focusModeShortcut.setActive(shouldEnable)
     }
 
     static func frontmostApp() -> AppIdentity? {

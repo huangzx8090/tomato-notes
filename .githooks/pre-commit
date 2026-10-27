@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+# 检查暂存区，强制 git add -f 的文件也不能绕过忽略规则。
+git ls-files --cached --ignored --exclude-standard -z | {
+    blocked=0
+    while IFS= read -r -d '' path; do
+        printf '禁止提交被忽略的本地文件：%s\n' "$path" >&2
+        blocked=1
+    done
+    if [[ "$blocked" == 1 ]]; then
+        printf '请取消这些文件的暂存 / 跟踪。开发过程记录放在 .local-dev/ 或 PROJECT_PROGRESS.md，验证结果写入 PR。\n' >&2
+        exit 1
+    fi
+}

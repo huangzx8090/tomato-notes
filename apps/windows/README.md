@@ -54,6 +54,8 @@ dotnet publish apps/windows/TomatoNotes/TomatoNotes.csproj -c Release -r win-x64
 
 ## 协作与版本
 
+Windows 共同维护者为 @blakceyes（khalil）和 @yhy854；后续 Windows 跟进 issue 默认在同一事项上同时委派两人，实际指派需成员已接受邀请并可被指派。
+
 产品版本来自根目录 `VERSION`，Windows 打包仅核对自身 csproj 与该版本，不读取 macOS 配置；公共 CI 校验两端一致。根目录 `Scripts/package-windows.ps1` 保留为兼容入口。
 
 分支示例：`feat/windows-history-search`、`fix/windows-tray-menu`。AI 交付前需检查 macOS 是否应跟进，优先使用 `gh` 查重并创建 / 补充适用的 issue；纯 Windows 特有问题记录跳过原因，完整规则见[双端协作维护](../../docs/双端协作维护.md)。

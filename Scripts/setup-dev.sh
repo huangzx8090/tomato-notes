@@ -7,4 +7,4 @@ if [[ -n "$existing" && "$existing" != .githooks ]]; then
     exit 1
 fi
 git config --local core.hooksPath .githooks
-printf '已启用本仓库推送拦截：main / develop 通过 PR 更新；版本标签可正常推送。\n'
+printf '已启用本仓库提交与推送检查：禁止提交被忽略的本地文件；main / develop 通过 PR 更新。\n'

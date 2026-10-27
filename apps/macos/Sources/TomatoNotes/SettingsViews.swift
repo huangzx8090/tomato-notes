@@ -111,7 +111,7 @@ struct SettingsView: View {
                 menuRow(.ai, summary: "连接服务商与自动回顾", status: state.hasAPIKey ? "已配置" : "可选")
             }
             menuGroup("日常偏好") {
-                menuRow(.reminders, summary: "声音、系统通知与全局快捷键")
+                menuRow(.reminders, summary: "声音、通知、系统专注模式与全局快捷键")
                 Divider().overlay(Theme.border.opacity(0.4))
                 menuRow(.appearance, summary: "配色、Dock 图标与合盖计时", status: state.settings.appearance.label)
                 Divider().overlay(Theme.border.opacity(0.4))
@@ -338,6 +338,7 @@ private struct ReminderSettingsPane: View {
     @ViewState private var noteKey = Hotkey(letter: "N")
     @ViewState private var loaded = false
     @ViewState private var saveError: String?
+    @ViewState private var showShortcutSigningConfirmation = false
 
     private var dirty: Bool {
         loaded && (timerKey != state.settings.timerHotkey || todoKey != state.settings.todoHotkey || noteKey != state.settings.noteHotkey)
@@ -363,6 +364,29 @@ private struct ReminderSettingsPane: View {
                             NSWorkspace.shared.open(url)
                         }
                     }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.accent)
+                }
+            }
+            PaperCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("专注时启用系统专注模式", systemImage: "moon.zzz")
+                        .font(.system(size: 13, weight: .semibold))
+                    SettingsHelpText("安装并添加后，点“配置所选专注模式”，在快捷指令中为开启和关闭两个动作选择同一个模式，例如勿扰、工作、睡眠或自定义模式。然后再选择是否启用。")
+                    Button(state.focusModeShortcutInstalled ? "配置所选专注模式" : installButtonTitle) {
+                        if state.focusModeShortcutInstalled {
+                            state.openFocusModeShortcut()
+                        } else {
+                            showShortcutSigningConfirmation = true
+                        }
+                    }
+                        .buttonStyle(SettingsButtonStyle())
+                        .disabled(state.focusModeShortcutStatus.hasPrefix("正在准备")
+                                  || state.focusModeShortcutStatus.hasPrefix("请在“快捷指令”弹窗"))
+                    SettingsHelpText(state.focusModeShortcutStatus)
+                    Divider()
+                    SettingsToggleRow(title: "专注运行时启用所选模式",
+                                      detail: "开始或继续专注时启用所选模式；暂停、结束时关闭。快捷指令不记录此前状态，原先已开启的模式不会恢复。",
+                                      value: focusModeBinding)
+                        .disabled(!state.focusModeShortcutInstalled)
                 }
             }
             PaperCard {
@@ -392,6 +416,23 @@ private struct ReminderSettingsPane: View {
             loaded = true; hasUnsavedChanges = false
         }
         .onChange(of: dirty) { _, value in hasUnsavedChanges = value }
+        .alert("确认签名专注模式快捷指令", isPresented: $showShortcutSigningConfirmation) {
+            Button("继续并打开快捷指令") { state.installFocusModeShortcut() }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("为导入这条快捷指令，macOS 会将快捷指令副本发送给 Apple 验证。本应用使用“任何人”签名模式，不附带联系人信息；不会读取其他快捷指令的内容。继续后，还需在“快捷指令”中点击“添加快捷指令”。")
+        }
+    }
+
+    private var installButtonTitle: String {
+        if state.focusModeShortcutStatus.hasPrefix("正在准备") { return "正在准备…" }
+        if state.focusModeShortcutStatus.hasPrefix("请在“快捷指令”弹窗") { return "等待添加…" }
+        return "安装专注模式快捷指令"
+    }
+
+    private var focusModeBinding: Binding<Bool> {
+        Binding(get: { state.focusModeEnabled },
+                set: { state.setFocusModeEnabled($0) })
     }
 }
 

@@ -49,6 +49,7 @@ public partial class App : System.Windows.Application
         }
         catch (Exception ex)
         {
+            System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "tomato-crash.log"), ex.ToString());
             MessageBox.Show(ex.Message + "\n\n应用未打开或修改其他资料。", "番茄小记", MessageBoxButton.OK, MessageBoxImage.Warning);
             singleInstance?.Dispose(); Shutdown();
         }

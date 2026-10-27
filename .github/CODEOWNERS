@@ -1,12 +1,13 @@
-# macOS：@huangzx8090；Windows：@blakceyes。
+# macOS：@huangzx8090；Windows：@blakceyes、@yhy854。
+# 成员须接受仓库邀请并具备 write 权限，才能作为有效代码所有者。
 # 自动请求或强制评审是否可用，以仓库计划、权限和分支保护配置为准。
 
 # 默认：所有变更至少通知 macOS 维护者
 *                               @huangzx8090
 
 # Windows 客户端、测试与安装器
-/apps/windows/                   @blakceyes
-/Scripts/package-windows.ps1     @blakceyes
+/apps/windows/                   @blakceyes @yhy854
+/Scripts/package-windows.ps1     @blakceyes @yhy854
 
 # macOS 客户端与打包
 /apps/macos/                     @huangzx8090
@@ -14,15 +15,15 @@
 /Scripts/package-release.sh      @huangzx8090
 
 # 双端共享：资料契约与发布流程，需要双方评审
-/Compatibility/                  @huangzx8090 @blakceyes
-/VERSION                         @huangzx8090 @blakceyes
-/Scripts/check-versions.py        @huangzx8090 @blakceyes
-/Scripts/test-version-policy.py   @huangzx8090 @blakceyes
-/AGENTS.md                       @huangzx8090 @blakceyes
-/CONTRIBUTING.md                  @huangzx8090 @blakceyes
-/docs/双端协作维护.md              @huangzx8090 @blakceyes
-/.github/ISSUE_TEMPLATE/          @huangzx8090 @blakceyes
-/.github/CODEOWNERS               @huangzx8090 @blakceyes
-/Scripts/validate-release.sh     @huangzx8090 @blakceyes
-/Scripts/test-ci-package-policy.py @huangzx8090 @blakceyes
-/.github/workflows/              @huangzx8090 @blakceyes
+/Compatibility/                  @huangzx8090 @blakceyes @yhy854
+/VERSION                         @huangzx8090 @blakceyes @yhy854
+/Scripts/check-versions.py        @huangzx8090 @blakceyes @yhy854
+/Scripts/test-version-policy.py   @huangzx8090 @blakceyes @yhy854
+/AGENTS.md                       @huangzx8090 @blakceyes @yhy854
+/CONTRIBUTING.md                  @huangzx8090 @blakceyes @yhy854
+/docs/双端协作维护.md              @huangzx8090 @blakceyes @yhy854
+/.github/ISSUE_TEMPLATE/          @huangzx8090 @blakceyes @yhy854
+/.github/CODEOWNERS               @huangzx8090 @blakceyes @yhy854
+/Scripts/validate-release.sh     @huangzx8090 @blakceyes @yhy854
+/Scripts/test-ci-package-policy.py @huangzx8090 @blakceyes @yhy854
+/.github/workflows/              @huangzx8090 @blakceyes @yhy854

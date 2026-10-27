@@ -2,14 +2,14 @@ import AppKit
 import SwiftUI
 
 struct AppBrandHeader: View {
-    var icon: NSImage? = Bundle.main.url(forResource: "AppIcon", withExtension: "icns").flatMap(NSImage.init(contentsOf:))
+    var brandMark: NSImage? = Bundle.main.url(forResource: "BrandMark", withExtension: "png").flatMap(NSImage.init(contentsOf:))
     var date = Date()
 
     var body: some View {
         HStack(spacing: 10) {
             Group {
-                if let icon {
-                    Image(nsImage: icon).resizable().interpolation(.high).scaledToFit()
+                if let brandMark {
+                    Image(nsImage: brandMark).resizable().interpolation(.high).scaledToFit()
                 } else {
                     Image(systemName: "timer").font(.system(size: 23, weight: .medium))
                         .foregroundStyle(Theme.accent)
