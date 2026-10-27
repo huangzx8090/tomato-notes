@@ -14,6 +14,10 @@ var tests = new (string Name, Func<Task> Run)[] {
     ("跨日分配专注与前台 App", () => SplitAcrossDays()),
     ("连续相同 App 分段合并", () => MergeUsage()),
     ("待办按安排日期展示且完成日固定", () => TodoSchedule()),
+    ("待办结转候选、批量顺延与撤销", () => TodoCarryoverRules()),
+    ("删除待办后恢复原记录", () => TodoDeletionRestore()),
+    ("热力图按自然周分页统计真实分段", () => HeatmapRange()),
+    ("历史搜索合并同轮目标与成果", () => SearchHistory()),
     ("会话只归集期间完成的待办", () => SessionAttribution()),
     ("OpenAI 兼容模型与总结接口", () => AIContract()),
     ("AI 接口错误不暴露密钥", () => AIError()),
@@ -119,6 +123,74 @@ static Task TodoSchedule()
 {
     var completed = new DateTimeOffset(2026,1,2,8,0,0,TimeSpan.FromHours(8)); var todo = new TodoItem { Text = "任务", LocalDay = "2026-01-01", ScheduledDays = ["2026-01-01", "2026-01-02"], CompletedAt = completed, CompletedLocalDay = "2026-01-02" };
     Equal(true, todo.IsScheduledOn("2026-01-01")); Equal("2026-01-02", todo.CompletionDay); var summary = DailySummary.Build("2026-01-02", new() { Todos = [todo] }); Equal(1, summary.CompletedTodos); return Task.CompletedTask;
+}
+static Task TodoCarryoverRules()
+{
+    var todos = new List<TodoItem>
+    {
+        new() { Text = "旧任务", LocalDay = "2026-10-20" },
+        new() { Text = "更旧", LocalDay = "2026-10-19" },
+        new() { Text = "未来", LocalDay = "2026-10-25" },
+    };
+    Equal("更旧,旧任务", string.Join(",", TodoCarryover.Candidates(todos, "2026-10-23").Select(x => x.Text)));
+    var changed = TodoCarryover.Schedule(todos.Select(x => x.ID), "2026-10-23", todos);
+    Equal("更旧,旧任务", string.Join(",", changed.Select(id => todos.First(x => x.ID == id).Text)));
+    Equal(2, todos.Count(x => x.IsScheduledOn("2026-10-23")));
+    Equal(false, todos[2].IsScheduledOn("2026-10-23"));
+    Equal(TodoCarryoverUndoResult.Undone, TodoCarryover.UndoSchedule(todos[1].ID, "2026-10-23", todos));
+    Equal(false, todos[1].IsScheduledOn("2026-10-23"));
+    Equal(true, todos[1].IsScheduledOn("2026-10-19"));
+    Equal(TodoCarryoverUndoResult.NotScheduledToday, TodoCarryover.UndoSchedule(todos[1].ID, "2026-10-19", todos));
+    return Task.CompletedTask;
+}
+static Task TodoDeletionRestore()
+{
+    var todos = new List<TodoItem> { new() { Text = "第一", LocalDay = "2026-10-23" }, new() { Text = "第二", LocalDay = "2026-10-23" } };
+    var history = new TodoDeletionHistory();
+    Equal(true, history.Remove(todos[0].ID, "2026-10-23", todos));
+    Equal("第二", todos.Single().Text);
+    Equal("第一", history.RestoreLast(todos)!.Text);
+    Equal(2, todos.Count);
+    Equal("第一", todos[0].Text);
+    return Task.CompletedTask;
+}
+static Task HeatmapRange()
+{
+    var today = new DateTime(2026, 10, 27);
+    var intervals = new List<FocusInterval>
+    {
+        new() { LocalDay = "2026-10-27", Seconds = 1800 },
+        new() { LocalDay = "2026-10-26", Seconds = 600 },
+        new() { LocalDay = "2026-10-01", Seconds = 300 },
+    };
+    var range = FocusHeatmapRange.Build(intervals, 1, today: today);
+    Equal("2026-10-26", range.StartDay);
+    Equal("2026-11-01", range.EndDay);
+    Equal(2, range.ActiveDays);
+    Equal(2400, range.TotalSeconds);
+    Equal(1, range.Weeks[0].Days.First(x => x.Day == "2026-10-26").Intensity);
+    var previous = FocusHeatmapRange.Build(intervals, 1, 1, today);
+    Equal("2026-10-19", previous.StartDay);
+    return Task.CompletedTask;
+}
+static Task SearchHistory()
+{
+    var id = Guid.NewGuid();
+    var data = new AppData();
+    data.Sessions.Add(new() { ID = id, Goal = "量子线路", StartedAt = new DateTimeOffset(2026, 10, 20, 9, 0, 0, TimeSpan.Zero) });
+    data.Intervals.Add(new() { SessionID = id, LocalDay = "2026-10-20", Seconds = 1500 });
+    data.WorkRecords.Add(new() { LocalDay = "2026-10-20", SessionID = id, UserText = "整理量子线路结论", Summary = new() { Content = new() { Outcomes = ["结论可靠"] } } });
+    data.Notes.Add(new() { Text = "量子线路笔记", LocalDay = "2026-10-20" });
+    var result = new HistorySearchIndex(data).Search("量子 线路",
+        new(new HashSet<HistorySearchKind> { HistorySearchKind.Focus, HistorySearchKind.Outcome }, null, null)).Single();
+    Equal(HistorySearchKind.Focus, result.Kind);
+    Equal("2026-10-20", result.Day);
+    Equal(true, result.Excerpt.Contains("用户记录"));
+    Equal(true, result.Excerpt.Contains("量子线路"));
+    var filtered = new HistorySearchIndex(data).Search("量子", new(new HashSet<HistorySearchKind> { HistorySearchKind.Note }, null, null));
+    Equal(1, filtered.Count);
+    Equal(HistorySearchKind.Note, filtered[0].Kind);
+    return Task.CompletedTask;
 }
 static async Task AIContract()
 {

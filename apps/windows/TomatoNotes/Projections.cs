@@ -21,6 +21,41 @@ public sealed record NoteRow(Guid ID, string Title, string Preview, string Meta,
 /// 历史便签按天分组，对应 macOS 的 NoteDayGroup。
 public sealed record NoteDayGroup(string DayLabel, int Count, List<NoteRow> Notes);
 
+/// 待办页的顺延候选。选择状态保存在行对象里，批量操作读取当前选择。
+public sealed class CarryoverRow
+{
+    public required Guid ID { get; init; }
+    public required string Text { get; init; }
+    public required string Detail { get; init; }
+    public bool IsSelected { get; set; }
+}
+
+/// 热力图里的一格。IsSelected 用于紧凑视图描出当前查看的那一天。
+public sealed class HeatmapDayRow
+{
+    public required string Day { get; init; }
+    public required int Intensity { get; init; }
+    public required bool IsFuture { get; init; }
+    public required bool IsSelected { get; init; }
+    public required string Tooltip { get; init; }
+}
+
+/// 热力图里的一周，紧凑视图按列排布、独立窗口按行排布，共用同一份投影。
+public sealed record HeatmapWeekRow(List<HeatmapDayRow> Days);
+
+public static class HeatmapProjections
+{
+    public static List<HeatmapWeekRow> Weeks(FocusHeatmapRange range, string? selectedDay)
+        => range.Weeks.Select(week => new HeatmapWeekRow(week.Days.Select(day => new HeatmapDayRow
+        {
+            Day = day.Day,
+            Intensity = day.Intensity,
+            IsFuture = day.IsFuture,
+            IsSelected = day.Day == selectedDay,
+            Tooltip = $"{day.Date:yyyy-MM-dd dddd} · {(day.IsFuture ? "未到" : DisplayFormat.Duration(day.Seconds))}",
+        }).ToList())).ToList();
+}
+
 public static class NoteProjections
 {
     public static NoteRow Row(StickyNote note, bool historical)

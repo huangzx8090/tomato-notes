@@ -27,7 +27,9 @@ public sealed class AppState : ObservableObject, IDisposable
     private AIClient ai;
     private readonly Dictionary<Guid, NoteWindow> notes = [];
     private readonly Dictionary<string, WorkWindow> workWindows = [];
-    private readonly Stack<(TodoItem Item, int Index)> deletedTodos = [];
+    private readonly TodoDeletionHistory deletedTodos = new();
+    private readonly List<CarryoverRow> carryoverRows = [];
+    private FocusHeatmapRange heatmapRange = FocusHeatmapRange.Build(Array.Empty<FocusInterval>(), 13);
     private readonly HashSet<string> generating = [];
     private CancellationTokenSource lifetime = new();
     public event Action<string, string, bool, bool>? NotificationRequested;
@@ -54,7 +56,16 @@ public sealed class AppState : ObservableObject, IDisposable
     public IEnumerable<StickyNote> HistoryNotes => Data.Notes.Where(x => x.DayKey != TodayKey).OrderByDescending(x => x.UpdatedAt);
     public string StorageLabel => Repository.IsSharedLibrary ? "本机共用资料" : "独立测试资料";
     public string DataPath => Repository.FilePath;
-    public TodoItem? LastDeleted => deletedTodos.Count == 0 ? null : deletedTodos.Peek().Item;
+    public TodoItem? LastDeleted => deletedTodos.LastDeleted;
+    public IEnumerable<CarryoverRow> CarryoverRows => carryoverRows;
+    public bool HasCarryoverRows => carryoverRows.Count > 0;
+    public string CarryoverCountLabel => $"共 {carryoverRows.Count} 件未完成旧待办";
+
+    // —— 今日页常驻的紧凑热力图：与 macOS FocusHeatmapCompactView 一致，只统计真实专注分段 ——
+    public IReadOnlyList<HeatmapWeekRow> HeatmapWeeks { get; private set; } = [];
+    public string HeatmapSummaryLabel => $"{DisplayFormat.Duration(heatmapRange.TotalSeconds)} · 有记录 {heatmapRange.ActiveDays} 天";
+    public string HeatmapRangeLabel => $"{heatmapRange.StartDay} — {heatmapRange.EndDay}";
+    public bool HasHeatmapRecords => heatmapRange.ActiveDays > 0;
     public int CurrentTab { get => currentTab; set { if (Set(ref currentTab, value)) { if (value == 2) RefreshHistory(); Changed(nameof(IsFocusTab)); Changed(nameof(IsTodoTab)); Changed(nameof(IsTodayTab)); Changed(nameof(IsNotesTab)); Changed(nameof(IsSettingsTab)); } } }
     public bool IsFocusTab => CurrentTab == 0; public bool IsTodoTab => CurrentTab == 1; public bool IsTodayTab => CurrentTab == 2; public bool IsNotesTab => CurrentTab == 3; public bool IsSettingsTab => CurrentTab == 4;
 
@@ -283,12 +294,34 @@ public sealed class AppState : ObservableObject, IDisposable
     }
     public void ToggleTodo(Guid id) { AdvanceToNow(); var item = Data.Todos.FirstOrDefault(x => x.ID == id && x.IsScheduledOn(TodayKey)); if (item is null || !CanWrite) return; item.CompletedAt = item.CompletedAt.HasValue ? null : DateTimeOffset.UtcNow; item.CompletedLocalDay = item.CompletedAt.HasValue ? TodayKey : null; Commit(); }
     public void UpdateTodo(Guid id, string text) { var item = Data.Todos.FirstOrDefault(x => x.ID == id && x.IsScheduledOn(TodayKey)); if (item is not null && CanWrite && !string.IsNullOrWhiteSpace(text)) { item.Text = text.Trim(); Commit(); } }
-    public void DeleteTodo(Guid id) { var index = Data.Todos.FindIndex(x => x.ID == id && x.IsScheduledOn(TodayKey)); if (index < 0 || !CanWrite) return; deletedTodos.Push((Data.Todos[index], index)); Data.Todos.RemoveAt(index); Commit(); Changed(nameof(LastDeleted)); }
-    public void UndoTodo() { if (deletedTodos.Count == 0 || !CanWrite) return; var item = deletedTodos.Pop(); if (!Data.Todos.Any(x => x.ID == item.Item.ID)) Data.Todos.Insert(Math.Min(item.Index, Data.Todos.Count), item.Item); Commit(); Changed(nameof(LastDeleted)); }
+    public void DeleteTodo(Guid id) { if (!CanWrite || !deletedTodos.Remove(id, TodayKey, Data.Todos)) return; Commit(); Changed(nameof(LastDeleted)); }
+    public void UndoTodo() { if (!CanWrite || deletedTodos.RestoreLast(Data.Todos) is null) return; Commit(); Changed(nameof(LastDeleted)); }
     public void MoveTodoToToday(Guid id) { var item = Data.Todos.FirstOrDefault(x => x.ID == id); if (item is not null && !item.IsScheduledOn(TodayKey) && CanWrite) { item.ScheduledDays.Add(TodayKey); Commit(); } }
+    public void ScheduleSelectedCarryovers()
+    {
+        if (!CanWrite) return;
+        var ids = carryoverRows.Where(x => x.IsSelected).Select(x => x.ID).ToList();
+        var changed = TodoCarryover.Schedule(ids, TodayKey, Data.Todos);
+        Feedback = changed.Count == 0 ? "请先选择要顺延的待办" : $"已把 {changed.Count} 件待办安排到今天";
+        if (changed.Count > 0) Commit();
+    }
+    public void UndoCarryover(Guid id)
+    {
+        if (!CanWrite) return;
+        var result = TodoCarryover.UndoSchedule(id, TodayKey, Data.Todos);
+        Feedback = result switch
+        {
+            TodoCarryoverUndoResult.Undone => "已撤销今天安排，原待办保留在原日期",
+            TodoCarryoverUndoResult.Missing => "没有找到这条待办",
+            TodoCarryoverUndoResult.Completed => "已完成的待办不能撤销安排",
+            _ => "这条待办今天没有单独安排",
+        };
+        if (result == TodoCarryoverUndoResult.Undone) Commit();
+    }
     public void RefreshHistory() { Summary = DailySummary.Build(SelectedDay, Data); NotifySummary(); }
     private void NotifySummary()
     {
+        RefreshHeatmap();
         foreach (var name in new[] { nameof(IsToday), nameof(SelectedDayLabel), nameof(CanMoveNext), nameof(SummaryMinutes),
             nameof(SummarySentence), nameof(HasEarlySessions), nameof(EarlySessionsLabel), nameof(SummaryCompletedTodos),
             nameof(SummaryCompletedSessions),
@@ -296,6 +329,14 @@ public sealed class AppState : ObservableObject, IDisposable
             nameof(HasApps), nameof(ShowEmptyApps), nameof(RecordingOff), nameof(HasUnattributed), nameof(HasDisabled),
             nameof(UnattributedLabel), nameof(DisabledLabel), nameof(HiddenAppCount), nameof(HasHiddenApps),
             nameof(HiddenAppsLabel), nameof(SummaryApps), nameof(SessionRows), nameof(SummaryTodos) }) Changed(name);
+    }
+    /// 选中日期变化时也要重算，紧凑视图才能描出当前查看的那一天。
+    private void RefreshHeatmap()
+    {
+        heatmapRange = FocusHeatmapRange.Build(Data.Intervals, 13);
+        HeatmapWeeks = HeatmapProjections.Weeks(heatmapRange, SelectedDay);
+        Changed(nameof(HeatmapWeeks)); Changed(nameof(HeatmapSummaryLabel));
+        Changed(nameof(HeatmapRangeLabel)); Changed(nameof(HasHeatmapRecords));
     }
     /// 进展卡片需要聚合区间与待办，算一次缓存下来，避免每秒重复扫描。
     private void RefreshProgressCard()
@@ -386,7 +427,20 @@ public sealed class AppState : ObservableObject, IDisposable
             nameof(TodoShortLabel), nameof(TodoFooterLabel), nameof(AIStatusLabel),
             nameof(HasTodayNotes), nameof(HasHistoryNotes), nameof(TodayNoteCount), nameof(HistoryNoteCount), nameof(NotesCountLabel),
             nameof(TodayNoteRows), nameof(HistoryNoteGroups) }) Changed(name);
+        RefreshCarryoverRows();
         RefreshProgressCard(); RefreshHistory();
+    }
+    private void RefreshCarryoverRows()
+    {
+        var selected = carryoverRows.Where(x => x.IsSelected).Select(x => x.ID).ToHashSet();
+        var rows = TodoCarryover.Candidates(Data.Todos, TodayKey).Select(x => new CarryoverRow
+        {
+            ID = x.ID, Text = x.Text,
+            Detail = $"来自 {x.LocalDay} · 最近安排 {x.EffectiveScheduledDay}",
+            IsSelected = selected.Contains(x.ID),
+        }).ToList();
+        carryoverRows.Clear(); carryoverRows.AddRange(rows);
+        Changed(nameof(CarryoverRows)); Changed(nameof(HasCarryoverRows)); Changed(nameof(CarryoverCountLabel));
     }
     public void ShowDataFolder() => Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{Repository.FilePath}\"") { UseShellExecute = true });
     public void PrepareForQuit()
