@@ -14,7 +14,8 @@
 ## 双端目录与 AI 协作
 
 - `apps/macos/` 是 macOS 工程，`apps/windows/` 是 Windows 工程；平台源码、测试、打包资源和实现脚本留在各自目录。根目录维护 `Compatibility/`、`VERSION`、仓库协作脚本、CI 和公共文档。
-- macOS 维护者为 @huangzx8090，Windows 维护者为 @blakceyes（khalil），路径责任见 `.github/CODEOWNERS`；适用的跟进 issue 指派目标端维护者。
+- macOS 维护者为 @huangzx8090，Windows 共同维护者为 @blakceyes（khalil）和 @yhy854，路径责任见 `.github/CODEOWNERS`；Windows 跟进 issue 默认在同一个事项上同时指派这两人，不轮流分配或只选一人，保留其他已有 assignee。
+- 指派前用 `gh api repos/huangzx8090/tomato-notes/assignees/<用户名>` 核验目标成员可被指派。邀请未接受或暂不可指派时，先创建 / 补充 issue 并指派可用成员，交付时明确报告未成功指派的成员与原因；恢复可用后，对该事项补齐缺少的 assignee，并用 `gh issue view --json assignees` 核对结果。不能把正文 @ 提及当作成功委派。
 - 一端的正常维护只修改该端；数据契约、版本、CI 和发布流程需要双方评审。目录职责与完整流程见 `docs/双端协作维护.md`。
 - AI 每次交付功能、修复或改进前，必须检查另一端是否存在对应能力或同类问题：新增另一端缺少且适用的功能、修复共同逻辑缺陷、提供可复用的体验或维护改进时，自动为另一端创建跟进 issue；规则双向适用。
 - 仅影响某一平台 API、系统权限、托盘、签名或安装器等特有实现，且另一端无同类问题时，不创建跨端 issue。纯目录整理、内部等价重构、文档修改或另一端已实现的行为也不重复提 issue。

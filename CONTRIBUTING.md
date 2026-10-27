@@ -79,7 +79,7 @@ git push -u origin feat/macos-progress-timeline
 
 ## 双端协作
 
-仓库同时维护 macOS（`apps/macos/`）与 Windows（`apps/windows/`）两个客户端。目录职责、代码所有者配置与跨端评审规则见 [双端协作维护](docs/双端协作维护.md)：macOS 由 @huangzx8090 主要维护，Windows 由 @blakceyes（khalil）主要维护；`Compatibility/`、`VERSION`、发布脚本和 GitHub Actions 属于双端共享，修改需要双方知情。两端共用同一版本号与资料契约，Release 必须两端构建全部成功才会公开。
+仓库同时维护 macOS（`apps/macos/`）与 Windows（`apps/windows/`）两个客户端。目录职责、代码所有者配置与跨端评审规则见 [双端协作维护](docs/双端协作维护.md)：macOS 由 @huangzx8090 主要维护，Windows 由 @blakceyes（khalil）和 @yhy854 共同维护；Windows 跟进 issue 默认同时委派这两人，邀请或权限尚未就绪时按协作规范记录缺少的指派。`Compatibility/`、`VERSION`、发布脚本和 GitHub Actions 属于双端共享，修改需要双方知情。两端共用同一版本号与资料契约，Release 必须两端构建全部成功才会公开。
 
 ## 三层约束与实际限制
 
