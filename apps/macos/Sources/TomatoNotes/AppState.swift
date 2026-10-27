@@ -747,7 +747,8 @@ final class AppState: ObservableObject {
     func suggestTaskProgress(title: String, evidence: String, focusSeconds: Double) async throws -> String {
         guard let key = try readAPIKey(providerID: aiProvider.id), !key.isEmpty else { throw AIReviewError.missingKey }
         let client = ai
-        return try await client.suggestTaskProgress(title: title, evidence: evidence, focusSeconds: focusSeconds, apiKey: key)
+        let boundedTitle = String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300))
+        return try await client.suggestTaskProgress(title: boundedTitle, evidence: evidence, focusSeconds: focusSeconds, apiKey: key)
     }
 
     func saveLocalTaskProgress(todoID: UUID, sessionID: UUID, text: String) -> Bool {

@@ -169,19 +169,24 @@ public final class EventKitReminderStore: ReminderStore {
         let items: [ReminderItem] = try await withCheckedThrowingContinuation { continuation in
             store.fetchReminders(matching: predicate) { reminders in
                 guard let reminders else { continuation.resume(throwing: ReminderStoreError.unavailable); return }
-                continuation.resume(returning: reminders.map(Self.snapshot))
+                continuation.resume(returning: reminders.compactMap { reminder in
+                    guard let calendar = reminder.calendar, listIDs.contains(calendar.calendarIdentifier) else { return nil }
+                    return Self.snapshot(reminder)
+                })
             }
         }
         return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
     public func resolve(_ plan: PlannedReminder, allowedListIDs: Set<String>) throws -> ReminderItem {
-        Self.snapshot(try find(plan, allowedListIDs: allowedListIDs))
+        guard let item = Self.snapshot(try find(plan, allowedListIDs: allowedListIDs)) else { throw ReminderStoreError.missing }
+        return item
     }
 
     public func setCompleted(_ completed: Bool, expected: Bool, plan: PlannedReminder, allowedListIDs: Set<String>) throws {
         let reminder = try find(plan, allowedListIDs: allowedListIDs)
-        guard reminder.calendar.allowsContentModifications else { throw ReminderStoreError.readOnly }
+        guard let calendar = reminder.calendar else { throw ReminderStoreError.missing }
+        guard calendar.allowsContentModifications else { throw ReminderStoreError.readOnly }
         guard reminder.isCompleted == expected else { throw ReminderStoreError.changed }
         guard reminder.isCompleted != completed else { return }
         reminder.isCompleted = completed
@@ -190,13 +195,14 @@ public final class EventKitReminderStore: ReminderStore {
     }
 
     public func details(plan: PlannedReminder, allowedListIDs: Set<String>) throws -> ReminderDetails {
-        Self.detailSnapshot(try find(plan, allowedListIDs: allowedListIDs))
+        try Self.detailSnapshot(try find(plan, allowedListIDs: allowedListIDs))
     }
 
     public func updateDetails(_ edits: ReminderDetailEdits, plan: PlannedReminder, allowedListIDs: Set<String>, expected: ReminderDetails) throws {
         let reminder = try find(plan, allowedListIDs: allowedListIDs)
-        guard reminder.calendar.allowsContentModifications else { throw ReminderStoreError.readOnly }
-        guard Self.detailSnapshot(reminder) == expected else { throw ReminderStoreError.changed }
+        guard let calendar = reminder.calendar else { throw ReminderStoreError.missing }
+        guard calendar.allowsContentModifications else { throw ReminderStoreError.readOnly }
+        guard try Self.detailSnapshot(reminder) == expected else { throw ReminderStoreError.changed }
         let title = edits.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (edits.title == expected.title || (!title.isEmpty && title.count <= 2000)),
               (edits.notes == expected.notes || edits.notes.utf8.count <= 100_000), (0...9).contains(edits.priority) else { throw ReminderStoreError.invalidDetails }
@@ -256,7 +262,8 @@ public final class EventKitReminderStore: ReminderStore {
         }
     }
 
-    private static func detailSnapshot(_ reminder: EKReminder) -> ReminderDetails {
+    private static func detailSnapshot(_ reminder: EKReminder) throws -> ReminderDetails {
+        guard let calendar = reminder.calendar else { throw ReminderStoreError.missing }
         let repeats = (reminder.recurrenceRules ?? []).map { rule in
             let name: String
             switch rule.frequency {
@@ -298,14 +305,15 @@ public final class EventKitReminderStore: ReminderStore {
         return ReminderDetails(title: reminder.title ?? "", notes: reminder.notes ?? "", startDate: reminder.startDateComponents,
                                dueDate: reminder.dueDateComponents, priority: reminder.priority, location: reminder.location,
                                url: reminder.url?.absoluteString, lastModified: reminder.lastModifiedDate, completed: reminder.isCompleted,
-                               recurrenceSummary: repeats, alarmSummary: alarms, writable: reminder.calendar.allowsContentModifications,
+                               recurrenceSummary: repeats, alarmSummary: alarms, writable: calendar.allowsContentModifications,
                                simpleRepeat: simple, canEditTimeAlarm: editableAlarm,
                                simpleTimeAlarm: editableAlarm ? singleAlarm?.absoluteDate : nil)
     }
 
     public func noteSnapshot(plan: PlannedReminder, allowedListIDs: Set<String>) throws -> ReminderNoteSnapshot {
         let reminder = try find(plan, allowedListIDs: allowedListIDs)
-        guard reminder.calendar.allowsContentModifications else { throw ReminderStoreError.readOnly }
+        guard let calendar = reminder.calendar else { throw ReminderStoreError.missing }
+        guard calendar.allowsContentModifications else { throw ReminderStoreError.readOnly }
         return ReminderNoteSnapshot(title: reminder.title, notes: reminder.notes ?? "")
     }
 
@@ -314,7 +322,8 @@ public final class EventKitReminderStore: ReminderStore {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 2000, trimmed.utf8.count <= 12_000 else { throw ReminderStoreError.invalidProgress }
         let reminder = try find(plan, allowedListIDs: allowedListIDs)
-        guard reminder.calendar.allowsContentModifications else { throw ReminderStoreError.readOnly }
+        guard let calendar = reminder.calendar else { throw ReminderStoreError.missing }
+        guard calendar.allowsContentModifications else { throw ReminderStoreError.readOnly }
         guard reminder.title == expected.title, (reminder.notes ?? "") == expected.notes else { throw ReminderStoreError.changed }
         let stamp = date.formatted(date: .numeric, time: .shortened)
         let entry = "【专注进展 · \(stamp)】\n\(trimmed)"
@@ -327,22 +336,23 @@ public final class EventKitReminderStore: ReminderStore {
         guard hasFullAccess else { throw ReminderStoreError.noAccess }
         guard allowedListIDs.contains(plan.listID) else { throw ReminderStoreError.missing }
         if let reminder = store.calendarItem(withIdentifier: plan.reminderID) as? EKReminder,
-           reminder.calendar.calendarIdentifier == plan.listID, reminder.refresh() { return reminder }
+           reminder.refresh(), reminder.calendar?.calendarIdentifier == plan.listID { return reminder }
         guard let externalID = plan.externalID, !externalID.isEmpty else { throw ReminderStoreError.missing }
         let matches = store.calendarItems(withExternalIdentifier: externalID).compactMap { $0 as? EKReminder }
-            .filter { $0.calendar.calendarIdentifier == plan.listID }
+            .filter { $0.calendar?.calendarIdentifier == plan.listID }
         guard matches.count <= 1 else { throw ReminderStoreError.ambiguous }
-        guard let match = matches.first, match.refresh() else { throw ReminderStoreError.missing }
+        guard let match = matches.first, match.refresh(), match.calendar?.calendarIdentifier == plan.listID else { throw ReminderStoreError.missing }
         return match
     }
 
-    nonisolated private static func snapshot(_ reminder: EKReminder) -> ReminderItem {
-        ReminderItem(id: reminder.calendarItemIdentifier, externalID: reminder.calendarItemExternalIdentifier,
-                     listID: reminder.calendar.calendarIdentifier, listTitle: reminder.calendar.title,
+    nonisolated private static func snapshot(_ reminder: EKReminder) -> ReminderItem? {
+        guard let calendar = reminder.calendar else { return nil }
+        return ReminderItem(id: reminder.calendarItemIdentifier, externalID: reminder.calendarItemExternalIdentifier,
+                     listID: calendar.calendarIdentifier, listTitle: calendar.title,
                      title: reminder.title ?? "未命名提醒", isCompleted: reminder.isCompleted,
                      completionDate: reminder.completionDate, dueDate: reminder.dueDateComponents,
                      isRecurring: reminder.hasRecurrenceRules,
-                     writable: reminder.calendar.allowsContentModifications,
+                     writable: calendar.allowsContentModifications,
                      priority: reminder.priority, hasAlarms: reminder.hasAlarms)
     }
 }
