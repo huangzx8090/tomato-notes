@@ -224,13 +224,11 @@ apps/macos/Scripts/check-integration.sh
 
 ### 开发分支
 
-`main` 保持稳定，`develop` 集成开发；工作分支命名为 `<类型>/<平台>-<描述>`，例如 `feat/macos-history-search`、`fix/windows-tray-menu`、`chore/shared-ci-policy`，通过 PR 进入 develop，发布时再由 develop PR 到 main。参见 [开发与分支约定](CONTRIBUTING.md)。首次克隆执行 `Scripts/setup-dev.sh` 开启本地提交与推送检查。
-
-当前私有仓库的 GitHub 分支保护受账号计划限制，CI 与本地 hook **不能替代服务端保护**。仓库同时维护 macOS 与 Windows 客户端；目录职责、跨端评审与版本同步见 [双端协作维护](docs/双端协作维护.md)。
+开始工作、分支命名、hooks 与 PR 交付见 [CONTRIBUTING](CONTRIBUTING.md)。仓库同时维护 macOS 与 Windows 客户端，目录职责与跨端跟进见[双端协作维护](docs/双端协作维护.md)。服务端保护和权限以实际设置为准，CI 与本地 hooks 不能代替服务端保护。
 
 ### Actions 与发布
 
-- [macOS 与 Windows CI](https://github.com/huangzx8090/tomato-notes/actions/workflows/ci.yml)：PR、main / develop 推送和手动运行，执行两端测试与编译。`VERSION`、`apps/macos/Packaging/`、平台脚本、`apps/windows/`、仓库脚本、工作流或 SwiftPM 配置变更时额外执行 Universal 与 Windows 安装包校验；无法可靠比较提交时也执行打包。手动运行勾选 `package` 可生成预览安装包，暂存 7 天，不发布 Release。
+- [macOS 与 Windows CI](https://github.com/huangzx8090/tomato-notes/actions/workflows/ci.yml)：执行两端测试与编译，按当前策略额外验证安装包。触发条件和预览包获取方式统一见[CI 与打包](docs/发布流程.md#ci-与打包)。
 - [发布 macOS 与 Windows 应用](https://github.com/huangzx8090/tomato-notes/actions/workflows/release.yml)：推送 `vX.Y.Z` 标签，检查两端版本与主分支归属，重新测试和并行打包，全部附件齐备后正式发布。
 - 测试使用模拟 AI 响应，**不需要在 Actions 填写 DeepSeek Key**。发布使用仓库自动提供的 `GITHUB_TOKEN`；只有上传 Release 的 job 获得 `contents: write`。
 - 后续发版步骤、工具链选择、失败重跑和签名限制见 [发布流程](docs/发布流程.md)。
@@ -253,8 +251,8 @@ SwiftUI / AppKit 面板、快捷键、浮动便签
 
 ## 验证范围
 
-当前 **155 项 macOS 规则与模拟接口测试**覆盖计时、跨日、资料兼容与备份、共用资料与测试隔离、便签 TXT 导出、待办结转与撤销、进展归属、白名单选择与推荐、Chrome 多窗口读取、守护白名单边界及保守关闭条件。发布流程另校验双架构二进制、签名、ZIP 解包后的执行位、DMG 与 SHA-256；Windows 核心与模拟接口测试由 CI 单独运行。
+macOS 规则与模拟接口测试覆盖计时、跨日、资料兼容与备份、共用资料与测试隔离、便签 TXT 导出、待办结转与撤销、进展归属、白名单选择与推荐、Chrome 多窗口读取、守护白名单边界及保守关闭条件。发布流程另校验双架构二进制、签名、ZIP 解包后的执行位、DMG 与 SHA-256；Windows 核心与模拟接口测试由 CI 单独运行。
 
-自动化检查不代表所有系统版本和机器上的通知、授权、Chrome 截图与关闭、全屏多屏、玻璃动画均已实机验收。**本次发布未完成 Chrome 截图与自动关闭的端到端人工验收。** 已知限制与排查见[使用指南](docs/使用指南与权限.md)。
+自动化检查不代表所有系统版本和机器上的通知、授权、Chrome 截图与关闭、全屏多屏、玻璃动画均已实机验收。具体版本的通过与未验证范围见对应[发布记录](docs/releases/)和 PR；已知限制与排查见[使用指南](docs/使用指南与权限.md)。
 
-项目最初的范围见 [需求书](番茄小记_项目需求书.md)；当前功能以后续实现与上述说明为准。
+开发与 PR 交付见 [CONTRIBUTING](CONTRIBUTING.md)，架构学习见[项目详解](docs/项目结构与实现详解.md)。当前功能以实现与现行使用说明为准，历史变化见 [CHANGELOG](CHANGELOG.md)和[发布记录](docs/releases/)。
