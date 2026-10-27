@@ -22,5 +22,10 @@
   <ItemGroup>
     <ProjectReference Include="../TomatoNotes.Core/TomatoNotes.Core.csproj" />
     <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 标题栏品牌图标，由 macOS Packaging/BrandMark.png 缩到 128²，避免把 1 MB 原图打进安装包 -->
+    <Resource Include="Assets\BrandMark.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="WPF-UI" Version="4.3.0" />
   </ItemGroup>
 </Project>

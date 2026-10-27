@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
@@ -10,6 +11,7 @@ namespace TomatoNotes.Windows;
 
 public sealed class AppState : ObservableObject, IDisposable
 {
+    private static readonly CultureInfo DayLabelCulture = CultureInfo.GetCultureInfo("zh-CN");
     public LocalRepository Repository { get; }
     public AppData Data { get; private set; }
     private readonly TimerEngine engine;
@@ -55,6 +57,118 @@ public sealed class AppState : ObservableObject, IDisposable
     public TodoItem? LastDeleted => deletedTodos.Count == 0 ? null : deletedTodos.Peek().Item;
     public int CurrentTab { get => currentTab; set { if (Set(ref currentTab, value)) { if (value == 2) RefreshHistory(); Changed(nameof(IsFocusTab)); Changed(nameof(IsTodoTab)); Changed(nameof(IsTodayTab)); Changed(nameof(IsNotesTab)); Changed(nameof(IsSettingsTab)); } } }
     public bool IsFocusTab => CurrentTab == 0; public bool IsTodoTab => CurrentTab == 1; public bool IsTodayTab => CurrentTab == 2; public bool IsNotesTab => CurrentTab == 3; public bool IsSettingsTab => CurrentTab == 4;
+
+    // —— 专注页：状态点、本组进度胶囊与进展卡片 ——
+    public bool IsFocusStage => Data.Timer.Stage == TimerStage.Focus;
+    public bool IsRunning => Data.Timer.Phase == TimerPhase.Running;
+    public int CompletedInSet => Data.Timer.CompletedInSet;
+    public int LongBreakEvery => Math.Max(1, Data.Settings.LongBreakEvery);
+    public string SetLabel => $"本组 {CompletedInSet} / {LongBreakEvery} 轮";
+    public IEnumerable<bool> RoundDots => Enumerable.Range(0, LongBreakEvery).Select(index => index < CompletedInSet);
+    public bool HasRoundDots => LongBreakEvery > 1;
+    public Wpf.Ui.Controls.SymbolRegular PrimarySymbol => IsRunning ? Wpf.Ui.Controls.SymbolRegular.Pause24 : Wpf.Ui.Controls.SymbolRegular.Play24;
+    /// 与 macOS 一致：只有未开始或休息结束待开始时才能改本轮目标，进行中只展示已定下的目标。
+    public bool CanEditGoal => (Data.Timer.Phase == TimerPhase.Idle && Data.Timer.Stage == TimerStage.Focus)
+        || (Data.Timer.Phase == TimerPhase.Completed && Data.Timer.NextStage == TimerStage.Focus);
+    public string CurrentSessionGoal => Data.Timer.SessionID is Guid sessionID
+        ? Data.Sessions.FirstOrDefault(x => x.ID == sessionID)?.Goal ?? "" : "";
+    public bool HasCurrentSessionGoal => !string.IsNullOrWhiteSpace(CurrentSessionGoal) && !CanEditGoal;
+    private ProgressCard? currentProgress;
+    public ProgressCard? CurrentProgress => currentProgress;
+    public bool HasCurrentProgress => currentProgress is not null;
+
+    // —— 顶栏与今日页 ——
+    public string HeaderDate => DateTime.Now.ToString("MM-dd", CultureInfo.InvariantCulture);
+    public bool IsToday => SelectedDay == TodayKey;
+    public string SelectedDayLabel => DateTime.TryParse(SelectedDay, out var day)
+        ? day.ToString("M 月 d 日 dddd", DayLabelCulture) : SelectedDay;
+    public bool CanMoveNext => DateTime.TryParse(SelectedDay, out var day) && day.Date.AddDays(1) <= DateTime.Today;
+    public int SummaryMinutes => (int)(Summary.FocusSeconds / 60);
+    public int SummaryCompletedSessions => Summary.CompletedSessions;
+    public string AIStatusLabel => HasAPIKey ? "已配置" : "可选";
+    public string SummarySentence => Summary.Sentence;
+    public int SummaryEarlySessions => Summary.EarlySessions;
+    public bool HasEarlySessions => Summary.EarlySessions > 0;
+    public string EarlySessionsLabel => $"另有 {Summary.EarlySessions} 轮提前结束，投入时长已计入。";
+    public int SummaryCompletedTodos => Summary.CompletedTodos;
+    public int SummaryTodoCount => Summary.Todos.Count;
+    public bool HasSummaryTodos => Summary.Todos.Count > 0;
+    public bool HasSummarySessions => Summary.Sessions.Count > 0;
+    public string DayProgressTitle => IsToday ? "今天留下的进展" : "这一天留下的进展";
+    public bool HasApps => Summary.Apps.Count > 0;
+    public bool ShowEmptyApps => !HasApps && Summary.FocusSeconds == 0;
+    public bool RecordingOff => !Data.Settings.RecordingEnabled && IsToday;
+    public bool HasUnattributed => Summary.UnattributedSeconds > 0;
+    public bool HasDisabled => Summary.DisabledSeconds > 0;
+    public string UnattributedLabel => "未归属时长　" + DisplayFormat.Duration(Summary.UnattributedSeconds);
+    public string DisabledLabel => "未记录时长　" + DisplayFormat.Duration(Summary.DisabledSeconds);
+    private bool showAllApps;
+    public bool ShowAllApps { get => showAllApps; set { if (Set(ref showAllApps, value)) { Changed(nameof(SummaryApps)); Changed(nameof(HasHiddenApps)); Changed(nameof(HiddenAppsLabel)); } } }
+    public int HiddenAppCount => Math.Max(0, Summary.Apps.Count - 3);
+    public bool HasHiddenApps => HiddenAppCount > 0;
+    public string HiddenAppsLabel => ShowAllApps ? "收起明细" : $"查看其余 {HiddenAppCount} 个 App";
+    public IEnumerable<AppUsageRow> SummaryApps => Progressions.AppRows(Summary).Take(ShowAllApps ? int.MaxValue : 3);
+    public IEnumerable<SessionRow> SessionRows => Progressions.SessionRows(Summary, Data);
+    public IEnumerable<TodoDayRow> SummaryTodos => Progressions.TodoRows(Summary);
+
+    // —— 待办 / 便签 / 设置页的占位与摘要 ——
+    public bool HasTodos => Data.Todos.Any(x => x.IsScheduledOn(TodayKey));
+    public bool AllTodosDone => HasTodos && Data.Todos.Where(x => x.IsScheduledOn(TodayKey)).All(x => x.IsCompleted);
+    public double TodoCompletionPercent
+    {
+        get
+        {
+            var today = Data.Todos.Where(x => x.IsScheduledOn(TodayKey)).ToList();
+            return today.Count == 0 ? 0 : Math.Round(100.0 * today.Count(x => x.IsCompleted) / today.Count);
+        }
+    }
+    public string TodoProgressLabel
+    {
+        get
+        {
+            var today = Data.Todos.Where(x => x.IsScheduledOn(TodayKey)).ToList();
+            return $"{today.Count(x => x.IsCompleted)} / {today.Count} 已完成";
+        }
+    }
+    public string TodoDateLabel => TodayKey.Replace("-", ".");
+    public string TodoShortLabel
+    {
+        get
+        {
+            var today = Data.Todos.Where(x => x.IsScheduledOn(TodayKey)).ToList();
+            return $"{today.Count(x => x.IsCompleted)}/{today.Count}";
+        }
+    }
+    public string TodoFooterLabel
+    {
+        get
+        {
+            var done = Data.Todos.Count(x => x.IsScheduledOn(TodayKey) && x.IsCompleted);
+            return done == 0 ? "慢慢来，一件一件就很好。" : $"已经完成 {done} 件，进展看得见。";
+        }
+    }
+
+    // —— 便签页：与 macOS 一致，历史按天分组，可切换 ——
+    private bool showsHistory;
+    public bool ShowsHistory { get => showsHistory; set { if (Set(ref showsHistory, value)) { Changed(nameof(NotesTitle)); Changed(nameof(NotesHistoryLabel)); Changed(nameof(NotesToggleIcon)); Changed(nameof(TodayNoteRows)); Changed(nameof(HistoryNoteGroups)); } } }
+    public string NotesTitle => ShowsHistory ? "翻翻旧便签" : "今天的便签";
+    public string NotesHistoryLabel => ShowsHistory ? "回到今天" : "历史便签";
+    public Wpf.Ui.Controls.SymbolRegular NotesToggleIcon => ShowsHistory
+        ? Wpf.Ui.Controls.SymbolRegular.ArrowLeft24 : Wpf.Ui.Controls.SymbolRegular.History24;
+    public bool HasTodayNotes => Data.Notes.Any(x => x.DayKey == TodayKey);
+    public bool HasHistoryNotes => Data.Notes.Any(x => x.DayKey != TodayKey);
+    public int TodayNoteCount => Data.Notes.Count(x => x.DayKey == TodayKey);
+    public int HistoryNoteCount => Data.Notes.Count(x => x.DayKey != TodayKey);
+    public string NotesCountLabel => ShowsHistory ? $"{TodayNoteCount} 张" : $"{HistoryNoteCount} 张";
+    public IEnumerable<NoteRow> TodayNoteRows => Data.Notes.Where(x => x.DayKey == TodayKey).OrderByDescending(x => x.UpdatedAt).Select(x => NoteProjections.Row(x, false));
+    public IEnumerable<NoteDayGroup> HistoryNoteGroups => NoteProjections.History(Data.Notes, TodayKey);
+    public string AppearanceLabel => Data.Settings.Appearance switch { "light" => "浅色", "dark" => "深色", _ => "跟随 Windows 系统" };
+    public string TimerSummaryLabel => $"{Data.Settings.FocusMinutes} 分钟 · 长休息每 {Data.Settings.LongBreakEvery} 轮";
+    public string ReviewLabel => Data.Settings.Review.ScheduleEnabled
+        ? $"每天 {Data.Settings.Review.Hour:00}:{Data.Settings.Review.Minute:00} 自动生成"
+        : Data.Settings.Review.AutoSummarizeSessions ? "每轮结束后自动整理" : "按需手动生成";
+    public string RecordingLabel => Data.Settings.RecordingEnabled ? "已记录前台 App 时长" : "App 记录已关闭";
+    public string DataStatusLabel => CanWrite ? $"可写入 · {StorageLabel}" : "只读 · 已停止写入";
     public string Goal { get => goal; set => Set(ref goal, value); }
     public string NewTodo { get => newTodo; set => Set(ref newTodo, value); }
     public string Feedback { get => feedback; set => Set(ref feedback, value); }
@@ -75,6 +189,7 @@ public sealed class AppState : ObservableObject, IDisposable
         Repository = repository; Data = repository.Load(); engine = new(Data); engine.RecoverAfterLaunch();
         if (Data.Timer.Phase == TimerPhase.Paused && CanWrite) Save();
         summary = DailySummary.Build(SelectedDay, Data); ai = new(Provider);
+        RefreshProgressCard();
         aiStatus = HasAPIKey ? $"{Provider.Name} 已配置，可生成成果总结" : $"尚未配置 {Provider.Name} 的 API Key";
         StartCommand = new(_ => StartOrPause(), _ => CanWrite); EndCommand = new(_ => EndEarly(), _ => CanWrite);
         AddTodoCommand = new(_ => AddTodo(NewTodo), _ => CanWrite); BackupCommand = new(_ => Backup());
@@ -138,7 +253,12 @@ public sealed class AppState : ObservableObject, IDisposable
     {
         if (Data.Timer.Phase == TimerPhase.Running && locked) { AdvanceToNow(); engine.Pause("锁屏已暂停", DateTimeOffset.UtcNow); lastTick = null; Commit(); return; }
         var dayBefore = TodayKey; AdvanceToNow(); if (DateTime.UtcNow - lastSaved > TimeSpan.FromSeconds(2) && CanWrite) { Save(); lastSaved = DateTime.UtcNow; }
-        Changed(nameof(Remaining)); Changed(nameof(TodayKey));
+        Changed(nameof(Remaining)); Changed(nameof(TodayKey)); Changed(nameof(StatusText)); Changed(nameof(PrimaryAction));
+        Changed(nameof(PrimarySymbol)); Changed(nameof(IsRunning)); Changed(nameof(CanEndEarly)); Changed(nameof(CanSkipBreak));
+        Changed(nameof(EndEarlyLabel)); Changed(nameof(HeaderDate)); Changed(nameof(TodayMinutes)); Changed(nameof(TodayCompleted));
+        Changed(nameof(CanEditGoal)); Changed(nameof(CurrentSessionGoal)); Changed(nameof(HasCurrentSessionGoal));
+        // 计时进行中每秒重算一次进展卡片，让「本日投入」跟着走。
+        if (Data.Timer.Phase == TimerPhase.Running || Data.Timer.Phase == TimerPhase.Paused) RefreshProgressCard();
         if (dayBefore != TodayKey) RefreshAll();
         if (Data.Settings.Review.ScheduleEnabled && Data.LastReviewAttemptDay != TodayKey && DateTime.Now.TimeOfDay >= new TimeSpan(Data.Settings.Review.Hour, Data.Settings.Review.Minute, 0)) _ = GenerateReview(WorkScope.ForDay(TodayKey), scheduled: true);
     }
@@ -166,7 +286,23 @@ public sealed class AppState : ObservableObject, IDisposable
     public void DeleteTodo(Guid id) { var index = Data.Todos.FindIndex(x => x.ID == id && x.IsScheduledOn(TodayKey)); if (index < 0 || !CanWrite) return; deletedTodos.Push((Data.Todos[index], index)); Data.Todos.RemoveAt(index); Commit(); Changed(nameof(LastDeleted)); }
     public void UndoTodo() { if (deletedTodos.Count == 0 || !CanWrite) return; var item = deletedTodos.Pop(); if (!Data.Todos.Any(x => x.ID == item.Item.ID)) Data.Todos.Insert(Math.Min(item.Index, Data.Todos.Count), item.Item); Commit(); Changed(nameof(LastDeleted)); }
     public void MoveTodoToToday(Guid id) { var item = Data.Todos.FirstOrDefault(x => x.ID == id); if (item is not null && !item.IsScheduledOn(TodayKey) && CanWrite) { item.ScheduledDays.Add(TodayKey); Commit(); } }
-    public void RefreshHistory() { Summary = DailySummary.Build(SelectedDay, Data); }
+    public void RefreshHistory() { Summary = DailySummary.Build(SelectedDay, Data); NotifySummary(); }
+    private void NotifySummary()
+    {
+        foreach (var name in new[] { nameof(IsToday), nameof(SelectedDayLabel), nameof(CanMoveNext), nameof(SummaryMinutes),
+            nameof(SummarySentence), nameof(HasEarlySessions), nameof(EarlySessionsLabel), nameof(SummaryCompletedTodos),
+            nameof(SummaryCompletedSessions),
+            nameof(SummaryTodoCount), nameof(HasSummaryTodos), nameof(HasSummarySessions), nameof(DayProgressTitle),
+            nameof(HasApps), nameof(ShowEmptyApps), nameof(RecordingOff), nameof(HasUnattributed), nameof(HasDisabled),
+            nameof(UnattributedLabel), nameof(DisabledLabel), nameof(HiddenAppCount), nameof(HasHiddenApps),
+            nameof(HiddenAppsLabel), nameof(SummaryApps), nameof(SessionRows), nameof(SummaryTodos) }) Changed(name);
+    }
+    /// 进展卡片需要聚合区间与待办，算一次缓存下来，避免每秒重复扫描。
+    private void RefreshProgressCard()
+    {
+        currentProgress = Progressions.ProgressCardFor(Data, Data.Timer.SessionID ?? Data.Sessions.LastOrDefault()?.ID);
+        Changed(nameof(CurrentProgress)); Changed(nameof(HasCurrentProgress));
+    }
     public void MoveDay(int days) { if (DateTime.TryParse(SelectedDay, out var date) && date.AddDays(days).Date <= DateTime.Today) SelectedDay = LocalTime.DayKey(new DateTimeOffset(date.AddDays(days))); }
     public void OpenWork(WorkScope scope)
     {
@@ -241,7 +377,16 @@ public sealed class AppState : ObservableObject, IDisposable
     public void Commit(bool refresh = true) { AdvanceToNow(); Save(); if (refresh) RefreshAll(); }
     public void RefreshAll()
     {
-        foreach (var name in new[] { nameof(Data), nameof(Remaining), nameof(StatusText), nameof(PrimaryAction), nameof(TimerCaption), nameof(CanEndEarly), nameof(CanSkipBreak), nameof(EndEarlyLabel), nameof(TodayTodos), nameof(TodayMinutes), nameof(TodayCompleted), nameof(VisibleNotes), nameof(HistoryNotes), nameof(Provider), nameof(HasAPIKey) }) Changed(name); RefreshHistory();
+        foreach (var name in new[] { nameof(Data), nameof(Remaining), nameof(StatusText), nameof(PrimaryAction), nameof(TimerCaption), nameof(CanEndEarly), nameof(CanSkipBreak), nameof(EndEarlyLabel), nameof(TodayTodos), nameof(TodayMinutes), nameof(TodayCompleted), nameof(VisibleNotes), nameof(HistoryNotes), nameof(Provider), nameof(HasAPIKey),
+            nameof(IsFocusStage), nameof(IsRunning), nameof(CompletedInSet), nameof(LongBreakEvery), nameof(SetLabel), nameof(RoundDots), nameof(HasRoundDots), nameof(PrimarySymbol),
+            nameof(CanEditGoal), nameof(CurrentSessionGoal), nameof(HasCurrentSessionGoal),
+            nameof(HeaderDate), nameof(HasTodos), nameof(TodoProgressLabel), nameof(HasTodayNotes), nameof(HasHistoryNotes),
+            nameof(AppearanceLabel), nameof(TimerSummaryLabel), nameof(ReviewLabel), nameof(RecordingLabel), nameof(DataStatusLabel), nameof(StorageLabel),
+            nameof(HasTodos), nameof(AllTodosDone), nameof(TodoCompletionPercent), nameof(TodoProgressLabel), nameof(TodoDateLabel),
+            nameof(TodoShortLabel), nameof(TodoFooterLabel), nameof(AIStatusLabel),
+            nameof(HasTodayNotes), nameof(HasHistoryNotes), nameof(TodayNoteCount), nameof(HistoryNoteCount), nameof(NotesCountLabel),
+            nameof(TodayNoteRows), nameof(HistoryNoteGroups) }) Changed(name);
+        RefreshProgressCard(); RefreshHistory();
     }
     public void ShowDataFolder() => Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{Repository.FilePath}\"") { UseShellExecute = true });
     public void PrepareForQuit()

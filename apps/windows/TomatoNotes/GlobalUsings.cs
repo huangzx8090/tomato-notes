@@ -17,3 +17,16 @@ global using Brush = System.Windows.Media.Brush;
 global using Orientation = System.Windows.Controls.Orientation;
 global using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 global using SaveFileDialog = Microsoft.Win32.SaveFileDialog;
+// 项目启用了 UseWindowsForms，System.Drawing / System.Windows.Forms 会与 WPF 类型重名，
+// 这里统一固定为 WPF 版本，避免每个文件重复写全名。
+global using Point = System.Windows.Point;
+global using Size = System.Windows.Size;
+global using Rect = System.Windows.Rect;
+global using MouseEventArgs = System.Windows.Input.MouseEventArgs;
+global using KeyEventArgs = System.Windows.Input.KeyEventArgs;
+global using Pen = System.Windows.Media.Pen;
+global using FontFamily = System.Windows.Media.FontFamily;
+global using Cursors = System.Windows.Input.Cursors;
+global using UserControl = System.Windows.Controls.UserControl;
+global using RadioButton = System.Windows.Controls.RadioButton;
+global using Panel = System.Windows.Controls.Panel;

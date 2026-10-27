@@ -1,35 +1,337 @@
-<Window x:Class="TomatoNotes.Windows.SettingsWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="番茄小记 · 设置" Width="590" Height="760" MinWidth="530" WindowStartupLocation="CenterOwner">
-  <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="25">
-    <TextBlock Text="设置" FontSize="25" FontWeight="SemiBold" Margin="0,0,0,15" />
-    <Border Style="{StaticResource Card}"><StackPanel>
-      <TextBlock Text="专注与休息" Style="{StaticResource TitleText}" Margin="0,0,0,12" />
-      <UniformGrid Columns="4"><StackPanel Margin="0,0,5,10"><TextBlock Text="专注 / 分钟" Style="{StaticResource HintText}" /><TextBox Text="{Binding Data.Settings.FocusMinutes, UpdateSourceTrigger=PropertyChanged}" /></StackPanel><StackPanel Margin="0,0,5,10"><TextBlock Text="短休息 / 分钟" Style="{StaticResource HintText}" /><TextBox Text="{Binding Data.Settings.ShortBreakMinutes, UpdateSourceTrigger=PropertyChanged}" /></StackPanel><StackPanel Margin="0,0,5,10"><TextBlock Text="长休息 / 分钟" Style="{StaticResource HintText}" /><TextBox Text="{Binding Data.Settings.LongBreakMinutes, UpdateSourceTrigger=PropertyChanged}" /></StackPanel><StackPanel Margin="0,0,0,10"><TextBlock Text="每几轮长休息" Style="{StaticResource HintText}" /><TextBox Text="{Binding Data.Settings.LongBreakEvery, UpdateSourceTrigger=PropertyChanged}" /></StackPanel></UniformGrid>
-      <TextBlock Text="时长保存在本机，开始下一阶段时生效。正在进行的阶段不会被重置。" Style="{StaticResource HintText}" />
-    </StackPanel></Border>
-    <Border Style="{StaticResource Card}"><StackPanel>
-      <TextBlock Text="提醒与快捷键" Style="{StaticResource TitleText}" Margin="0,0,0,12" />
-      <CheckBox Content="系统托盘气泡通知" IsChecked="{Binding Data.Settings.NotificationsEnabled}" Margin="0,4" /><CheckBox Content="阶段结束提示音" IsChecked="{Binding Data.Settings.SoundEnabled}" Margin="0,4" /><CheckBox Content="记录专注期间前台 App 名称与时长" IsChecked="{Binding Data.Settings.RecordingEnabled}" Margin="0,4" />
-      <TextBlock Text="快捷键使用 Ctrl + Alt。留空字母可停用；保存时会检测系统占用。" Style="{StaticResource HintText}" Margin="0,8,0,3" />
-      <UniformGrid Columns="3"><StackPanel Margin="0,0,5,0"><TextBlock Text="开始 / 暂停" Style="{StaticResource HintText}" /><TextBox Text="{Binding Data.Settings.TimerHotkey.Letter, UpdateSourceTrigger=PropertyChanged}" MaxLength="1" /></StackPanel><StackPanel Margin="0,0,5,0"><TextBlock Text="快速待办" Style="{StaticResource HintText}" /><TextBox Text="{Binding Data.Settings.TodoHotkey.Letter, UpdateSourceTrigger=PropertyChanged}" MaxLength="1" /></StackPanel><StackPanel><TextBlock Text="最近便签" Style="{StaticResource HintText}" /><TextBox Text="{Binding Data.Settings.NoteHotkey.Letter, UpdateSourceTrigger=PropertyChanged}" MaxLength="1" /></StackPanel></UniformGrid>
-    </StackPanel></Border>
-    <Border Style="{StaticResource Card}"><StackPanel>
-      <TextBlock Text="外观" Style="{StaticResource TitleText}" Margin="0,0,0,10" /><ComboBox SelectedValuePath="Tag" SelectedValue="{Binding Data.Settings.Appearance}"><ComboBoxItem Content="跟随 Windows 系统" Tag="system" /><ComboBoxItem Content="浅色" Tag="light" /><ComboBoxItem Content="深色" Tag="dark" /></ComboBox><TextBlock Text="外观在保存后应用到 Windows 各窗口。" Style="{StaticResource HintText}" Margin="0,6,0,0" />
-    </StackPanel></Border>
-    <Border Style="{StaticResource Card}"><StackPanel>
-      <TextBlock Text="连接 AI 服务商" Style="{StaticResource TitleText}" Margin="0,0,0,10" />
-      <ComboBox x:Name="ProviderBox" SelectionChanged="Provider_Changed" DisplayMemberPath="Name" SelectedValuePath="ID" SelectedValue="{Binding Data.Settings.AI.ProviderID}" />
-      <TextBlock Text="自定义接口基础地址（通常以 /v1 结尾）" Style="{StaticResource HintText}" Margin="0,9,0,3" /><TextBox Text="{Binding Data.Settings.AI.CustomBaseURL, UpdateSourceTrigger=PropertyChanged}" />
-      <TextBlock Text="API Key（留空则保留已保存密钥）" Style="{StaticResource HintText}" Margin="0,9,0,3" /><PasswordBox x:Name="APIKeyBox" Padding="9,7" />
-      <StackPanel Orientation="Horizontal" Margin="0,9"><Button Content="保存 API Key" Click="SaveKey_Click" /><Button Content="移除本机密钥" Click="RemoveKey_Click" Margin="7,0,0,0" /></StackPanel>
-      <UniformGrid Columns="2" Margin="0,8"><Button Content="获取可用模型" Click="FetchModels_Click" Margin="0,0,4,0" /><Button Content="测试连接" Click="TestAI_Click" Margin="4,0,0,0" /></UniformGrid>
-      <TextBlock Text="使用模型" Style="{StaticResource HintText}" Margin="0,9,0,3" /><ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding Data.Settings.AI.ModelOverride}" SelectionChanged="Model_Changed" />
-      <TextBlock Text="{Binding AIStatus}" Style="{StaticResource HintText}" Margin="0,8,0,0" />
-    </StackPanel></Border>
-    <Border Style="{StaticResource Card}"><StackPanel>
-      <TextBlock Text="自动回顾" Style="{StaticResource TitleText}" Margin="0,0,0,10" /><CheckBox IsChecked="{Binding Data.Settings.Review.AutoSummarizeSessions}" Margin="0,5"><TextBlock Text="每轮专注结束后自动整理成果（投入至少 1 分钟）" /></CheckBox><CheckBox Content="每天定时生成回顾" IsChecked="{Binding Data.Settings.Review.ScheduleEnabled}" Margin="0,5" />
-      <DockPanel><TextBlock Text="每天" /><TextBox Text="{Binding Data.Settings.Review.Hour, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="8,0" /><TextBlock Text=":" /><TextBox Text="{Binding Data.Settings.Review.Minute, UpdateSourceTrigger=PropertyChanged}" Width="50" Margin="8,0" /><TextBlock Text="（24 小时制；退出与锁屏期间不执行）" Style="{StaticResource HintText}" /></DockPanel>
-    </StackPanel></Border>
-    <Button Content="保存设置" Style="{StaticResource PrimaryButton}" Click="Save_Click" Padding="12,10" />
-    <TextBlock Text="Windows 版不包含 Liquid Glass、合盖策略与 AppleScript Chrome 守护；这些 macOS 字段会保留。" Style="{StaticResource HintText}" TextAlignment="Center" Margin="0,14,0,0" />
-  </StackPanel></ScrollViewer>
-</Window>
+<ui:FluentWindow x:Class="TomatoNotes.Windows.SettingsWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:local="clr-namespace:TomatoNotes.Windows"
+                 xmlns:ctrl="clr-namespace:TomatoNotes.Windows.Controls"
+                 Title="番茄小记 · 设置" Width="760" Height="700" MinWidth="680" MinHeight="560"
+                 WindowStartupLocation="CenterOwner"
+                 FontFamily="{StaticResource UIFont}" Foreground="{DynamicResource Ink}"
+                 ExtendsContentIntoTitleBar="True" WindowBackdropType="None" WindowCornerPreference="Round">
+  <ui:FluentWindow.Resources>
+    <Style x:Key="NavIcon" TargetType="{x:Type ui:SymbolIcon}">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="Margin" Value="0,1,10,0" />
+      <Setter Property="Foreground" Value="{DynamicResource Green}" />
+    </Style>
+    <Style x:Key="FieldLabel" TargetType="TextBlock" BasedOn="{StaticResource HintText}">
+      <Setter Property="Margin" Value="0,0,0,5" />
+    </Style>
+  </ui:FluentWindow.Resources>
+
+  <Grid Background="{DynamicResource Background}">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <ui:TitleBar Grid.Row="0" Title="设置" ShowMaximize="False" Height="38" Padding="16,0,0,0">
+      <ui:TitleBar.Icon>
+        <ui:ImageIcon Source="pack://application:,,,/Assets/BrandMark.png" />
+      </ui:TitleBar.Icon>
+    </ui:TitleBar>
+
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="196" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+
+      <!-- 左侧分页导航 -->
+      <Border Grid.Column="0" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource BorderSoft}"
+              BorderThickness="0,0,1,0" Padding="10,14">
+        <StackPanel>
+          <RadioButton x:Name="NavOverview" Style="{StaticResource SettingsNavItem}" GroupName="SettingsNav" IsChecked="True"
+                       Tag="Overview" Click="Nav_Click">
+            <StackPanel Orientation="Horizontal">
+              <ui:SymbolIcon Style="{StaticResource NavIcon}" Symbol="Settings24" />
+              <TextBlock Text="从这里开始" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+          </RadioButton>
+          <RadioButton x:Name="NavTimer" Style="{StaticResource SettingsNavItem}" GroupName="SettingsNav" Tag="Timer" Click="Nav_Click">
+            <StackPanel Orientation="Horizontal">
+              <ui:SymbolIcon Style="{StaticResource NavIcon}" Symbol="Timer24" />
+              <TextBlock Text="专注与休息" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+          </RadioButton>
+          <RadioButton x:Name="NavReminders" Style="{StaticResource SettingsNavItem}" GroupName="SettingsNav" Tag="Reminders" Click="Nav_Click">
+            <StackPanel Orientation="Horizontal">
+              <ui:SymbolIcon Style="{StaticResource NavIcon}" Symbol="Clock24" />
+              <TextBlock Text="提醒与快捷键" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+          </RadioButton>
+          <RadioButton x:Name="NavAppearance" Style="{StaticResource SettingsNavItem}" GroupName="SettingsNav" Tag="Appearance" Click="Nav_Click">
+            <StackPanel Orientation="Horizontal">
+              <ui:SymbolIcon Style="{StaticResource NavIcon}" Symbol="WeatherSunny24" />
+              <TextBlock Text="外观" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+          </RadioButton>
+          <RadioButton x:Name="NavAI" Style="{StaticResource SettingsNavItem}" GroupName="SettingsNav" Tag="AI" Click="Nav_Click">
+            <StackPanel Orientation="Horizontal">
+              <ui:SymbolIcon Style="{StaticResource NavIcon}" Symbol="Sparkle24" Foreground="{DynamicResource Accent}" />
+              <TextBlock Text="AI 助手" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+          </RadioButton>
+          <RadioButton x:Name="NavData" Style="{StaticResource SettingsNavItem}" GroupName="SettingsNav" Tag="Data" Click="Nav_Click">
+            <StackPanel Orientation="Horizontal">
+              <ui:SymbolIcon Style="{StaticResource NavIcon}" Symbol="FolderOpen24" />
+              <TextBlock Text="数据与隐私" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+          </RadioButton>
+        </StackPanel>
+      </Border>
+
+      <!-- 右侧内容 -->
+      <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24,18,24,20">
+          <StackPanel Margin="0,0,0,16">
+            <TextBlock x:Name="PageTitle" Text="从这里开始" FontSize="19" FontWeight="SemiBold" />
+            <TextBlock x:Name="PageSubtitle" Text="先开始一轮，再按需要开启更多能力。" Style="{StaticResource HintText}" Margin="0,5,0,0" />
+          </StackPanel>
+
+          <!-- ── 从这里开始 ── -->
+          <StackPanel x:Name="OverviewPane">
+            <Border Style="{StaticResource PaperCard}">
+              <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                  <Border Width="23" Height="23" CornerRadius="12" Background="{DynamicResource AccentSoft}" Margin="0,0,8,0">
+                    <TextBlock Text="1" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Typography.NumeralAlignment="Tabular" />
+                  </Border>
+                  <TextBlock Text="开始一轮专注" Style="{StaticResource CardTitle}" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Text="在「专注」中写下目标，或直接开始。默认专注 25 分钟，完成后休息 5 分钟。"
+                           Style="{StaticResource HintText}" Margin="31,0,0,10" />
+                <ui:Button Content="前往专注" Style="{StaticResource SubtleButton}" HorizontalAlignment="Left" Margin="31,0,0,0"
+                           Click="GoFocus_Click" />
+              </StackPanel>
+            </Border>
+            <Border Style="{StaticResource PaperCard}">
+              <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                  <Border Width="23" Height="23" CornerRadius="12" Background="{DynamicResource AccentSoft}" Margin="0,0,8,0">
+                    <TextBlock Text="2" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Typography.NumeralAlignment="Tabular" />
+                  </Border>
+                  <TextBlock Text="调好节奏与提醒" Style="{StaticResource CardTitle}" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Text="用旋钮调节专注与休息时长；再决定要不要声音、托盘通知和全局快捷键。"
+                           Style="{StaticResource HintText}" Margin="31,0,0,10" />
+                <StackPanel Orientation="Horizontal" Margin="31,0,0,0">
+                  <ui:Button Content="专注与休息" Style="{StaticResource SubtleButton}" Click="NavToTimer_Click" />
+                  <ui:Button Content="提醒与快捷键" Style="{StaticResource SubtleButton}" Margin="8,0,0,0" Click="NavToReminders_Click" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+            <Border Style="{StaticResource PaperCard}">
+              <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                  <Border Width="23" Height="23" CornerRadius="12" Background="{DynamicResource AccentSoft}" Margin="0,0,8,0">
+                    <TextBlock Text="3" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Typography.NumeralAlignment="Tabular" />
+                  </Border>
+                  <TextBlock Text="需要整理成果时，连接 AI" Style="{StaticResource CardTitle}" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Text="选择服务商、保存 API Key，再获取并选择模型。你可以手动整理成果，也可以开启每轮或每日自动回顾。"
+                           Style="{StaticResource HintText}" Margin="31,0,0,10" />
+                <ui:Button Content="配置 AI 助手" Style="{StaticResource SubtleButton}" HorizontalAlignment="Left" Margin="31,0,0,0"
+                           Click="NavToAI_Click" />
+              </StackPanel>
+            </Border>
+            <TextBlock Text="锁屏和系统睡眠会暂停计时；回来后，在「专注」中主动继续。" Style="{StaticResource HintText}" Margin="3,4,0,0" />
+          </StackPanel>
+
+          <!-- ── 专注与休息 ── -->
+          <StackPanel x:Name="TimerPane" Visibility="Collapsed">
+            <Border Style="{StaticResource PaperCard}">
+              <StackPanel>
+                <TextBlock Text="专注的节奏" Style="{StaticResource CardTitle}" Margin="0,0,0,16" />
+                <UniformGrid Columns="2" Rows="2">
+                  <!-- VerticalAlignment=Center：UniformGrid 单元格等分，不固定会把自绘控件拉伸 -->
+                  <ctrl:RotaryDial x:Name="FocusDial" Title="专注" Unit="分钟" Minimum="1" Maximum="180" Margin="0,0,9,18"
+                                   VerticalAlignment="Center" HorizontalAlignment="Center"
+                                   Tint="{DynamicResource Accent}" Value="{Binding Data.Settings.FocusMinutes}" />
+                  <ctrl:RotaryDial x:Name="ShortDial" Title="短休息" Unit="分钟" Minimum="1" Maximum="60" Margin="9,0,0,18"
+                                   VerticalAlignment="Center" HorizontalAlignment="Center"
+                                   Tint="{DynamicResource Green}" Value="{Binding Data.Settings.ShortBreakMinutes}" />
+                  <ctrl:RotaryDial x:Name="LongDial" Title="长休息" Unit="分钟" Minimum="1" Maximum="120" Margin="0,0,9,0"
+                                   VerticalAlignment="Center" HorizontalAlignment="Center"
+                                   Tint="{DynamicResource Green}" Value="{Binding Data.Settings.LongBreakMinutes}" />
+                  <ctrl:RotaryDial x:Name="EveryDial" Title="长休息间隔" Unit="轮" Minimum="2" Maximum="8" Margin="9,0,0,0"
+                                   VerticalAlignment="Center" HorizontalAlignment="Center"
+                                   Tint="{DynamicResource DialNeutral}" Value="{Binding Data.Settings.LongBreakEvery}" />
+                </UniformGrid>
+                <TextBlock Text="拖动旋钮调节，− / ＋ 精确微调；聚焦后也可用方向键。调好后点击下方按钮保存。"
+                           Style="{StaticResource HintText}" Margin="0,14,0,0" />
+                <Rectangle Style="{StaticResource Divider}" />
+                <StackPanel Orientation="Horizontal">
+                  <ui:Button Content="经典 · 25 / 5" Style="{StaticResource SubtleButton}" Click="PresetClassic_Click" />
+                  <ui:Button Content="深度 · 50 / 10" Style="{StaticResource SubtleButton}" Margin="9,0,0,0" Click="PresetDeep_Click" />
+                </StackPanel>
+                <TextBlock Text="每完成设定轮数的专注后，安排一次长休息。" Style="{StaticResource HintText}" Margin="0,12,0,0" />
+                <TextBlock Text="正在进行的阶段保持原时长，新节奏从后续阶段生效。" Style="{StaticResource CaptionText}" Margin="0,6,0,0" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+
+          <!-- ── 提醒与快捷键 ── -->
+          <StackPanel x:Name="RemindersPane" Visibility="Collapsed">
+            <Border Style="{StaticResource PaperCard}">
+              <StackPanel>
+                <TextBlock Text="阶段结束时提醒" Style="{StaticResource CardTitle}" Margin="0,0,0,12" />
+                <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="系统托盘气泡通知" OnContent="" OffContent=""
+                                 IsChecked="{Binding Data.Settings.NotificationsEnabled}" Margin="0,0,0,10" />
+                <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="阶段结束提示音" OnContent="" OffContent=""
+                                 IsChecked="{Binding Data.Settings.SoundEnabled}" Margin="0,0,0,10" />
+                <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="记录专注期间前台 App 名称与时长" OnContent="" OffContent=""
+                                 IsChecked="{Binding Data.Settings.RecordingEnabled}" Margin="0,0,0,4" />
+                <TextBlock Text="仅记录前台应用名称与停留时长，不截图、不读取窗口内容。" Style="{StaticResource CaptionText}" />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PaperCard}">
+              <StackPanel>
+                <TextBlock Text="全局快捷键" Style="{StaticResource CardTitle}" Margin="0,0,0,10" />
+                <TextBlock Text="在其他 App 中也能使用。快捷键使用 Ctrl + Alt，留空字母可停用；保存时会检测系统占用。"
+                           Style="{StaticResource HintText}" Margin="0,0,0,12" />
+                <UniformGrid Columns="3">
+                  <StackPanel Margin="0,0,9,0">
+                    <TextBlock Text="开始 / 暂停" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding Data.Settings.TimerHotkey.Letter, UpdateSourceTrigger=PropertyChanged}"
+                             Style="{StaticResource BrandTextBox}" MaxLength="1" />
+                  </StackPanel>
+                  <StackPanel Margin="0,0,9,0">
+                    <TextBlock Text="快速待办" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding Data.Settings.TodoHotkey.Letter, UpdateSourceTrigger=PropertyChanged}"
+                             Style="{StaticResource BrandTextBox}" MaxLength="1" />
+                  </StackPanel>
+                  <StackPanel>
+                    <TextBlock Text="最近便签" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding Data.Settings.NoteHotkey.Letter, UpdateSourceTrigger=PropertyChanged}"
+                             Style="{StaticResource BrandTextBox}" MaxLength="1" />
+                  </StackPanel>
+                </UniformGrid>
+                <TextBlock Text="字母键使用 A–Z。提示占用时，请换一个组合，或清空字母停用该快捷键。"
+                           Style="{StaticResource CaptionText}" Margin="0,9,0,0" />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PaperCard}">
+              <StackPanel>
+                <TextBlock Text="自动回顾" Style="{StaticResource CardTitle}" Margin="0,0,0,12" />
+                <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="每轮专注结束后自动整理成果" OnContent="" OffContent=""
+                                 IsChecked="{Binding Data.Settings.Review.AutoSummarizeSessions}" Margin="0,0,0,6" />
+                <TextBlock Text="投入至少 1 分钟才会触发生成。" Style="{StaticResource CaptionText}" Margin="0,0,0,12" />
+                <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="每天定时生成回顾" OnContent="" OffContent=""
+                                 IsChecked="{Binding Data.Settings.Review.ScheduleEnabled}" Margin="0,0,0,12" />
+                <DockPanel>
+                  <TextBlock Text="每天" FontSize="12" VerticalAlignment="Center" />
+                  <TextBox Text="{Binding Data.Settings.Review.Hour, UpdateSourceTrigger=PropertyChanged}" Width="52"
+                           Style="{StaticResource BrandTextBox}" Margin="8,0" />
+                  <TextBlock Text=":" FontSize="12" VerticalAlignment="Center" />
+                  <TextBox Text="{Binding Data.Settings.Review.Minute, UpdateSourceTrigger=PropertyChanged}" Width="52"
+                           Style="{StaticResource BrandTextBox}" Margin="8,0" />
+                  <TextBlock Text="（24 小时制；退出与锁屏期间不执行）" Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
+                </DockPanel>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+
+          <!-- ── 外观 ── -->
+          <StackPanel x:Name="AppearancePane" Visibility="Collapsed">
+            <Border Style="{StaticResource PaperCard}">
+              <StackPanel>
+                <TextBlock Text="配色" Style="{StaticResource CardTitle}" Margin="0,0,0,10" />
+                <ComboBox x:Name="AppearanceBox" SelectedValuePath="Tag" SelectedValue="{Binding Data.Settings.Appearance}"
+                          SelectionChanged="Appearance_Changed">
+                  <ComboBoxItem Content="跟随 Windows 系统" Tag="system" />
+                  <ComboBoxItem Content="浅色" Tag="light" />
+                  <ComboBoxItem Content="深色" Tag="dark" />
+                </ComboBox>
+                <TextBlock Text="切换后立即应用到所有窗口；选「跟随系统」时，Windows 换主题会自动跟随。"
+                           Style="{StaticResource HintText}" Margin="0,9,0,0" />
+                <TextBlock Text="Windows 版不包含 macOS 的 Liquid Glass 材质；这里提供等价的纸感配色。"
+                           Style="{StaticResource CaptionText}" Margin="0,6,0,0" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+
+          <!-- ── AI 助手 ── -->
+          <StackPanel x:Name="AIPane" Visibility="Collapsed">
+            <Border Style="{StaticResource PaperCard}">
+              <StackPanel>
+                <TextBlock Text="连接 AI 服务商" Style="{StaticResource CardTitle}" Margin="0,0,0,10" />
+                <TextBlock Text="支持 DeepSeek、OpenAI 及 OpenAI 兼容服务商。API Key 使用 Windows DPAPI 按当前用户加密，不写入 JSON。"
+                           Style="{StaticResource HintText}" Margin="0,0,0,12" />
+                <TextBlock Text="服务商" Style="{StaticResource FieldLabel}" />
+                <ComboBox x:Name="ProviderBox" SelectionChanged="Provider_Changed" DisplayMemberPath="Name"
+                          SelectedValuePath="ID" SelectedValue="{Binding Data.Settings.AI.ProviderID}" />
+                <TextBlock Text="自定义接口基础地址（通常以 /v1 结尾）" Style="{StaticResource FieldLabel}" Margin="0,11,0,5" />
+                <TextBox Text="{Binding Data.Settings.AI.CustomBaseURL, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource BrandTextBox}" />
+                <TextBlock Text="API Key（留空则保留已保存密钥）" Style="{StaticResource FieldLabel}" Margin="0,11,0,5" />
+                <PasswordBox x:Name="APIKeyBox" Style="{StaticResource BrandPasswordBox}" />
+                <StackPanel Orientation="Horizontal" Margin="0,11,0,0">
+                  <ui:Button Content="保存 API Key" Style="{StaticResource SubtleButton}" Click="SaveKey_Click" />
+                  <ui:Button Content="移除本机密钥" Style="{StaticResource SubtleButton}" Margin="9,0,0,0" Click="RemoveKey_Click" />
+                </StackPanel>
+                <UniformGrid Columns="2" Margin="0,12,0,0">
+                  <ui:Button Content="获取可用模型" Style="{StaticResource SubtleButton}" Margin="0,0,5,0" Click="FetchModels_Click" />
+                  <ui:Button Content="测试连接" Style="{StaticResource SubtleButton}" Margin="5,0,0,0" Click="TestAI_Click" />
+                </UniformGrid>
+                <TextBlock Text="使用模型" Style="{StaticResource FieldLabel}" Margin="0,13,0,5" />
+                <ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding Data.Settings.AI.ModelOverride}" SelectionChanged="Model_Changed" />
+                <TextBlock Text="{Binding AIStatus}" Style="{StaticResource AccentHint}" Margin="0,10,0,0" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+
+          <!-- ── 数据与隐私 ── -->
+          <StackPanel x:Name="DataPane" Visibility="Collapsed">
+            <Border Style="{StaticResource PaperCard}">
+              <StackPanel>
+                <TextBlock Text="本地资料" Style="{StaticResource CardTitle}" Margin="0,0,0,10" />
+                <TextBlock Text="资料保存在 %APPDATA%\TomatoNotes，与 macOS 的 v4 JSON 格式兼容。移动资料前请先备份 JSON 和关联图片。"
+                           Style="{StaticResource HintText}" Margin="0,0,0,10" />
+                <Border Background="{DynamicResource Background}" BorderBrush="{DynamicResource BorderSoft}" BorderThickness="1"
+                        CornerRadius="9" Padding="11,9" Margin="0,0,0,12">
+                  <TextBlock Text="{Binding DataPath}" FontSize="11" Foreground="{DynamicResource Secondary}" TextWrapping="Wrap" />
+                </Border>
+                <UniformGrid Columns="2">
+                  <ui:Button Content="备份数据" Style="{StaticResource SubtleButton}" Margin="0,0,5,0" Command="{Binding BackupCommand}" />
+                  <ui:Button Content="打开资料位置" Style="{StaticResource SubtleButton}" Margin="5,0,0,0" Click="DataFolder_Click" />
+                </UniformGrid>
+                <TextBlock Text="{Binding DataStatusLabel}" Style="{StaticResource CaptionText}" Margin="0,10,0,0" />
+              </StackPanel>
+            </Border>
+            <Border Style="{StaticResource PaperCard}">
+              <StackPanel>
+                <TextBlock Text="记录了什么" Style="{StaticResource CardTitle}" Margin="0,0,0,8" />
+                <TextBlock Text="专注轮次与投入时长、前台应用名称与停留时长、待办与便签原文、AI 回顾文本与你补充的图片。"
+                           Style="{StaticResource HintText}" />
+                <TextBlock Text="不包含窗口截图、键盘输入或浏览器内容；这些能力只在 macOS 的专注守护中存在，Windows 版不提供。"
+                           Style="{StaticResource CaptionText}" Margin="0,7,0,0" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+
+    <!-- 底部保存条 -->
+    <Border Grid.Row="2" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource BorderSoft}"
+            BorderThickness="0,1,0,0" Padding="24,12">
+      <DockPanel>
+        <ui:Button DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" MinWidth="132"
+                   HorizontalAlignment="Right" Click="Save_Click" AutomationProperties.Name="保存设置">
+          <StackPanel Orientation="Horizontal">
+            <ui:SymbolIcon Symbol="Save24" FontSize="13" Foreground="White" Margin="0,1,7,0" />
+            <TextBlock Text="保存设置" Foreground="White" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+          </StackPanel>
+        </ui:Button>
+        <TextBlock Text="{Binding Feedback}" Style="{StaticResource HintText}" Foreground="{DynamicResource Accent}"
+                   VerticalAlignment="Center" Margin="0,0,14,0" />
+      </DockPanel>
+    </Border>
+  </Grid>
+</ui:FluentWindow>

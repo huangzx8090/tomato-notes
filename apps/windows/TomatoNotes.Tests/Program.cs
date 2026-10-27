@@ -14,6 +14,7 @@ var tests = new (string Name, Func<Task> Run)[] {
     ("跨日分配专注与前台 App", () => SplitAcrossDays()),
     ("连续相同 App 分段合并", () => MergeUsage()),
     ("待办按安排日期展示且完成日固定", () => TodoSchedule()),
+    ("会话只归集期间完成的待办", () => SessionAttribution()),
     ("OpenAI 兼容模型与总结接口", () => AIContract()),
     ("AI 接口错误不暴露密钥", () => AIError()),
 };
@@ -81,6 +82,30 @@ static Task PauseAndEarlyEnd()
     var engine = new TimerEngine(new()); var now = DateTimeOffset.UtcNow; engine.Start(now); engine.Advance(30, now.AddSeconds(30), null, true); engine.Pause("test", now.AddSeconds(30)); Equal(false, engine.Advance(60, now.AddSeconds(90), null, true)); engine.EndEarlyOrSkip(now.AddSeconds(90));
     Equal(TimerPhase.Idle, engine.Timer.Phase); Equal(false, engine.Data.Sessions[0].Completed); Equal(30, engine.Data.Intervals.Sum(x => x.Seconds)); return Task.CompletedTask;
 }
+static Task SessionAttribution()
+{
+    var now = DateTimeOffset.UtcNow;
+    var day = now.LocalDateTime.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    var sessionID = Guid.NewGuid();
+    var data = new AppData();
+    data.Sessions.Add(new FocusSession { ID = sessionID, StartedAt = now, EndedAt = now.AddMinutes(25), EndedLocalDay = day, Completed = true });
+    data.Intervals.Add(new FocusInterval { SessionID = sessionID, StartedAt = now, EndedAt = now.AddMinutes(25), LocalDay = day, Seconds = 1500 });
+    // 会话期间完成的待办应归集；会话之外完成的不计入
+    data.Todos.Add(new TodoItem { Text = "会话内", LocalDay = day, CompletedAt = now.AddMinutes(10) });
+    data.Todos.Add(new TodoItem { Text = "会话外", LocalDay = day, CompletedAt = now.AddHours(5) });
+
+    var progress = SessionProgress.Build(sessionID, data, day);
+    if (progress is null) throw new InvalidOperationException("会话进度未生成");
+    Equal(1500, progress.FocusSeconds);
+    Equal(1, progress.CompletedTodos.Count);
+    Equal("会话内", progress.CompletedTodos[0].Text);
+
+    // 没有对应会话时不应产出进展卡片
+    var missing = SessionProgress.Build(Guid.NewGuid(), data, day);
+    Equal(true, missing is null);
+    return Task.CompletedTask;
+}
+
 static Task SplitAcrossDays()
 {
     var engine = new TimerEngine(new()); var start = new DateTimeOffset(DateTime.Today.AddDays(-1).AddHours(23).AddMinutes(59).AddSeconds(59)); engine.Start(start); engine.Advance(2, start.AddSeconds(2), new("编辑器", "win.editor"), true);

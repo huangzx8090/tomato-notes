@@ -234,7 +234,21 @@ public sealed class DailySummary
     public required List<TodoItem> Todos { get; init; }
     public required List<AppTotal> Apps { get; init; }
     public required List<FocusSession> Sessions { get; init; }
+    public required double UnattributedSeconds { get; init; }
+    public required double DisabledSeconds { get; init; }
     public int CompletedTodos => Todos.Count(x => x.CompletionDay == Day);
+    /// 与 macOS DailySummary.sentence 一致：只描述已经发生的事实。
+    public string Sentence
+    {
+        get
+        {
+            if (FocusSeconds <= 0 && Todos.Count == 0) return "今天的记录会从第一轮专注开始。";
+            var duration = FocusSeconds > 0 && FocusSeconds < 60
+                ? $"{Math.Round(FocusSeconds, MidpointRounding.AwayFromZero)} 秒"
+                : $"{(int)(FocusSeconds / 60)} 分钟";
+            return $"累计专注 {duration}，完成 {CompletedTodos} 项待办。";
+        }
+    }
     public static DailySummary Build(string day, AppData data)
     {
         var ids = data.Intervals.Where(x => x.LocalDay == day).Select(x => x.SessionID).ToHashSet();
@@ -242,7 +256,9 @@ public sealed class DailySummary
             CompletedSessions = data.Sessions.Count(x => x.Completed && x.EndedAt.HasValue && (x.EndedLocalDay ?? LocalTime.DayKey(x.EndedAt.Value)) == day),
             EarlySessions = data.Sessions.Count(x => !x.Completed && x.EndedAt.HasValue && (x.EndedLocalDay ?? LocalTime.DayKey(x.EndedAt.Value)) == day),
             Todos = data.Todos.Where(x => x.IsScheduledOn(day)).OrderBy(x => x.CreatedAt).ToList(), Apps = data.Usage.Where(x => x.LocalDay == day && x.Kind == UsageKind.App).GroupBy(x => x.BundleID ?? "unknown").Select(g => new AppTotal(g.Key, g.Last().AppName ?? "未知应用", g.Sum(x => x.Seconds))).OrderByDescending(x => x.Seconds).ToList(),
-            Sessions = data.Sessions.Where(x => x.EndedLocalDay == day || ids.Contains(x.ID)).OrderByDescending(x => x.StartedAt).ToList() };
+            Sessions = data.Sessions.Where(x => x.EndedLocalDay == day || ids.Contains(x.ID)).OrderByDescending(x => x.StartedAt).ToList(),
+            UnattributedSeconds = data.Usage.Where(x => x.LocalDay == day && x.Kind == UsageKind.Unattributed).Sum(x => x.Seconds),
+            DisabledSeconds = data.Usage.Where(x => x.LocalDay == day && x.Kind == UsageKind.Disabled).Sum(x => x.Seconds) };
     }
 }
 public record AppTotal(string BundleID, string Name, double Seconds);

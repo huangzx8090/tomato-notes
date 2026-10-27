@@ -42,6 +42,9 @@ public partial class App : System.Windows.Application
             _ = Task.Run(async () => { while (!activationLoop.IsCancellationRequested) { var selected = WaitHandle.WaitAny([activateSignal, shutdownSignal]); if (selected == 1) { await Dispatcher.InvokeAsync(() => window?.ExitApplication()); break; } await Dispatcher.InvokeAsync(() => window?.ShowFromTray()); } }, activationLoop.Token);
             repository = new LocalRepository(DataPath);
             state = new AppState(repository);
+            // 先按保存的外观安装品牌令牌，再创建窗口，避免首帧闪一下默认色。
+            ThemeService.Apply(state.Data.Settings.Appearance);
+            ThemeService.WatchSystemTheme();
             window = new MainWindow(state);
             MainWindow = window;
             tray = new TrayService(window, state);
@@ -56,7 +59,7 @@ public partial class App : System.Windows.Application
     }
     private void Application_Exit(object sender, System.Windows.ExitEventArgs e)
     {
-        state?.Dispose(); tray?.Dispose(); activationLoop?.Cancel(); activateSignal?.Dispose(); shutdownSignal?.Dispose(); singleInstance?.Dispose(); repository?.Dispose();
+        state?.Dispose(); tray?.Dispose(); ThemeService.StopWatching(); activationLoop?.Cancel(); activateSignal?.Dispose(); shutdownSignal?.Dispose(); singleInstance?.Dispose(); repository?.Dispose();
     }
     public void ShowMainWindow() => window?.ShowFromTray();
 }
