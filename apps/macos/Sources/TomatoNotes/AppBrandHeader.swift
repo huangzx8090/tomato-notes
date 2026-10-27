@@ -4,6 +4,8 @@ import SwiftUI
 struct AppBrandHeader: View {
     var brandMark: NSImage? = Bundle.main.url(forResource: "BrandMark", withExtension: "png").flatMap(NSImage.init(contentsOf:))
     var date = Date()
+    var settingsSelected = false
+    var openSettings: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -19,8 +21,35 @@ struct AppBrandHeader: View {
             }.frame(width: 40, height: 40).accessibilityHidden(true)
             Text("番茄小记").font(.system(size: 17, weight: .semibold))
             Spacer()
-            Text(date, format: .dateTime.month(.twoDigits).day(.twoDigits))
-                .font(.system(size: 11, design: .rounded)).foregroundStyle(Theme.secondary)
+            HStack(spacing: 8) {
+                Capsule().fill(Theme.accent.opacity(0.55)).frame(width: 2, height: 25)
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(date, format: .dateTime.month())
+                    Text(date, format: .dateTime.weekday(.abbreviated))
+                }
+                .font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.secondary)
+                Text("\(Calendar.current.component(.day, from: date))")
+                    .font(.system(size: 25, weight: .regular, design: .serif).monospacedDigit())
+                    .foregroundStyle(Theme.primary)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(date, format: .dateTime.month().day().weekday(.wide)))
+            if let openSettings {
+                Button(action: openSettings) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(settingsSelected ? Theme.accent : Theme.secondary)
+                        .frame(width: 34, height: 34)
+                        .background(settingsSelected ? Theme.accentSoft : Theme.surface.opacity(0.7), in: Circle())
+                        .overlay(Circle().stroke(Theme.border.opacity(0.65), lineWidth: 0.6))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("设置")
+                .accessibilityLabel("设置")
+                .accessibilityAddTraits(settingsSelected ? .isSelected : [])
+                .accessibilityIdentifier("navigation.设置")
+            }
         }
         .padding(.horizontal, 23).padding(.top, 18).padding(.bottom, 16)
     }
