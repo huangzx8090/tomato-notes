@@ -50,7 +50,8 @@ struct MainPanel: View {
                             switch tab {
                             case .focus: focus
                             case .todos:
-                                TodoPage(todos: state.data.todos.filter { $0.effectiveScheduledDay == state.todayKey },
+                                TodoPage(state: state, reminderTasks: state.reminderTasks, openFocus: { navigate(to: .focus) },
+                                         todos: state.data.todos.filter { $0.effectiveScheduledDay == state.todayKey },
                                          allTodos: state.data.todos, day: state.todayKey,
                                          draft: $todoDraft, addTodo: state.addTodo, toggleTodo: state.toggleTodo,
                                          updateTodo: state.updateTodo, deleteTodo: state.deleteTodo,
@@ -169,7 +170,7 @@ struct MainPanel: View {
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).padding(.top, 5)
                 if (state.timer.phase == .idle && state.timer.stage == .focus) ||
                     (state.timer.phase == .completed && state.timer.nextStage == .focus) {
-                    FocusGoalPicker(state: state).padding(.top, 6)
+                    FocusGoalPicker(state: state, reminderTasks: state.reminderTasks).padding(.top, 6)
                 } else if let id = state.timer.sessionID, let goal = state.data.sessions.first(where: { $0.id == id })?.goal {
                     Text(goal).font(.system(size: 13, weight: .medium)).lineLimit(2)
                         .multilineTextAlignment(.center).padding(.top, 4)

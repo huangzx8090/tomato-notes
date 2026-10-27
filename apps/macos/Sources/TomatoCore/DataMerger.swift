@@ -33,6 +33,27 @@ public enum DataMerger {
             result.workRecords = try combine(result.workRecords, source.workRecords, name: "成果记录")
             result.focusActivities = try combine(result.focusActivities, source.focusActivities, name: "专注活动")
         }
+        if ([primary] + sources).contains(where: { $0.extraFields[TaskWorkflow.storageKey] != nil }) {
+            // 关联资料是根级扩展字段，不能像设置一样仅取主资料，否则导入时会丢失来源进展。
+            var workflow = try TaskWorkflow.load(from: primary)
+            for source in sources {
+                let incoming = try TaskWorkflow.load(from: source)
+                workflow.plannedReminders = try combine(workflow.plannedReminders, incoming.plannedReminders, name: "提醒安排")
+                workflow.localProgress = try combine(workflow.localProgress, incoming.localProgress, name: "待办进展")
+                for link in incoming.sessionLinks {
+                    if let existing = workflow.sessionLinks.first(where: { $0.sessionID == link.sessionID }) {
+                        guard existing == link else { throw DataMergeError.conflict("专注待办关联", link.sessionID) }
+                    } else { workflow.sessionLinks.append(link) }
+                }
+            }
+            var identities: [String: UUID] = [:]
+            for plan in workflow.plannedReminders {
+                let key = plan.listID + "\u{0}" + plan.reminderID
+                if let previous = identities[key], previous != plan.id { throw DataMergeError.invalid("同一提醒存在多个不同的安排身份") }
+                identities[key] = plan.id
+            }
+            try workflow.save(into: &result)
+        }
         result.schemaVersion = AppData.currentSchemaVersion
         let sessionIDs = Set(result.sessions.map(\.id))
         guard result.sessions.allSatisfy({

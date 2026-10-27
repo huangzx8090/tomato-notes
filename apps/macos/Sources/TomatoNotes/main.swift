@@ -30,7 +30,14 @@ final class AppCoordinator: NSObject, NSApplicationDelegate, NSMenuItemValidatio
 
     init(repository: LocalRepository, dataLock: RepositoryLock) {
         self.dataLock = dataLock
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        let useSyntheticReminders = Bundle.main.bundleIdentifier == "com.zixuan.TomatoNotes.QA" &&
+            args.contains("--ui-test") && args.contains("--synthetic-reminders")
+        state = AppState(repository: repository, reminderStore: useSyntheticReminders ? SyntheticReminderStore() : nil)
+        #else
         state = AppState(repository: repository)
+        #endif
         super.init()
         notes = NoteWindows(state: state)
         work = WorkWindows(state: state)
