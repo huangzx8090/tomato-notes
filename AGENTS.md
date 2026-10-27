@@ -1,5 +1,10 @@
 # 番茄小记项目约定
 
+## 项目级 skill
+
+- 执行本仓库的开发、修复、维护和发布准备时，使用项目级 [`tomato-notes-workflow`](.agents/skills/tomato-notes-workflow/SKILL.md)（`$tomato-notes-workflow`）串联现有规范、验证与 PR 交付流程。
+- 本文件和平台目录的 `AGENTS.md` 仍是基础约束；skill 按任务读取现有维护文档。纯阅读或答疑不因此启动分支、提交、issue 或发布操作。
+
 ## 分支与交付
 
 - `main` 是稳定发布分支，`develop` 是日常集成分支；仓库默认分支保持 `main`。

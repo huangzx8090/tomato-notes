@@ -23,6 +23,8 @@ main ────────────── 稳定发布、版本标签
 
 ## 开始工作
 
+Codex 的项目级流程入口是 [`tomato-notes-workflow`](.agents/skills/tomato-notes-workflow/SKILL.md)，随仓库维护在 `.agents/skills/`。在本项目中可用 `$tomato-notes-workflow` 明确调用；它按任务读取现有规范，串联分支、双端跟进、验证与 PR 交付，基础约束仍以适用的 `AGENTS.md` 和当前维护文档为准。
+
 首次克隆后：
 
 ```bash
