@@ -1,25 +1,277 @@
-<Application x:Class="TomatoNotes.Windows.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Startup="Application_Startup" Exit="Application_Exit" ShutdownMode="OnExplicitShutdown">
+<Application x:Class="TomatoNotes.Windows.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml" xmlns:local="clr-namespace:TomatoNotes.Windows" xmlns:ctrl="clr-namespace:TomatoNotes.Windows.Controls" Startup="Application_Startup" Exit="Application_Exit" ShutdownMode="OnExplicitShutdown">
   <Application.Resources>
     <ResourceDictionary>
-      <SolidColorBrush x:Key="Background" Color="#F7F3EB" />
-      <SolidColorBrush x:Key="Surface" Color="#FFFCF7" />
-      <SolidColorBrush x:Key="Ink" Color="#39362F" />
-      <SolidColorBrush x:Key="Secondary" Color="#7C786E" />
-      <SolidColorBrush x:Key="Accent" Color="#C86345" />
-      <SolidColorBrush x:Key="Green" Color="#68836D" />
-      <SolidColorBrush x:Key="Border" Color="#E5DDD0" />
+      <ResourceDictionary.MergedDictionaries>
+        <ui:ThemesDictionary Theme="Light" />
+        <ui:ControlsDictionary />
+      </ResourceDictionary.MergedDictionaries>
+
+      <!--
+        品牌色令牌（Background / Surface / Ink / Accent / BorderSoft …）不在这里声明，
+        由 ThemeService 按 system / light / dark 写入应用资源，取值与 macOS Theme.swift 一致。
+        因此所有令牌引用一律使用 DynamicResource，换肤时自动重绘。
+      -->
       <FontFamily x:Key="UIFont">Microsoft YaHei UI, Segoe UI</FontFamily>
-      <Style TargetType="Window"><Setter Property="FontFamily" Value="{StaticResource UIFont}" /><Setter Property="Foreground" Value="{StaticResource Ink}" /><Setter Property="Background" Value="{StaticResource Background}" /></Style>
-      <Style TargetType="TextBlock"><Setter Property="TextWrapping" Value="Wrap" /><Setter Property="VerticalAlignment" Value="Center" /></Style>
-      <Style TargetType="Button"><Setter Property="FontFamily" Value="{StaticResource UIFont}" /><Setter Property="Padding" Value="12,8" /><Setter Property="Cursor" Value="Hand" /><Setter Property="Background" Value="{StaticResource Surface}" /><Setter Property="Foreground" Value="{StaticResource Ink}" /><Setter Property="BorderBrush" Value="{StaticResource Border}" /><Setter Property="BorderThickness" Value="1" /></Style>
-      <Style TargetType="TextBox"><Setter Property="Padding" Value="9,7" /><Setter Property="Background" Value="{StaticResource Surface}" /><Setter Property="BorderBrush" Value="{StaticResource Border}" /><Setter Property="VerticalContentAlignment" Value="Center" /></Style>
-      <Style TargetType="ComboBox"><Setter Property="Padding" Value="7,5" /></Style>
-      <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="{StaticResource Accent}" /><Setter Property="Foreground" Value="White" /><Setter Property="BorderThickness" Value="0" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
-      <Style x:Key="LinkButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Foreground" Value="{StaticResource Accent}" /><Setter Property="Padding" Value="5" /></Style>
-      <Style x:Key="Card" TargetType="Border"><Setter Property="Background" Value="{StaticResource Surface}" /><Setter Property="BorderBrush" Value="{StaticResource Border}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="12" /><Setter Property="Padding" Value="16" /><Setter Property="Margin" Value="0,0,0,14" /></Style>
-      <Style x:Key="TitleText" TargetType="TextBlock"><Setter Property="FontSize" Value="17" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
-      <Style x:Key="HintText" TargetType="TextBlock"><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="{StaticResource Secondary}" /><Setter Property="LineHeight" Value="18" /></Style>
+
       <BooleanToVisibilityConverter x:Key="BoolVisibility" />
+      <ctrl:InverseBooleanToVisibilityConverter x:Key="InverseBoolVisibility" />
+      <ctrl:InverseBooleanConverter x:Key="InverseBool" />
+      <ctrl:EmptyToVisibilityConverter x:Key="EmptyVisibility" />
+      <ctrl:NotEmptyToVisibilityConverter x:Key="NotEmptyVisibility" />
+      <local:StrikeConverter x:Key="Strike" />
+      <local:MinutesConverter x:Key="Minutes" />
+      <local:DurationConverter x:Key="Duration" />
+
+      <!--
+        隐式 TextBlock 样式刻意不设 Foreground：否则放进按钮里的 TextBlock 会把
+        按钮的白色前景盖掉。前景由窗口继承（Ink），需要时用具名样式指定。
+      -->
+      <Style TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource UIFont}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+      </Style>
+
+      <!-- 文字层级，字号与 macOS 对齐 -->
+      <Style x:Key="TitleText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="17" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+      </Style>
+      <Style x:Key="SectionText" TargetType="TextBlock" BasedOn="{StaticResource TitleText}">
+        <Setter Property="FontSize" Value="14" />
+      </Style>
+      <Style x:Key="CardTitle" TargetType="TextBlock" BasedOn="{StaticResource TitleText}">
+        <Setter Property="FontSize" Value="13" />
+      </Style>
+      <Style x:Key="BodyText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="LineHeight" Value="19" />
+      </Style>
+      <Style x:Key="HintText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{DynamicResource Secondary}" />
+        <Setter Property="LineHeight" Value="17" />
+      </Style>
+      <Style x:Key="CaptionText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="Foreground" Value="{DynamicResource Secondary}" />
+        <Setter Property="LineHeight" Value="15" />
+      </Style>
+      <Style x:Key="AccentHint" TargetType="TextBlock" BasedOn="{StaticResource HintText}">
+        <Setter Property="Foreground" Value="{DynamicResource Accent}" />
+      </Style>
+      <!-- 数字一律用等宽数字，避免计时时抖动 -->
+      <Style x:Key="TimerDigits" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="58" />
+        <Setter Property="FontWeight" Value="Light" />
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+      </Style>
+      <Style x:Key="MetricValue" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="25" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+      </Style>
+      <Style x:Key="BigNumber" TargetType="TextBlock" BasedOn="{StaticResource MetricValue}">
+        <Setter Property="FontSize" Value="42" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+      </Style>
+
+      <!-- 纸感卡片，对应 macOS 的 PaperCard：surface 底、16 圆角、弱化描边 -->
+      <Style x:Key="PaperCard" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Surface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSoft}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="16" />
+        <Setter Property="Padding" Value="18" />
+        <Setter Property="Margin" Value="0,0,0,14" />
+      </Style>
+      <Style x:Key="SoftBox" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource GreenSoft}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="12" />
+      </Style>
+      <Style x:Key="AccentBox" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource AccentSoft}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="12" />
+      </Style>
+      <Style x:Key="Divider" TargetType="Rectangle">
+        <Setter Property="Fill" Value="{DynamicResource BorderSoft}" />
+        <Setter Property="Height" Value="1" />
+        <Setter Property="Margin" Value="0,12" />
+      </Style>
+
+      <!--
+        品牌按钮基于 WPF-UI 的 ui:Button：保留 Fluent 模板的动效、焦点框与无障碍行为，
+        只覆盖品牌色与圆角。CornerRadius / MouseOverBackground 等都是 ui:Button 自带的依赖属性。
+      -->
+      <Style x:Key="PrimaryButton" TargetType="{x:Type ui:Button}">
+        <Setter Property="Background" Value="{DynamicResource AccentFill}" />
+        <Setter Property="MouseOverBackground" Value="{DynamicResource AccentHover}" />
+        <Setter Property="PressedBackground" Value="{DynamicResource AccentPressed}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="MouseOverBorderBrush" Value="Transparent" />
+        <Setter Property="PressedBorderBrush" Value="Transparent" />
+        <Setter Property="PressedForeground" Value="White" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="MinHeight" Value="43" />
+        <Setter Property="Padding" Value="18,0" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Cursor" Value="Hand" />
+      </Style>
+      <!-- 休息阶段用绿色主按钮，对应 macOS 的 PrimaryButtonStyle(green: true) -->
+      <Style x:Key="GreenPrimaryButton" TargetType="{x:Type ui:Button}" BasedOn="{StaticResource PrimaryButton}">
+        <Setter Property="Background" Value="{DynamicResource GreenFill}" />
+        <Setter Property="MouseOverBackground" Value="{DynamicResource GreenHover}" />
+        <Setter Property="PressedBackground" Value="{DynamicResource GreenPressed}" />
+      </Style>
+      <Style x:Key="SubtleButton" TargetType="{x:Type ui:Button}">
+        <Setter Property="Background" Value="{DynamicResource Surface}" />
+        <Setter Property="MouseOverBackground" Value="{DynamicResource SurfaceHover}" />
+        <Setter Property="PressedBackground" Value="{DynamicResource SurfacePressed}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSoft}" />
+        <Setter Property="MouseOverBorderBrush" Value="{DynamicResource BorderSoft}" />
+        <Setter Property="PressedBorderBrush" Value="{DynamicResource BorderSoft}" />
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="MinHeight" Value="33" />
+        <Setter Property="Padding" Value="11,6" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Cursor" Value="Hand" />
+      </Style>
+      <Style x:Key="LinkButton" TargetType="{x:Type ui:Button}">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="MouseOverBackground" Value="{DynamicResource AccentSoft}" />
+        <Setter Property="PressedBackground" Value="{DynamicResource AccentSoft}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource Accent}" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="8,4" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Cursor" Value="Hand" />
+      </Style>
+      <Style x:Key="IconButton" TargetType="{x:Type ui:Button}">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="MouseOverBackground" Value="{DynamicResource SurfaceHover}" />
+        <Setter Property="PressedBackground" Value="{DynamicResource SurfacePressed}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource Secondary}" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Width" Value="30" />
+        <Setter Property="Height" Value="30" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+      </Style>
+
+      <!--
+        品牌输入框：自带模板。WPF-UI 的 TextBox 模板在聚焦态用内部 StaticResource
+        画强调色描边（从应用资源盖不住），而 macOS 的输入区是“纸底 + 圆角 + 聚焦变强调色”，
+        所以这里直接用自有模板，既去掉杂色也取得更接近 macOS 的观感。
+      -->
+      <ControlTemplate x:Key="BrandInputTemplate" TargetType="{x:Type TextBoxBase}">
+        <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="10" SnapsToDevicePixels="True">
+          <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"
+                        VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                        VerticalScrollBarVisibility="{TemplateBinding VerticalScrollBarVisibility}"
+                        HorizontalScrollBarVisibility="{TemplateBinding HorizontalScrollBarVisibility}"
+                        Background="Transparent" BorderThickness="0" Focusable="False" />
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True">
+            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Border}" />
+          </Trigger>
+          <Trigger Property="IsKeyboardFocusWithin" Value="True">
+            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
+          </Trigger>
+          <Trigger Property="IsEnabled" Value="False">
+            <Setter Property="Opacity" Value="0.5" />
+          </Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate>
+
+      <Style x:Key="BrandTextBox" TargetType="{x:Type TextBox}">
+        <Setter Property="Template" Value="{StaticResource BrandInputTemplate}" />
+        <Setter Property="Background" Value="{DynamicResource Surface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSoft}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource AccentSoft}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource Accent}" />
+        <Setter Property="MinHeight" Value="40" />
+        <Setter Property="Padding" Value="11,8" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+      </Style>
+      <Style x:Key="BrandPasswordBox" TargetType="{x:Type PasswordBox}">
+        <Setter Property="Template" Value="{StaticResource BrandInputTemplate}" />
+        <Setter Property="Background" Value="{DynamicResource Surface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSoft}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource AccentSoft}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource Accent}" />
+        <Setter Property="MinHeight" Value="40" />
+        <Setter Property="Padding" Value="11,8" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+      </Style>
+      <Style x:Key="NoteTextBox" TargetType="{x:Type TextBox}" BasedOn="{StaticResource BrandTextBox}">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource NoteInk}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource NoteAction}" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="Padding" Value="12,10" />
+        <Setter Property="AcceptsReturn" Value="True" />
+        <Setter Property="AcceptsTab" Value="True" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="VerticalContentAlignment" Value="Top" />
+        <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+      </Style>
+
+      <!-- 设置页左侧导航项，对应 macOS 的 menuRow -->
+      <Style x:Key="SettingsNavItem" TargetType="{x:Type RadioButton}">
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="0,1" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="{x:Type RadioButton}">
+              <Border x:Name="Chrome" Background="Transparent" BorderThickness="0" CornerRadius="10" Padding="10,9">
+                <ContentPresenter VerticalAlignment="Center" />
+              </Border>
+              <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                  <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SurfaceHover}" />
+                </Trigger>
+                <Trigger Property="IsChecked" Value="True">
+                  <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource AccentSoft}" />
+                </Trigger>
+              </ControlTemplate.Triggers>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+
+      <Style x:Key="SettingsRowToggle" TargetType="{x:Type ui:ToggleSwitch}">
+        <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="Medium" />
+      </Style>
     </ResourceDictionary>
   </Application.Resources>
 </Application>

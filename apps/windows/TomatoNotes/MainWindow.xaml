@@ -1,74 +1,780 @@
-<Window x:Class="TomatoNotes.Windows.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:sys="clr-namespace:System;assembly=System.Runtime" xmlns:local="clr-namespace:TomatoNotes.Windows" Title="番茄小记" Width="470" Height="760" MinWidth="430" MinHeight="620" WindowStartupLocation="CenterScreen" ShowInTaskbar="True">
-  <Window.Resources>
+<ui:FluentWindow x:Class="TomatoNotes.Windows.MainWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:local="clr-namespace:TomatoNotes.Windows"
+                 xmlns:ctrl="clr-namespace:TomatoNotes.Windows.Controls"
+                 Title="番茄小记" Width="440" Height="780" MinWidth="420" MinHeight="640"
+                 WindowStartupLocation="CenterScreen" ShowInTaskbar="True"
+                 FontFamily="{StaticResource UIFont}" Foreground="{DynamicResource Ink}"
+                 ExtendsContentIntoTitleBar="True" WindowBackdropType="None" WindowCornerPreference="Round">
+  <ui:FluentWindow.Resources>
     <local:StrikeConverter x:Key="Strike" />
     <local:MinutesConverter x:Key="Minutes" />
     <local:DurationConverter x:Key="Duration" />
-  </Window.Resources>
-  <DockPanel Margin="22,16">
-    <StackPanel DockPanel.Dock="Bottom">
-      <Border x:Name="DeletedBar" Background="#EEE4D6" CornerRadius="8" Padding="10" Margin="0,8,0,0" Visibility="Collapsed"><DockPanel><Button DockPanel.Dock="Right" Content="撤销" Style="{StaticResource LinkButton}" Click="UndoTodo_Click" /><TextBlock x:Name="DeletedText" FontSize="11" /></DockPanel></Border>
-      <TextBlock Text="{Binding Feedback}" Style="{StaticResource HintText}" Foreground="{StaticResource Accent}" Margin="0,8,0,0" />
-      <TextBlock Text="{Binding StorageLabel}" Style="{StaticResource HintText}" TextAlignment="Center" Margin="0,6,0,0" />
-    </StackPanel>
-    <StackPanel>
-      <DockPanel Margin="0,0,0,15">
-        <Border Width="36" Height="36" CornerRadius="10" Background="#EBDDCF" DockPanel.Dock="Left"><TextBlock Text="🍅" HorizontalAlignment="Center" FontSize="19" /></Border>
-        <StackPanel Margin="10,0,0,0"><TextBlock Text="番茄小记" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="把时间留给在意的事" Style="{StaticResource HintText}" /></StackPanel>
-        <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right" Text="{Binding Source={x:Static sys:DateTime.Now}, StringFormat=MM-dd}" Style="{StaticResource HintText}" />
-      </DockPanel>
-      <TextBlock x:Name="LoadError" Style="{StaticResource HintText}" Foreground="{StaticResource Accent}" Margin="0,0,0,10" />
-      <UniformGrid Columns="5" Margin="0,0,0,15">
-        <Button Content="专注" Click="Tab_Click" Tag="0" /><Button Content="待办" Click="Tab_Click" Tag="1" /><Button Content="今日" Click="Tab_Click" Tag="2" /><Button Content="便签" Click="Tab_Click" Tag="3" /><Button Content="设置" Click="Tab_Click" Tag="4" />
-      </UniformGrid>
-      <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="570">
-        <Grid>
-          <StackPanel Visibility="{Binding IsFocusTab, Converter={StaticResource BoolVisibility}}">
-            <TextBlock Text="{Binding StatusText}" HorizontalAlignment="Center" Foreground="{StaticResource Secondary}" FontSize="12" />
-            <TextBlock Text="{Binding Remaining}" HorizontalAlignment="Center" FontSize="66" FontFamily="Consolas" Margin="0,5" />
-            <TextBlock Text="{Binding TimerCaption}" HorizontalAlignment="Center" TextAlignment="Center" Style="{StaticResource HintText}" FontSize="12" Margin="0,0,0,12" />
-            <TextBox Text="{Binding Goal, UpdateSourceTrigger=PropertyChanged}" Tag="本轮目标（可选）" ToolTip="本轮目标（计划不代表完成）" MaxLength="300" Margin="35,0,35,12"><TextBox.Resources><Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}" /></TextBox.Resources></TextBox>
-            <Button Content="{Binding PrimaryAction}" Command="{Binding StartCommand}" Style="{StaticResource PrimaryButton}" FontSize="15" Margin="70,5,70,5" Padding="12,11" />
-            <Button Content="{Binding EndEarlyLabel}" Command="{Binding EndCommand}" Visibility="{Binding CanEndEarly, Converter={StaticResource BoolVisibility}}" Style="{StaticResource LinkButton}" HorizontalAlignment="Center" />
-            <Button Content="跳过这次休息" Command="{Binding EndCommand}" Visibility="{Binding CanSkipBreak, Converter={StaticResource BoolVisibility}}" Style="{StaticResource LinkButton}" HorizontalAlignment="Center" />
-            <UniformGrid Columns="2" Margin="0,20,0,10">
-              <Border Style="{StaticResource Card}" Margin="0,0,5,0"><StackPanel><TextBlock Text="{Binding TodayMinutes}" FontSize="26" HorizontalAlignment="Center" /><TextBlock Text="今日专注 / 分钟" HorizontalAlignment="Center" Style="{StaticResource HintText}" /></StackPanel></Border>
-              <Border Style="{StaticResource Card}" Margin="5,0,0,0"><StackPanel><TextBlock Text="{Binding TodayCompleted}" FontSize="26" HorizontalAlignment="Center" /><TextBlock Text="完整番茄 / 轮" HorizontalAlignment="Center" Style="{StaticResource HintText}" /></StackPanel></Border>
-            </UniformGrid>
-            <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Windows 专注守护暂未提供" Style="{StaticResource TitleText}" FontSize="13" /><TextBlock Text="macOS 的 AppleScript、窗口截图及自动关闭 Chrome 标签依赖专属接口，本版不展示不可用的守护开关。前台 App 投入统计仍可使用。" Style="{StaticResource HintText}" Margin="0,8,0,0" /></StackPanel></Border>
+
+    <!-- 状态点：专注时番茄红，休息时苔绿 -->
+    <Style x:Key="StatusDot" TargetType="Ellipse">
+      <Setter Property="Width" Value="5" />
+      <Setter Property="Height" Value="5" />
+      <Setter Property="Fill" Value="{DynamicResource Accent}" />
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding IsFocusStage}" Value="False">
+          <Setter Property="Fill" Value="{DynamicResource Green}" />
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <!-- 本组进度胶囊：已完成用强调色，未到用描边色 -->
+    <Style x:Key="RoundCapsule" TargetType="Border">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="4" />
+      <Setter Property="CornerRadius" Value="2" />
+      <Setter Property="Background" Value="{DynamicResource Border}" />
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding}" Value="True">
+          <Setter Property="Background" Value="{DynamicResource Accent}" />
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <!-- 列表里的可点行 -->
+    <Style x:Key="FlatRow" TargetType="{x:Type ui:Button}">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="MouseOverBackground" Value="{DynamicResource SurfaceHover}" />
+      <Setter Property="PressedBackground" Value="{DynamicResource SurfacePressed}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="Padding" Value="2,7" />
+      <Setter Property="Foreground" Value="{DynamicResource Ink}" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <!-- 便签卡片：纸质黄底 + 横线描边 -->
+    <Style x:Key="NoteCard" TargetType="Border">
+      <Setter Property="Background" Value="{DynamicResource NotePaper}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource NoteRule}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="13" />
+      <Setter Property="Padding" Value="18" />
+      <Setter Property="Margin" Value="0,0,0,12" />
+      <Setter Property="Effect">
+        <Setter.Value>
+          <DropShadowEffect BlurRadius="8" ShadowDepth="3" Direction="270" Opacity="0.10" Color="#9C8568" />
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <!-- App 使用条 -->
+    <Style x:Key="UsageBar" TargetType="ProgressBar">
+      <Setter Property="Height" Value="3" />
+      <Setter Property="Maximum" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource Green}" />
+      <Setter Property="Background" Value="{DynamicResource BorderSoft}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Margin" Value="0,0,0,7" />
+    </Style>
+  </ui:FluentWindow.Resources>
+
+  <Grid Background="{DynamicResource Background}">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <!-- 窗口顶栏：品牌灯图标 + 标题，等价于 macOS 标题栏 -->
+    <ui:TitleBar Grid.Row="0" Title="番茄小记" ShowMaximize="False" Height="38" Padding="16,0,0,0">
+      <ui:TitleBar.Icon>
+        <ui:ImageIcon Source="pack://application:,,,/Assets/BrandMark.png" />
+      </ui:TitleBar.Icon>
+    </ui:TitleBar>
+
+    <DockPanel Grid.Row="1">
+      <!-- 底部反馈区：删除撤销 + 状态文案 + 资料位置 -->
+      <StackPanel DockPanel.Dock="Bottom" Margin="22,0,22,14">
+        <Border x:Name="DeletedBar" Style="{StaticResource AccentBox}" Visibility="Collapsed" Margin="0,0,0,8">
+          <DockPanel>
+            <ui:Button DockPanel.Dock="Right" Content="撤销" Style="{StaticResource LinkButton}" FontWeight="SemiBold" Click="UndoTodo_Click" />
+            <ui:SymbolIcon Symbol="Delete24" FontSize="13" Foreground="{DynamicResource Accent}" Margin="0,1,7,0" VerticalAlignment="Center" />
+            <TextBlock x:Name="DeletedText" Style="{StaticResource HintText}" VerticalAlignment="Center" />
+          </DockPanel>
+        </Border>
+        <TextBlock Text="{Binding Feedback}" Style="{StaticResource AccentHint}" TextAlignment="Center"
+                   Visibility="{Binding Feedback, Converter={StaticResource NotEmptyVisibility}}" />
+        <TextBlock Text="{Binding StorageLabel}" Style="{StaticResource CaptionText}" TextAlignment="Center" Margin="0,6,0,0"
+                   Visibility="{Binding Repository.IsSharedLibrary, Converter={StaticResource InverseBoolVisibility}}" />
+      </StackPanel>
+
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 品牌行：标语 + 日期（标题已在顶栏，避免重复） -->
+        <DockPanel Grid.Row="0" Margin="22,10,22,14">
+          <TextBlock Text="把时间留给在意的事" Style="{StaticResource HintText}" />
+          <TextBlock DockPanel.Dock="Right" Text="{Binding HeaderDate}" Style="{StaticResource CaptionText}"
+                     Typography.NumeralAlignment="Tabular" />
+        </DockPanel>
+
+        <!-- 读取失败提示 -->
+        <ui:InfoBar Grid.Row="1" x:Name="LoadError" IsOpen="False" IsClosable="False" Severity="Error"
+                    Title="本地数据需要检查" Margin="22,0,22,8" />
+
+        <!-- 胶囊分段导航 -->
+        <ctrl:SegmentedNav Grid.Row="2" x:Name="Nav" Margin="22,0,22,14" SelectedIndex="{Binding CurrentTab, Mode=TwoWay}" />
+
+        <!-- 各页内容 -->
+        <ScrollViewer Grid.Row="3" x:Name="ContentScroll" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="22,4,22,16">
+
+            <!-- ═══════════ 专注 ═══════════ -->
+            <StackPanel Visibility="{Binding IsFocusTab, Converter={StaticResource BoolVisibility}}">
+              <StackPanel Margin="0,10,0,18">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,7">
+                  <Ellipse Style="{StaticResource StatusDot}" Margin="0,0,6,0" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding StatusText}" FontSize="12" FontWeight="Medium"
+                             Foreground="{DynamicResource Secondary}" />
+                </StackPanel>
+                <TextBlock Text="{Binding Remaining}" Style="{StaticResource TimerDigits}" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,7,0,0">
+                  <ItemsControl ItemsSource="{Binding RoundDots}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border Style="{StaticResource RoundCapsule}" Margin="0,0,4,0" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Text="{Binding SetLabel}" Style="{StaticResource CaptionText}" Margin="5,0,0,0"
+                             VerticalAlignment="Center" Typography.NumeralAlignment="Tabular" />
+                </StackPanel>
+                <TextBlock Text="{Binding TimerCaption}" FontSize="12" Foreground="{DynamicResource Secondary}"
+                           TextAlignment="Center" Margin="0,8,0,0" />
+                <!-- 未开始时可写目标；进行中只展示已定下的目标 -->
+                <!-- 占位文案用覆盖层实现：不依赖 WPF-UI 的 PlaceholderText 模板部件 -->
+                <Grid Margin="4,12,4,8" Visibility="{Binding CanEditGoal, Converter={StaticResource BoolVisibility}}">
+                  <TextBox Text="{Binding Goal, UpdateSourceTrigger=PropertyChanged}"
+                              Style="{StaticResource BrandTextBox}"
+                              ToolTip="本轮目标（计划不代表完成）" MaxLength="300" />
+                  <TextBlock Text="本轮目标（可选）" FontSize="12" Foreground="{DynamicResource Secondary}"
+                             Margin="14,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                             Visibility="{Binding Goal, Converter={StaticResource EmptyVisibility}}" />
+                </Grid>
+                <TextBlock Text="{Binding CurrentSessionGoal}" FontSize="13" FontWeight="Medium" TextAlignment="Center"
+                           Margin="6,6,6,0" Visibility="{Binding HasCurrentSessionGoal, Converter={StaticResource BoolVisibility}}" />
+
+                <!-- 开始 / 暂停：专注阶段番茄红，休息阶段苔绿。图标放进 Content，
+                     不依赖 ui:Button.Icon 的模板部件是否渲染。 -->
+                <ui:Button Command="{Binding StartCommand}" Style="{StaticResource PrimaryButton}"
+                           Margin="4,10,4,4" AutomationProperties.Name="{Binding PrimaryAction}"
+                           Visibility="{Binding IsFocusStage, Converter={StaticResource BoolVisibility}}">
+                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <ui:SymbolIcon Symbol="{Binding PrimarySymbol}" FontSize="15" Foreground="White" Margin="0,1,8,0" />
+                    <TextBlock Text="{Binding PrimaryAction}" Foreground="White" FontSize="14" FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                  </StackPanel>
+                </ui:Button>
+                <ui:Button Command="{Binding StartCommand}" Style="{StaticResource GreenPrimaryButton}"
+                           Margin="4,10,4,4" AutomationProperties.Name="{Binding PrimaryAction}"
+                           Visibility="{Binding IsFocusStage, Converter={StaticResource InverseBoolVisibility}}">
+                  <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <ui:SymbolIcon Symbol="{Binding PrimarySymbol}" FontSize="15" Foreground="White" Margin="0,1,8,0" />
+                    <TextBlock Text="{Binding PrimaryAction}" Foreground="White" FontSize="14" FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                  </StackPanel>
+                </ui:Button>
+                <ui:Button Command="{Binding EndCommand}" Content="{Binding EndEarlyLabel}" Style="{StaticResource LinkButton}"
+                           HorizontalAlignment="Center" Margin="0,4,0,0"
+                           Visibility="{Binding CanEndEarly, Converter={StaticResource BoolVisibility}}" />
+                <ui:Button Command="{Binding EndCommand}" Content="跳过这次休息" Style="{StaticResource LinkButton}"
+                           HorizontalAlignment="Center" Margin="0,4,0,0"
+                           Visibility="{Binding CanSkipBreak, Converter={StaticResource BoolVisibility}}" />
+              </StackPanel>
+
+              <!-- 本轮进展卡片 -->
+              <Border Style="{StaticResource PaperCard}"
+                      Visibility="{Binding HasCurrentProgress, Converter={StaticResource BoolVisibility}}">
+                <StackPanel>
+                  <DockPanel Margin="0,0,0,10">
+                    <StackPanel Orientation="Horizontal">
+                      <ui:SymbolIcon Symbol="LeafOne24" FontSize="14" Foreground="{DynamicResource Green}" Margin="0,1,6,0" />
+                      <TextBlock Text="这一轮，留下了进展" Style="{StaticResource CardTitle}" Foreground="{DynamicResource Green}" />
+                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding CurrentProgress.Time}" Style="{StaticResource CaptionText}"
+                               Typography.NumeralAlignment="Tabular" HorizontalAlignment="Right" />
+                  </DockPanel>
+                  <TextBlock Text="{Binding CurrentProgress.Title}" FontSize="16" FontWeight="Medium" Margin="0,0,0,6" />
+                  <TextBlock Text="{Binding CurrentProgress.Detail}" Style="{StaticResource HintText}" Margin="0,0,0,8" />
+                  <TextBlock Text="{Binding CurrentProgress.Todos}" FontSize="12" Foreground="{DynamicResource Green}"
+                             Visibility="{Binding CurrentProgress.Todos, Converter={StaticResource NotEmptyVisibility}}" />
+                </StackPanel>
+              </Border>
+
+              <!-- 今日统计：一张卡片 + 中分隔线，对应 macOS MetricView -->
+              <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource BorderSoft}"
+                      BorderThickness="1" CornerRadius="14" Padding="0,14" Margin="0,0,0,14">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <StackPanel Grid.Column="0">
+                    <TextBlock Text="{Binding TodayMinutes}" Style="{StaticResource MetricValue}" />
+                    <TextBlock Text="今日专注 / 分钟" Style="{StaticResource CaptionText}" HorizontalAlignment="Center" />
+                  </StackPanel>
+                  <Rectangle Grid.Column="1" Width="1" Height="30" Fill="{DynamicResource BorderSoft}" VerticalAlignment="Center" />
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Text="{Binding TodayCompleted}" Style="{StaticResource MetricValue}" />
+                    <TextBlock Text="完整番茄 / 轮" Style="{StaticResource CaptionText}" HorizontalAlignment="Center" />
+                  </StackPanel>
+                </Grid>
+              </Border>
+
+              <!-- Windows 端不提供专注守护，说明保留 -->
+              <Border Style="{StaticResource PaperCard}">
+                <StackPanel>
+                  <TextBlock Text="Windows 专注守护暂未提供" Style="{StaticResource CardTitle}" />
+                  <TextBlock Text="macOS 的 AppleScript、窗口截图及自动关闭 Chrome 标签依赖专属接口，本版不展示不可用的守护开关。前台 App 投入统计仍可使用。"
+                             Style="{StaticResource HintText}" Margin="0,8,0,0" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+
+            <!-- ═══════════ 待办 ═══════════ -->
+            <StackPanel Visibility="{Binding IsTodoTab, Converter={StaticResource BoolVisibility}}">
+              <DockPanel Margin="0,2,0,16">
+                <!-- 完成度小环 -->
+                <Grid DockPanel.Dock="Right" Width="48" Height="48" Margin="0,0,4,0">
+                  <ui:ProgressRing Progress="{Binding TodoCompletionPercent}" IsIndeterminate="False" Width="48" Height="48" />
+                  <TextBlock Text="{Binding TodoShortLabel}" FontSize="10" FontWeight="Medium"
+                             Foreground="{DynamicResource Secondary}" Typography.NumeralAlignment="Tabular"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Grid>
+                <StackPanel>
+                  <TextBlock Text="今日待办" FontSize="20" FontWeight="SemiBold" />
+                  <TextBlock Text="把想做的事，变成做过的事。" FontSize="12" Foreground="{DynamicResource Secondary}" Margin="0,5,0,0" />
+                </StackPanel>
+              </DockPanel>
+
+              <!-- 输入行：铅笔 + 文本 + 加号，整体是一张圆角纸卡 -->
+              <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource BorderSoft}" BorderThickness="1"
+                      CornerRadius="12" Padding="14,10" Margin="0,0,0,14">
+                <DockPanel>
+                  <ui:Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="28" Height="28"
+                             Command="{Binding AddTodoCommand}" ToolTip="添加待办">
+                    <ui:SymbolIcon Symbol="Add24" FontSize="13" Foreground="{DynamicResource Accent}" />
+                  </ui:Button>
+                  <ui:SymbolIcon Symbol="Pen24" FontSize="13" Foreground="{DynamicResource Accent}" Margin="0,0,8,0"
+                                 VerticalAlignment="Center" />
+                  <Grid>
+                    <TextBox Text="{Binding NewTodo, UpdateSourceTrigger=PropertyChanged}" Background="Transparent"
+                                BorderThickness="0" FontSize="13" Padding="0,4" VerticalContentAlignment="Center"
+                                KeyDown="NewTodo_KeyDown" />
+                    <TextBlock Text="添一件小事，回车记下" FontSize="13" Foreground="{DynamicResource Secondary}"
+                               Margin="2,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                               Visibility="{Binding NewTodo, Converter={StaticResource EmptyVisibility}}" />
+                  </Grid>
+                </DockPanel>
+              </Border>
+
+              <!-- 纸张清单 -->
+              <Border Background="{DynamicResource TodoPaperBrush}" BorderBrush="{DynamicResource BorderSoft}"
+                      BorderThickness="1" CornerRadius="13" Margin="0,0,0,6">
+                <StackPanel>
+                  <DockPanel Margin="24,22,24,12">
+                    <TextBlock Text="一 日 清 单" FontSize="10" FontWeight="Medium" Foreground="{DynamicResource Secondary}" />
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding TodoDateLabel}" Style="{StaticResource CaptionText}"
+                               Typography.NumeralAlignment="Tabular" />
+                  </DockPanel>
+
+                  <StackPanel Visibility="{Binding HasTodos, Converter={StaticResource InverseBoolVisibility}}" Margin="0,0,0,14">
+                    <ui:SymbolIcon Symbol="LeafOne24" FontSize="30" Foreground="{DynamicResource Green}"
+                                   HorizontalAlignment="Center" Margin="0,0,0,10" />
+                    <TextBlock Text="从一件小事开始" FontSize="14" FontWeight="Medium" HorizontalAlignment="Center" Margin="0,0,0,5" />
+                    <TextBlock Text="不必排满今天，留一点从容。" Style="{StaticResource HintText}" HorizontalAlignment="Center"
+                               Margin="0,0,0,16" />
+                  </StackPanel>
+
+                  <ItemsControl ItemsSource="{Binding TodayTodos}" Margin="10,0,10,0">
+                    <ItemsControl.ItemContainerStyle>
+                      <Style TargetType="ContentPresenter">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Text}" />
+                      </Style>
+                    </ItemsControl.ItemContainerStyle>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border BorderBrush="{DynamicResource BorderSoft}" BorderThickness="0,0,0,1" Padding="14,6">
+                          <DockPanel>
+                            <ui:Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="26" Height="26"
+                                       Click="TodoDelete_Click" ToolTip="删除（可撤销）">
+                              <ui:SymbolIcon Symbol="Delete24" FontSize="12" Foreground="{DynamicResource Secondary}" />
+                            </ui:Button>
+                            <ui:Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="26" Height="26"
+                                       Click="TodoEdit_Click" ToolTip="改字">
+                              <ui:SymbolIcon Symbol="Edit24" FontSize="12" Foreground="{DynamicResource Secondary}" />
+                            </ui:Button>
+                            <CheckBox IsChecked="{Binding IsCompleted, Mode=OneWay}" Click="TodoToggle_Click"
+                                      VerticalAlignment="Center" Margin="0,0,9,0" Cursor="Hand" />
+                            <TextBlock Text="{Binding Text}" TextDecorations="{Binding IsCompleted, Converter={StaticResource Strike}}"
+                                       MouseLeftButtonDown="TodoText_MouseDown" Cursor="IBeam" VerticalAlignment="Center" />
+                          </DockPanel>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+
+                  <StackPanel Margin="24,16,24,18">
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding AllTodosDone, Converter={StaticResource BoolVisibility}}">
+                      <ui:SymbolIcon Symbol="CheckmarkCircle24" FontSize="13" Foreground="{DynamicResource Green}" Margin="0,1,7,0" />
+                      <TextBlock Text="清单完成，给自己一个肯定。" FontSize="12" FontWeight="Medium"
+                                 Foreground="{DynamicResource Green}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding AllTodosDone, Converter={StaticResource InverseBoolVisibility}}">
+                      <ui:SymbolIcon Symbol="LeafOne24" FontSize="12" Foreground="{DynamicResource Secondary}" Margin="0,1,7,0" />
+                      <TextBlock Text="{Binding TodoFooterLabel}" Style="{StaticResource HintText}" VerticalAlignment="Center" />
+                    </StackPanel>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+              <TextBlock Text="轻点勾选 · 双击改字 · 右侧删除可撤销" Style="{StaticResource CaptionText}"
+                         TextAlignment="Center" Margin="0,4,0,0" />
+            </StackPanel>
+
+            <!-- ═══════════ 今日 ═══════════ -->
+            <StackPanel Visibility="{Binding IsTodayTab, Converter={StaticResource BoolVisibility}}">
+              <DockPanel Margin="0,2,0,12">
+                <ui:Button DockPanel.Dock="Left" Style="{StaticResource IconButton}" Click="PreviousDay_Click" ToolTip="前一天"
+                           AutomationProperties.Name="前一天">
+                  <ui:SymbolIcon Symbol="ChevronLeft24" FontSize="12" Foreground="{DynamicResource Secondary}" />
+                </ui:Button>
+                <ui:Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Click="NextDay_Click" ToolTip="后一天"
+                           AutomationProperties.Name="后一天">
+                  <ui:SymbolIcon Symbol="ChevronRight24" FontSize="12" Foreground="{DynamicResource Secondary}" />
+                </ui:Button>
+                <TextBlock Text="{Binding SelectedDayLabel}" FontSize="12" FontWeight="Medium"
+                           Foreground="{DynamicResource Secondary}" HorizontalAlignment="Center" />
+              </DockPanel>
+              <ui:Button Content="回到今天" Style="{StaticResource LinkButton}" HorizontalAlignment="Center" Margin="0,0,0,10"
+                         Click="Today_Click" Visibility="{Binding IsToday, Converter={StaticResource InverseBoolVisibility}}" />
+
+              <!-- 进展总览卡 -->
+              <Border Style="{StaticResource PaperCard}">
+                <StackPanel>
+                  <DockPanel Margin="0,0,0,8">
+                    <TextBlock Text="{Binding DayProgressTitle}" Style="{StaticResource SectionText}" />
+                    <ui:SymbolIcon DockPanel.Dock="Right" Symbol="WeatherSunny24" FontSize="15"
+                                   Foreground="{DynamicResource Accent}" HorizontalAlignment="Right" />
+                  </DockPanel>
+                  <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="{Binding SummaryMinutes}" Style="{StaticResource BigNumber}" />
+                    <TextBlock Text="分钟专注" FontSize="12" Foreground="{DynamicResource Secondary}"
+                               VerticalAlignment="Bottom" Margin="5,0,0,7" />
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <ui:SymbolIcon Symbol="CheckmarkCircle24" FontSize="11" Foreground="{DynamicResource Secondary}" Margin="0,2,5,0" />
+                    <TextBlock Style="{StaticResource HintText}" VerticalAlignment="Center"
+                               Typography.NumeralAlignment="Tabular">
+                      <Run Text="完整 " /><Run Text="{Binding SummaryCompletedSessions, Mode=OneWay}" /><Run Text=" 轮" />
+                    </TextBlock>
+                    <ui:SymbolIcon Symbol="TaskListSquareLtr24" FontSize="11" Foreground="{DynamicResource Secondary}" Margin="16,2,5,0" />
+                    <TextBlock Style="{StaticResource HintText}" VerticalAlignment="Center"
+                               Typography.NumeralAlignment="Tabular">
+                      <Run Text="待办 " /><Run Text="{Binding SummaryCompletedTodos, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding SummaryTodoCount, Mode=OneWay}" />
+                    </TextBlock>
+                  </StackPanel>
+                  <TextBlock Text="{Binding EarlySessionsLabel}" Style="{StaticResource CaptionText}" Margin="0,0,0,6"
+                             Visibility="{Binding HasEarlySessions, Converter={StaticResource BoolVisibility}}" />
+                  <Border Style="{StaticResource SoftBox}">
+                    <TextBlock Text="{Binding SummarySentence}" FontSize="12" LineHeight="19" />
+                  </Border>
+                  <ui:Button Style="{StaticResource SubtleButton}" Margin="0,10,0,0"
+                             HorizontalAlignment="Left" Click="DayReview_Click"
+                             AutomationProperties.Name="补充记录并让 AI 汇总">
+                    <StackPanel Orientation="Horizontal">
+                      <ui:SymbolIcon Symbol="ArrowUpRight24" FontSize="11" Foreground="{DynamicResource Ink}" Margin="0,1,6,0" />
+                      <TextBlock Text="补充记录并让 AI 汇总" FontSize="12" FontWeight="Medium" VerticalAlignment="Center" />
+                    </StackPanel>
+                  </ui:Button>
+                </StackPanel>
+              </Border>
+
+              <!-- 时间线 -->
+              <Border Style="{StaticResource PaperCard}" Visibility="{Binding HasSummarySessions, Converter={StaticResource BoolVisibility}}">
+                <StackPanel>
+                  <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <ui:SymbolIcon Symbol="LeafOne24" FontSize="13" Foreground="{DynamicResource Green}" Margin="0,1,6,0" />
+                    <TextBlock Text="时间都变成了什么" Style="{StaticResource SectionText}" />
+                  </StackPanel>
+                  <ItemsControl ItemsSource="{Binding SessionRows}" Margin="0,-2,0,4">
+                    <ItemsControl.ItemContainerStyle>
+                      <Style TargetType="ContentPresenter">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
+                      </Style>
+                    </ItemsControl.ItemContainerStyle>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <ui:Button Style="{StaticResource FlatRow}" Click="SessionRow_Click" Tag="{Binding ID}"
+                                   HorizontalAlignment="Stretch">
+                          <DockPanel>
+                            <ui:SymbolIcon DockPanel.Dock="Right" Symbol="ChevronRight24" FontSize="10"
+                                           Foreground="{DynamicResource Secondary}" VerticalAlignment="Center" />
+                            <Ellipse Width="7" Height="7" Margin="0,5,11,0" VerticalAlignment="Top">
+                              <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                  <Setter Property="Fill" Value="{DynamicResource Green}" />
+                                  <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Completed}" Value="False">
+                                      <Setter Property="Fill" Value="{DynamicResource Accent}" />
+                                    </DataTrigger>
+                                  </Style.Triggers>
+                                </Style>
+                              </Ellipse.Style>
+                            </Ellipse>
+                            <StackPanel>
+                              <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Medium" Margin="0,0,0,4" />
+                              <TextBlock Text="{Binding Detail}" Style="{StaticResource CaptionText}"
+                                         Typography.NumeralAlignment="Tabular" Margin="0,0,0,3" />
+                              <TextBlock Text="{Binding Todos}" FontSize="11" Foreground="{DynamicResource Green}"
+                                         Visibility="{Binding Todos, Converter={StaticResource NotEmptyVisibility}}" />
+                            </StackPanel>
+                          </DockPanel>
+                        </ui:Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Text="每一段投入都自动留下；点击可看详情或补充图片。" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
+                </StackPanel>
+              </Border>
+
+              <!-- App 使用 -->
+              <Border Style="{StaticResource PaperCard}">
+                <StackPanel>
+                  <TextBlock Text="专注时使用的 App" Style="{StaticResource SectionText}" Margin="0,0,0,2" />
+                  <TextBlock Text="仅记录前台停留时长；App 名称不等于具体成果。" Style="{StaticResource CaptionText}" Margin="0,0,0,10" />
+                  <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
+                              Visibility="{Binding RecordingOff, Converter={StaticResource BoolVisibility}}">
+                    <ui:SymbolIcon Symbol="Dismiss24" FontSize="11" Foreground="{DynamicResource Secondary}" Margin="0,1,5,0" />
+                    <TextBlock Text="App 使用记录已关闭" Style="{StaticResource HintText}" />
+                  </StackPanel>
+                  <TextBlock Text="开始专注后，使用过的 App 会出现在这里。" Style="{StaticResource HintText}" Margin="0,0,0,8"
+                             Visibility="{Binding ShowEmptyApps, Converter={StaticResource BoolVisibility}}" />
+                  <ItemsControl ItemsSource="{Binding SummaryApps}">
+                    <ItemsControl.ItemContainerStyle>
+                      <Style TargetType="ContentPresenter">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                      </Style>
+                    </ItemsControl.ItemContainerStyle>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <StackPanel Margin="0,0,0,9">
+                          <DockPanel Margin="0,0,0,6">
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding Duration}" Style="{StaticResource CaptionText}"
+                                       Typography.NumeralAlignment="Tabular" />
+                            <TextBlock Text="{Binding Name}" FontSize="12" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                          </DockPanel>
+                          <ProgressBar Value="{Binding Ratio}" Style="{StaticResource UsageBar}" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <ui:Button Content="{Binding HiddenAppsLabel}" Style="{StaticResource LinkButton}" Click="ShowAllApps_Click"
+                             Visibility="{Binding HasHiddenApps, Converter={StaticResource BoolVisibility}}" />
+                  <TextBlock Text="{Binding UnattributedLabel}" Style="{StaticResource CaptionText}" Margin="0,4,0,0"
+                             Visibility="{Binding HasUnattributed, Converter={StaticResource BoolVisibility}}" />
+                  <TextBlock Text="{Binding DisabledLabel}" Style="{StaticResource CaptionText}" Margin="0,3,0,0"
+                             Visibility="{Binding HasDisabled, Converter={StaticResource BoolVisibility}}" />
+                </StackPanel>
+              </Border>
+
+              <!-- 当天待办 -->
+              <Border Style="{StaticResource PaperCard}" Visibility="{Binding HasSummaryTodos, Converter={StaticResource BoolVisibility}}">
+                <StackPanel>
+                  <TextBlock Text="当天待办" Style="{StaticResource SectionText}" Margin="0,0,0,9" />
+                  <ItemsControl ItemsSource="{Binding SummaryTodos}">
+                    <ItemsControl.ItemContainerStyle>
+                      <Style TargetType="ContentPresenter">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Text}" />
+                      </Style>
+                    </ItemsControl.ItemContainerStyle>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <StackPanel Margin="0,0,0,7">
+                          <DockPanel>
+                            <ui:SymbolIcon DockPanel.Dock="Right" Symbol="CheckmarkCircle24" FontSize="12"
+                                           Foreground="{DynamicResource Secondary}" />
+                            <TextBlock Text="{Binding Text}" FontSize="12" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                          </DockPanel>
+                          <TextBlock Text="{Binding Detail}" Style="{StaticResource CaptionText}" Margin="0,3,0,0" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Text="保留当天安排；结转和完成日期会单独标注。" Style="{StaticResource CaptionText}" Margin="0,2,0,0" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+
+            <!-- ═══════════ 便签 ═══════════ -->
+            <StackPanel Visibility="{Binding IsNotesTab, Converter={StaticResource BoolVisibility}}">
+              <DockPanel Margin="0,2,0,14">
+                <ui:Button DockPanel.Dock="Right" Style="{StaticResource SubtleButton}" Click="CreateNote_Click"
+                           ToolTip="新建今天的便签" AutomationProperties.Name="新建今天的便签">
+                  <StackPanel Orientation="Horizontal">
+                    <ui:SymbolIcon Symbol="Add24" FontSize="12" Foreground="{DynamicResource Ink}" Margin="0,1,6,0" />
+                    <TextBlock Text="新建" FontSize="12" FontWeight="Medium" VerticalAlignment="Center" />
+                  </StackPanel>
+                </ui:Button>
+                <TextBlock Text="{Binding NotesTitle}" FontSize="20" FontWeight="SemiBold" />
+              </DockPanel>
+
+              <!-- 历史 / 今天切换行 -->
+              <ui:Button Style="{StaticResource FlatRow}" Click="NotesHistory_Click" Padding="14,11"
+                         HorizontalAlignment="Stretch" Margin="0,0,0,16">
+                <DockPanel>
+                  <ui:SymbolIcon DockPanel.Dock="Right" Symbol="ChevronRight24" FontSize="10"
+                                 Foreground="{DynamicResource Secondary}" VerticalAlignment="Center"
+                                 Visibility="{Binding ShowsHistory, Converter={StaticResource InverseBoolVisibility}}" />
+                  <TextBlock DockPanel.Dock="Right" Text="{Binding NotesCountLabel}" Style="{StaticResource CaptionText}"
+                             Typography.NumeralAlignment="Tabular" Margin="0,0,10,0" VerticalAlignment="Center" />
+                  <StackPanel Orientation="Horizontal">
+                    <ui:SymbolIcon Symbol="{Binding NotesToggleIcon}" FontSize="13" Foreground="{DynamicResource Accent}"
+                                   Margin="0,1,9,0" />
+                    <TextBlock Text="{Binding NotesHistoryLabel}" FontSize="12" FontWeight="Medium" VerticalAlignment="Center" />
+                  </StackPanel>
+                </DockPanel>
+              </ui:Button>
+
+              <!-- 今天的便签 -->
+              <StackPanel Visibility="{Binding ShowsHistory, Converter={StaticResource InverseBoolVisibility}}">
+                <StackPanel Visibility="{Binding HasTodayNotes, Converter={StaticResource InverseBoolVisibility}}" Margin="0,4,0,14">
+                  <ui:SymbolIcon Symbol="Note24" FontSize="32" Foreground="{DynamicResource Accent}"
+                                 HorizontalAlignment="Center" Margin="0,0,0,10" />
+                  <TextBlock Text="还没有便签" FontSize="13" Foreground="{DynamicResource Secondary}" HorizontalAlignment="Center"
+                             Margin="0,0,0,10" />
+                  <ui:Button Content="写一张便签" Style="{StaticResource SubtleButton}" HorizontalAlignment="Center" Click="CreateNote_Click" />
+                </StackPanel>
+                <ItemsControl ItemsSource="{Binding TodayNoteRows}">
+                  <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                      <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
+                    </Style>
+                  </ItemsControl.ItemContainerStyle>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Border Style="{StaticResource NoteCard}">
+                        <StackPanel>
+                          <Button Background="Transparent" BorderThickness="0" Click="OpenNote_Click" Tag="{Binding ID}"
+                                  Cursor="Hand" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="0"
+                                  Foreground="{DynamicResource Ink}">
+                            <StackPanel>
+                              <DockPanel Margin="0,0,0,9">
+                                <ui:SymbolIcon DockPanel.Dock="Right" Symbol="Pin24" FontSize="10"
+                                               Foreground="{DynamicResource Secondary}"
+                                               Visibility="{Binding IsOpen, Converter={StaticResource BoolVisibility}}" />
+                                <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="Medium"
+                                           TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                              </DockPanel>
+                              <TextBlock Text="{Binding Preview}" FontSize="13" Foreground="{DynamicResource Secondary}"
+                                         LineHeight="21" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                              <TextBlock Text="{Binding Meta}" Style="{StaticResource CaptionText}" Margin="0,7,0,0" />
+                            </StackPanel>
+                          </Button>
+                          <Rectangle Height="1" Fill="{DynamicResource NoteRule}" Margin="0,13,0,11" />
+                          <StackPanel Orientation="Horizontal">
+                            <ui:Button Style="{StaticResource LinkButton}" Click="ExportNote_Click" Tag="{Binding ID}">
+                              <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="Save24" FontSize="11" Foreground="{DynamicResource Accent}" Margin="0,1,5,0" />
+                                <TextBlock Text="导出 TXT" />
+                              </StackPanel>
+                            </ui:Button>
+                            <ui:Button Style="{StaticResource LinkButton}" Click="DeleteNote_Click" Tag="{Binding ID}" Margin="6,0,0,0">
+                              <StackPanel Orientation="Horizontal">
+                                <ui:SymbolIcon Symbol="Delete24" FontSize="11" Foreground="{DynamicResource Accent}" Margin="0,1,5,0" />
+                                <TextBlock Text="删除" />
+                              </StackPanel>
+                            </ui:Button>
+                          </StackPanel>
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+
+              <!-- 历史便签（按天分组） -->
+              <StackPanel Visibility="{Binding ShowsHistory, Converter={StaticResource BoolVisibility}}">
+                <StackPanel Visibility="{Binding HasHistoryNotes, Converter={StaticResource InverseBoolVisibility}}" Margin="0,4,0,14">
+                  <ui:SymbolIcon Symbol="Archive24" FontSize="32" Foreground="{DynamicResource Accent}"
+                                 HorizontalAlignment="Center" Margin="0,0,0,10" />
+                  <TextBlock Text="还没有历史便签" FontSize="13" Foreground="{DynamicResource Secondary}" HorizontalAlignment="Center" />
+                </StackPanel>
+                <ItemsControl ItemsSource="{Binding HistoryNoteGroups}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <StackPanel Margin="0,0,0,14">
+                        <DockPanel Margin="2,0,2,10">
+                          <TextBlock Text="{Binding DayLabel}" FontSize="11" FontWeight="Medium"
+                                     Foreground="{DynamicResource Secondary}" Typography.NumeralAlignment="Tabular" />
+                          <TextBlock DockPanel.Dock="Right" Text="{Binding Count, StringFormat={}{0} 张}"
+                                     Style="{StaticResource CaptionText}" />
+                          <Rectangle Height="1" Fill="{DynamicResource BorderSoft}" Margin="8,0,8,0" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding Notes}">
+                          <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                              <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
+                            </Style>
+                          </ItemsControl.ItemContainerStyle>
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                              <Border Style="{StaticResource NoteCard}">
+                                <StackPanel>
+                                  <Button Background="Transparent" BorderThickness="0" Click="OpenNote_Click" Tag="{Binding ID}"
+                                          Cursor="Hand" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="0"
+                                          Foreground="{DynamicResource Ink}">
+                                    <StackPanel>
+                                      <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="Medium"
+                                                 TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="0,0,0,9" />
+                                      <TextBlock Text="{Binding Preview}" FontSize="13" Foreground="{DynamicResource Secondary}"
+                                                 LineHeight="21" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                    </StackPanel>
+                                  </Button>
+                                  <Rectangle Height="1" Fill="{DynamicResource NoteRule}" Margin="0,13,0,11" />
+                                  <StackPanel Orientation="Horizontal">
+                                    <ui:Button Style="{StaticResource LinkButton}" Click="ContinueNote_Click" Tag="{Binding ID}">
+                                      <StackPanel Orientation="Horizontal">
+                                        <ui:SymbolIcon Symbol="ArrowSync24" FontSize="11" Foreground="{DynamicResource Accent}" Margin="0,1,5,0" />
+                                        <TextBlock Text="继续使用" />
+                                      </StackPanel>
+                                    </ui:Button>
+                                    <ui:Button Style="{StaticResource LinkButton}" Click="ExportNote_Click" Tag="{Binding ID}" Margin="6,0,0,0">
+                                      <StackPanel Orientation="Horizontal">
+                                        <ui:SymbolIcon Symbol="Save24" FontSize="11" Foreground="{DynamicResource Accent}" Margin="0,1,5,0" />
+                                        <TextBlock Text="导出 TXT" />
+                                      </StackPanel>
+                                    </ui:Button>
+                                  </StackPanel>
+                                </StackPanel>
+                              </Border>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </StackPanel>
+
+            <!-- ═══════════ 设置（总览菜单，等价 macOS overview 页） ═══════════ -->
+            <StackPanel Visibility="{Binding IsSettingsTab, Converter={StaticResource BoolVisibility}}">
+              <TextBlock Text="设置" Style="{StaticResource TitleText}" Margin="0,2,0,10" />
+              <TextBlock Text="按你想做的事，找到对应设置。默认节奏已就绪，回到「专注」即可开始。" Style="{StaticResource HintText}"
+                         Margin="3,0,0,12" />
+
+              <TextBlock Text="专注与成果" Style="{StaticResource CaptionText}" Margin="3,0,0,7" />
+              <Border Style="{StaticResource PaperCard}" Padding="13,6">
+                <StackPanel>
+                  <ui:Button Style="{StaticResource FlatRow}" Click="OpenTimerSettings_Click" HorizontalAlignment="Stretch">
+                    <DockPanel>
+                      <ui:SymbolIcon DockPanel.Dock="Right" Symbol="ChevronRight24" FontSize="9"
+                                     Foreground="{DynamicResource Secondary}" VerticalAlignment="Center" />
+                      <TextBlock DockPanel.Dock="Right" Text="{Binding TimerSummaryLabel}" Style="{StaticResource CaptionText}"
+                                 Margin="0,0,10,0" VerticalAlignment="Center" />
+                      <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="Timer24" FontSize="13" Foreground="{DynamicResource Green}" Margin="0,1,10,0" />
+                        <StackPanel>
+                          <TextBlock Text="专注与休息" FontSize="12" FontWeight="SemiBold" />
+                          <TextBlock Text="时长与长休息间隔" Style="{StaticResource CaptionText}" />
+                        </StackPanel>
+                      </StackPanel>
+                    </DockPanel>
+                  </ui:Button>
+                  <Rectangle Style="{StaticResource Divider}" Margin="0,2" />
+                  <ui:Button Style="{StaticResource FlatRow}" Click="OpenAISettings_Click" HorizontalAlignment="Stretch">
+                    <DockPanel>
+                      <ui:SymbolIcon DockPanel.Dock="Right" Symbol="ChevronRight24" FontSize="9"
+                                     Foreground="{DynamicResource Secondary}" VerticalAlignment="Center" />
+                      <TextBlock DockPanel.Dock="Right" Text="{Binding AIStatusLabel}" Style="{StaticResource CaptionText}"
+                                 Margin="0,0,10,0" VerticalAlignment="Center" />
+                      <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="Sparkle24" FontSize="13" Foreground="{DynamicResource Accent}" Margin="0,1,10,0" />
+                        <StackPanel>
+                          <TextBlock Text="AI 助手" FontSize="12" FontWeight="SemiBold" />
+                          <TextBlock Text="连接服务商与自动回顾" Style="{StaticResource CaptionText}" />
+                        </StackPanel>
+                      </StackPanel>
+                    </DockPanel>
+                  </ui:Button>
+                </StackPanel>
+              </Border>
+
+              <TextBlock Text="日常偏好" Style="{StaticResource CaptionText}" Margin="3,0,0,7" />
+              <Border Style="{StaticResource PaperCard}" Padding="13,6">
+                <StackPanel>
+                  <ui:Button Style="{StaticResource FlatRow}" Click="OpenReminderSettings_Click" HorizontalAlignment="Stretch">
+                    <DockPanel>
+                      <ui:SymbolIcon DockPanel.Dock="Right" Symbol="ChevronRight24" FontSize="9"
+                                     Foreground="{DynamicResource Secondary}" VerticalAlignment="Center" />
+                      <TextBlock DockPanel.Dock="Right" Text="{Binding ReviewLabel}" Style="{StaticResource CaptionText}"
+                                 Margin="0,0,10,0" VerticalAlignment="Center" />
+                      <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="Clock24" FontSize="13" Foreground="{DynamicResource Green}" Margin="0,1,10,0" />
+                        <StackPanel>
+                          <TextBlock Text="提醒、回顾与快捷键" FontSize="12" FontWeight="SemiBold" />
+                          <TextBlock Text="声音、通知与全局快捷键" Style="{StaticResource CaptionText}" />
+                        </StackPanel>
+                      </StackPanel>
+                    </DockPanel>
+                  </ui:Button>
+                  <Rectangle Style="{StaticResource Divider}" Margin="0,2" />
+                  <ui:Button Style="{StaticResource FlatRow}" Click="OpenAppearanceSettings_Click" HorizontalAlignment="Stretch">
+                    <DockPanel>
+                      <ui:SymbolIcon DockPanel.Dock="Right" Symbol="ChevronRight24" FontSize="9"
+                                     Foreground="{DynamicResource Secondary}" VerticalAlignment="Center" />
+                      <TextBlock DockPanel.Dock="Right" Text="{Binding AppearanceLabel}" Style="{StaticResource CaptionText}"
+                                 Margin="0,0,10,0" VerticalAlignment="Center" />
+                      <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="WeatherSunny24" FontSize="13" Foreground="{DynamicResource Green}" Margin="0,1,10,0" />
+                        <StackPanel>
+                          <TextBlock Text="外观" FontSize="12" FontWeight="SemiBold" />
+                          <TextBlock Text="浅色、深色或跟随系统" Style="{StaticResource CaptionText}" />
+                        </StackPanel>
+                      </StackPanel>
+                    </DockPanel>
+                  </ui:Button>
+                  <Rectangle Style="{StaticResource Divider}" Margin="0,2" />
+                  <ui:Button Style="{StaticResource FlatRow}" Click="OpenDataSettings_Click" HorizontalAlignment="Stretch">
+                    <DockPanel>
+                      <ui:SymbolIcon DockPanel.Dock="Right" Symbol="ChevronRight24" FontSize="9"
+                                     Foreground="{DynamicResource Secondary}" VerticalAlignment="Center" />
+                      <TextBlock DockPanel.Dock="Right" Text="{Binding RecordingLabel}" Style="{StaticResource CaptionText}"
+                                 Margin="0,0,10,0" VerticalAlignment="Center" />
+                      <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="FolderOpen24" FontSize="13" Foreground="{DynamicResource Green}" Margin="0,1,10,0" />
+                        <StackPanel>
+                          <TextBlock Text="数据与隐私" FontSize="12" FontWeight="SemiBold" />
+                          <TextBlock Text="本地文件、备份与 App 记录" Style="{StaticResource CaptionText}" />
+                        </StackPanel>
+                      </StackPanel>
+                    </DockPanel>
+                  </ui:Button>
+                </StackPanel>
+              </Border>
+
+              <TextBlock Text="Windows 10（1809）及 Windows 11 · x64&#x0a;系统托盘气泡通知 · Ctrl+Alt+P / T / N&#x0a;不包含 macOS 玻璃效果、合盖策略和 Chrome 自动关闭。"
+                         Style="{StaticResource CaptionText}" TextAlignment="Center" Margin="0,8,0,0" />
+            </StackPanel>
+
           </StackPanel>
-          <StackPanel Visibility="{Binding IsTodoTab, Converter={StaticResource BoolVisibility}}">
-            <TextBlock Text="今天想做什么？" Style="{StaticResource TitleText}" Margin="0,0,0,10" />
-            <DockPanel Margin="0,0,0,16"><Button DockPanel.Dock="Right" Content="添加" Command="{Binding AddTodoCommand}" Margin="7,0,0,0" Style="{StaticResource PrimaryButton}" /><TextBox Text="{Binding NewTodo, UpdateSourceTrigger=PropertyChanged}" KeyDown="NewTodo_KeyDown" /></DockPanel>
-            <ItemsControl ItemsSource="{Binding TodayTodos}"><ItemsControl.ItemTemplate><DataTemplate>
-              <Border Style="{StaticResource Card}" Padding="11"><DockPanel><CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsCompleted, Mode=OneWay}" Click="TodoToggle_Click" VerticalAlignment="Center" />
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Content="改字" Click="TodoEdit_Click" Padding="6,3" /><Button Content="删除" Click="TodoDelete_Click" Padding="6,3" /></StackPanel>
-                <TextBlock Text="{Binding Text}" TextDecorations="{Binding IsCompleted, Converter={StaticResource Strike}}" Margin="8,0" />
-              </DockPanel></Border>
-            </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-            <TextBlock Text="回车添加，勾选完成。删除后可以在本页底部撤销。" Style="{StaticResource HintText}" />
-          </StackPanel>
-          <StackPanel Visibility="{Binding IsTodayTab, Converter={StaticResource BoolVisibility}}">
-            <DockPanel Margin="0,0,0,12"><Button Content="‹" Click="PreviousDay_Click" /><TextBlock Text="{Binding SelectedDay}" HorizontalAlignment="Center" /><Button Content="›" Click="NextDay_Click" /></DockPanel>
-            <Button Content="回到今天" Click="Today_Click" Style="{StaticResource LinkButton}" Visibility="{Binding IsHistoryDay, Converter={StaticResource BoolVisibility}}" />
-            <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="这一天留下的进展" Style="{StaticResource TitleText}" /><TextBlock FontSize="36" Margin="0,10"><Run Text="{Binding Summary.FocusSeconds, Mode=OneWay, Converter={StaticResource Minutes}}" /><Run Text=" 分钟专注" FontSize="13" /></TextBlock><TextBlock Style="{StaticResource HintText}"><Run Text="完整 " /><Run Text="{Binding Summary.CompletedSessions, Mode=OneWay}" /><Run Text=" 轮 · 完成待办 " /><Run Text="{Binding Summary.CompletedTodos, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding Summary.Todos.Count, Mode=OneWay}" /></TextBlock><Button Content="补充记录并生成每日 AI 回顾" Click="DayReview_Click" Margin="0,12,0,0" /></StackPanel></Border>
-            <ItemsControl ItemsSource="{Binding Summary.Sessions}"><ItemsControl.ItemTemplate><DataTemplate><Border Style="{StaticResource Card}" Padding="12"><StackPanel><TextBlock Text="{Binding Goal, TargetNullValue=本轮专注, FallbackValue=本轮专注}" FontWeight="SemiBold" /><TextBlock Text="{Binding StartedAt, StringFormat=HH:mm}" Style="{StaticResource HintText}" /><Button Content="查看本轮与补充成果" Click="SessionReview_Click" HorizontalAlignment="Left" Margin="0,8,0,0" /></StackPanel></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-            <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="专注时使用的 App" Style="{StaticResource TitleText}" FontSize="14" /><TextBlock Text="仅记录前台停留时长；App 名称不等于具体成果。" Style="{StaticResource HintText}" Margin="0,3,0,8" /><ItemsControl ItemsSource="{Binding Summary.Apps}"><ItemsControl.ItemTemplate><DataTemplate><DockPanel Margin="0,5"><TextBlock DockPanel.Dock="Right" Text="{Binding Seconds, Converter={StaticResource Duration}}" Style="{StaticResource HintText}" /><TextBlock Text="{Binding Name}" /></DockPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel></Border>
-          </StackPanel>
-          <StackPanel Visibility="{Binding IsNotesTab, Converter={StaticResource BoolVisibility}}">
-            <DockPanel Margin="0,0,0,12"><TextBlock Text="今天的便签" Style="{StaticResource TitleText}" /><Button DockPanel.Dock="Right" Content="＋ 新建便签" Click="CreateNote_Click" Style="{StaticResource PrimaryButton}" /></DockPanel>
-            <ItemsControl ItemsSource="{Binding VisibleNotes}"><ItemsControl.ItemTemplate><DataTemplate><Border Style="{StaticResource Card}" Padding="12"><DockPanel><Button DockPanel.Dock="Right" Content="打开" Click="OpenNote_Click" /><StackPanel><TextBlock Text="{Binding Title}" FontWeight="SemiBold" /><TextBlock Text="{Binding UpdatedAt, StringFormat=HH:mm 更新}" Style="{StaticResource HintText}" /></StackPanel></DockPanel></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-            <TextBlock Text="历史便签" Style="{StaticResource TitleText}" Margin="0,10,0,8" />
-            <ItemsControl ItemsSource="{Binding HistoryNotes}"><ItemsControl.ItemTemplate><DataTemplate><Border Style="{StaticResource Card}" Padding="12"><DockPanel><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Content="继续" Click="ContinueNote_Click" Padding="7,4" /><Button Content="删除" Click="DeleteNote_Click" Padding="7,4" /></StackPanel><TextBlock Text="{Binding Title}" /><TextBlock Text="{Binding DayKey}" Style="{StaticResource HintText}" /></DockPanel></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-          </StackPanel>
-          <StackPanel Visibility="{Binding IsSettingsTab, Converter={StaticResource BoolVisibility}}">
-            <TextBlock Text="设置" Style="{StaticResource TitleText}" Margin="0,0,0,12" />
-            <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="专注与休息" FontWeight="SemiBold" /><TextBlock Text="时长、快捷键、外观、提醒和自动回顾在完整设置中调整。" Style="{StaticResource HintText}" Margin="0,5" /><Button Content="打开完整设置" Click="Settings_Click" /></StackPanel></Border>
-            <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="AI 助手" FontWeight="SemiBold" /><TextBlock Text="支持 DeepSeek、OpenAI 及 OpenAI 兼容服务商。API Key 使用 Windows DPAPI 按当前用户加密，不写入 JSON。" Style="{StaticResource HintText}" Margin="0,5" /><TextBlock Text="{Binding AIStatus}" Style="{StaticResource HintText}" /><Button Content="配置 AI 与自动回顾" Click="Settings_Click" Margin="0,6,0,0" /></StackPanel></Border>
-            <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="数据与隐私" FontWeight="SemiBold" /><TextBlock Text="资料保存在 %APPDATA%\TomatoNotes，与 macOS 的 v4 JSON 格式兼容。移动资料前请先备份 JSON 和关联图片。" Style="{StaticResource HintText}" Margin="0,5" /><UniformGrid Columns="2"><Button Content="备份数据" Command="{Binding BackupCommand}" Margin="0,0,5,0" /><Button Content="打开资料位置" Click="DataFolder_Click" Margin="5,0,0,0" /></UniformGrid></StackPanel></Border>
-            <TextBlock Text="Windows 10（1809）及 Windows 11 · x64&#x0a;系统托盘气泡通知 · Ctrl+Alt+P / T / N&#x0a;不包含 macOS 玻璃效果、合盖策略和 Chrome 自动关闭。" Style="{StaticResource HintText}" TextAlignment="Center" Margin="0,10" />
-          </StackPanel>
-        </Grid>
-      </ScrollViewer>
-    </StackPanel>
-  </DockPanel>
-</Window>
+        </ScrollViewer>
+      </Grid>
+    </DockPanel>
+  </Grid>
+</ui:FluentWindow>
