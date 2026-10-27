@@ -3,6 +3,7 @@ import TomatoCore
 
 struct FocusGoalPicker: View {
     @ObservedObject var state: AppState
+    @ObservedObject var reminderTasks: ReminderTasksController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -11,11 +12,16 @@ struct FocusGoalPicker: View {
                 Spacer()
                 Menu {
                     ForEach(state.summary(for: state.todayKey).todos.filter { !$0.isCompleted }) { todo in
-                        Button(todo.text) { state.focusGoalDraft = String(todo.text.prefix(300)) }
+                        Button(todo.text) { state.selectFocusTask(TaskReference(source: .local, id: todo.id), title: todo.text) }
+                    }
+                    ForEach(state.taskWorkflow?.plannedReminders.filter { $0.scheduledDays.contains(state.todayKey) } ?? []) { plan in
+                        if let item = reminderTasks.plannedItems[plan.id], !item.isCompleted {
+                            Button("提醒事项 · " + item.title) { state.selectFocusTask(TaskReference(source: .reminder, id: plan.id), title: item.title) }
+                        }
                     }
                 } label: { Label("从待办选择", systemImage: "checklist") }
                     .menuStyle(.borderlessButton).fixedSize().font(.system(size: 10))
-                    .disabled(state.summary(for: state.todayKey).todos.allSatisfy(\.isCompleted))
+                    .disabled(state.summary(for: state.todayKey).todos.allSatisfy(\.isCompleted) && !reminderTasks.plannedItems.values.contains(where: { !$0.isCompleted }))
             }
             TextField(state.settings.activityRecording.enabled ? "目标可选，AI 会根据允许的材料识别" : "可选，直接开始也会留下投入记录", text: $state.focusGoalDraft)
                 .textFieldStyle(.plain).font(.system(size: 12))
@@ -24,13 +30,18 @@ struct FocusGoalPicker: View {
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border, lineWidth: 0.7))
                 .onChange(of: state.focusGoalDraft) { _, value in
                     if value.count > 300 { state.focusGoalDraft = String(value.prefix(300)) }
+                    state.clearFocusTaskIfGoalChanged(value)
                 }
+            if state.focusTaskSelection != nil {
+                Text("已关联待办 · 专注结束后可记录进展").font(.system(size: 10)).foregroundStyle(Theme.green)
+            }
             if state.settings.focusGuard.enabled, state.settings.focusGuard.reuseLastPlan,
                state.settings.focusGuard.hasLastPlan, state.focusGoalDraft.isEmpty {
                 Text("本轮将沿用：\(state.settings.focusGuard.lastGoal)")
                     .font(.system(size: 10)).lineLimit(2)
             }
         }.frame(maxWidth: .infinity).foregroundStyle(Theme.secondary)
+            .task { await reminderTasks.refresh() }
     }
 }
 

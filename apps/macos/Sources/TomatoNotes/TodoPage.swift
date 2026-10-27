@@ -3,6 +3,9 @@ import SwiftUI
 import TomatoCore
 
 struct TodoPage: View {
+    @ObservedObject var state: AppState
+    @ObservedObject var reminderTasks: ReminderTasksController
+    var openFocus: () -> Void
     let todos: [TodoItem]
     let allTodos: [TodoItem]
     let day: String
@@ -17,8 +20,13 @@ struct TodoPage: View {
     @ViewState private var lastCompletedID: UUID?
     @ViewState private var feedbackGeneration = 0
 
-    private var completed: Int { todos.filter(\.isCompleted).count }
-    private var allDone: Bool { !todos.isEmpty && completed == todos.count }
+    private var todayPlans: [PlannedReminder] {
+        guard reminderTasks.enabled else { return [] }
+        return (state.taskWorkflow?.plannedReminders ?? []).filter { $0.scheduledDays.contains(day) && reminderTasks.selectedListIDs.contains($0.listID) }
+    }
+    private var completed: Int { todos.filter(\.isCompleted).count + todayPlans.filter { reminderTasks.plannedItems[$0.id]?.isCompleted == true }.count }
+    private var total: Int { todos.count + todayPlans.count }
+    private var allDone: Bool { total > 0 && completed == total }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -32,7 +40,7 @@ struct TodoPage: View {
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
                 Spacer(minLength: 0)
-                TodoProgressRing(completed: completed, total: todos.count)
+                TodoProgressRing(completed: completed, total: total)
             }
 
             HStack(spacing: 10) {
@@ -51,9 +59,11 @@ struct TodoPage: View {
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border.opacity(0.8), lineWidth: 0.7))
 
+            ReminderTasksSection(state: state, controller: reminderTasks, openFocus: openFocus)
+
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    Text("一 日 清 单").font(.system(size: 10, weight: .medium))
+                    Text("本 地 待 办").font(.system(size: 10, weight: .medium))
                     Spacer()
                     Text(day.replacingOccurrences(of: "-", with: "."))
                         .font(.system(size: 10, design: .rounded).monospacedDigit())
@@ -62,13 +72,13 @@ struct TodoPage: View {
                 if todos.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "leaf").font(.system(size: 30, weight: .ultraLight)).foregroundStyle(Theme.green)
-                        Text("从一件小事开始").font(.system(size: 15, weight: .medium, design: .serif))
+                        Text(total == 0 ? "从一件小事开始" : "本地待办还是空白").font(.system(size: 15, weight: .medium, design: .serif))
                         Text("不必排满今天，留一点从容。")
                             .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     }.frame(maxWidth: .infinity).padding(.vertical, 30)
                 } else {
                     ForEach(todos) { todo in
-                        NotebookTodoRow(todo: todo, update: updateTodo, remove: { remove(todo) }) { complete(todo) }
+                        NotebookTodoRow(todo: todo, progress: state.taskWorkflow?.localProgress.last(where: { $0.todoID == todo.id })?.text, update: updateTodo, remove: { remove(todo) }) { complete(todo) }
                             .transition(.opacity)
                     }
                 }
@@ -160,6 +170,7 @@ private struct TodoProgressRing: View {
 
 private struct NotebookTodoRow: View {
     let todo: TodoItem
+    let progress: String?
     var update: (UUID, String) -> Void
     var remove: () -> Void
     var toggle: () -> Void
@@ -208,6 +219,10 @@ private struct NotebookTodoRow: View {
                     if todo.localDay != todo.effectiveScheduledDay {
                         Text("来源 \(todo.localDay) · 最近安排 \(todo.effectiveScheduledDay)")
                             .font(.system(size: 9)).foregroundStyle(Theme.secondary)
+                    }
+                    if let progress, !progress.isEmpty {
+                        Text("进展：\(progress)").font(.system(size: 10)).foregroundStyle(Theme.green)
+                            .lineLimit(3)
                     }
                     if let date = todo.completedAt {
                         Text("已完成 · \(date.formatted(date: .omitted, time: .shortened))")

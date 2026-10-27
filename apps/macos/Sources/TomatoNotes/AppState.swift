@@ -11,6 +11,11 @@ struct HistoryNavigationRequest: Equatable {
     let todoID: UUID?
 }
 
+struct FocusTaskSelection: Equatable {
+    let task: TaskReference
+    let title: String
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published private(set) var data: AppData
@@ -31,6 +36,7 @@ final class AppState: ObservableObject {
     @Published private(set) var loadingAIModels = false
     @Published var guardSetupPresented = false
     @Published var focusGoalDraft = ""
+    @Published private(set) var focusTaskSelection: FocusTaskSelection?
     @Published private(set) var activityStatus = "开启后，专注时自动留下活动记录。"
     @Published private(set) var identifyingActivity = false
     @Published private(set) var activityErrors: [UUID: String] = [:]
@@ -85,13 +91,17 @@ final class AppState: ObservableObject {
     private var noteBaselineDay = LocalTime.dayKey(Date())
     private let aiClientFactory: (AIProviderConfig) -> AIReviewClient
     private let injectedKeyReader: ((String) throws -> String?)?
+    private let injectedReminderStore: (any ReminderStore)?
+    lazy var reminderTasks = ReminderTasksController(state: self, store: injectedReminderStore ?? EventKitReminderStore())
 
     init(repository: LocalRepository = LocalRepository(),
          aiClientFactory: @escaping (AIProviderConfig) -> AIReviewClient = { AIReviewClient(provider: $0) },
-         keyReader: ((String) throws -> String?)? = nil) {
+         keyReader: ((String) throws -> String?)? = nil,
+         reminderStore: (any ReminderStore)? = nil) {
         self.repository = repository
         self.aiClientFactory = aiClientFactory
         self.injectedKeyReader = keyReader
+        self.injectedReminderStore = reminderStore
         self.workImages = WorkImageStore(repository: repository)
         do {
             var loaded = try repository.load()
@@ -130,6 +140,33 @@ final class AppState: ObservableObject {
     }
 
     var canWrite: Bool { errorMessage == nil }
+    var taskWorkflow: TaskWorkflow? { try? TaskWorkflow.load(from: data) }
+
+    @discardableResult
+    func updateTaskWorkflow(_ update: (inout TaskWorkflow) -> Void) -> Bool {
+        guard canWrite else { return false }
+        do {
+            var next = engine.data
+            var workflow = try TaskWorkflow.load(from: next)
+            update(&workflow)
+            try workflow.save(into: &next)
+            engine.replaceData(next)
+            publish()
+            return canWrite
+        } catch {
+            feedback = "待办关联资料无法读取，原始资料已保留。"
+            return false
+        }
+    }
+
+    func selectFocusTask(_ task: TaskReference, title: String) {
+        focusGoalDraft = String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300))
+        focusTaskSelection = FocusTaskSelection(task: task, title: focusGoalDraft)
+    }
+
+    func clearFocusTaskIfGoalChanged(_ goal: String) {
+        if let selection = focusTaskSelection, selection.title != goal { focusTaskSelection = nil }
+    }
     var todayKey: String { LocalTime.dayKey(Date()) }
     var timer: TimerSnapshot { data.timer }
     var settings: AppSettings { data.settings }
@@ -181,9 +218,27 @@ final class AppState: ObservableObject {
             else { openGuardSetup(startAfter: true); return }
         }
         let previousSessionID = timer.sessionID
-        engine.start(at: Date(), goal: pendingGuardPlan?.goal ?? focusGoalDraft,
+        let startingGoal = pendingGuardPlan?.goal ?? focusGoalDraft
+        let selectedTask = focusTaskSelection
+        engine.start(at: Date(), goal: startingGoal,
                      whitelistedBundleIDs: pendingGuardPlan?.applicationWhitelistBundleIDs)
-        if engine.data.timer.stage == .focus, engine.data.timer.sessionID != previousSessionID { focusGoalDraft = "" }
+        if engine.data.timer.stage == .focus, let sessionID = engine.data.timer.sessionID,
+           sessionID != previousSessionID {
+            if let selectedTask, selectedTask.title == startingGoal.trimmingCharacters(in: .whitespacesAndNewlines),
+               canAssociateFocusTask(selectedTask.task, title: selectedTask.title) {
+                var next = engine.data
+                do {
+                    var workflow = try TaskWorkflow.load(from: next)
+                    workflow.bind(sessionID: sessionID, to: selectedTask.task)
+                    try workflow.save(into: &next)
+                    engine.replaceData(next)
+                } catch { feedback = "专注已开始，但待办关联资料无法读取，本轮未关联待办。" }
+            } else if selectedTask != nil {
+                feedback = "专注已开始，但待办状态或目标已变化，本轮未关联待办。"
+            }
+            focusTaskSelection = nil
+            focusGoalDraft = ""
+        }
         if let plan = pendingGuardPlan, let id = engine.data.timer.sessionID {
             guardController.configure(plan, sessionID: id)
             engine.setWhitelistBundleIDs(plan.applicationWhitelistBundleIDs, for: id)
@@ -204,6 +259,20 @@ final class AppState: ObservableObject {
         publish(historyContentChanged: engine.data.timer.sessionID != previousSessionID)
         markAutomaticRecording()
         onStarted?()
+    }
+
+    private func canAssociateFocusTask(_ task: TaskReference, title: String) -> Bool {
+        func matches(_ current: String) -> Bool {
+            String(current.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300)) == title
+        }
+        switch task.source {
+        case .local:
+            return data.todos.contains { $0.id == task.id && !$0.isCompleted && $0.effectiveScheduledDay == todayKey && matches($0.text) }
+        case .reminder:
+            guard taskWorkflow?.plannedReminders.contains(where: { $0.id == task.id && $0.scheduledDays.contains(todayKey) }) == true,
+                  let item = reminderTasks.plannedItems[task.id], !item.isCompleted else { return false }
+            return matches(item.title)
+        }
     }
 
     func tick() {
@@ -673,6 +742,21 @@ final class AppState: ObservableObject {
     private func readAPIKey(providerID: String) throws -> String? {
         if let injectedKeyReader { return try injectedKeyReader(providerID) }
         return try credentials.read(providerID: providerID)
+    }
+
+    func suggestTaskProgress(title: String, evidence: String, focusSeconds: Double) async throws -> String {
+        guard let key = try readAPIKey(providerID: aiProvider.id), !key.isEmpty else { throw AIReviewError.missingKey }
+        let client = ai
+        let boundedTitle = String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300))
+        return try await client.suggestTaskProgress(title: boundedTitle, evidence: evidence, focusSeconds: focusSeconds, apiKey: key)
+    }
+
+    func saveLocalTaskProgress(todoID: UUID, sessionID: UUID, text: String) -> Bool {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.count <= 2000, value.utf8.count <= 12000,
+              data.todos.contains(where: { $0.id == todoID }),
+              taskWorkflow?.task(for: sessionID) == TaskReference(source: .local, id: todoID) else { return false }
+        return updateTaskWorkflow { $0.localProgress.append(LocalTaskProgress(todoID: todoID, sessionID: sessionID, text: value)) }
     }
 
     func refreshCredentialStatus() {
