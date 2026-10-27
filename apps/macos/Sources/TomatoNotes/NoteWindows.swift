@@ -99,6 +99,7 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
         let panel = NSPanel(contentRect: NSRect(origin: origin, size: size),
                             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         super.init(window: panel)
+        panel.appearance = NSAppearance(named: .aqua)
         panel.title = note.title
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
@@ -147,7 +148,8 @@ private final class NoteWindowController: NSWindowController, NSWindowDelegate, 
         editor.isHorizontallyResizable = false
         editor.autoresizingMask = [.width]
         editor.minSize = NSSize(width: 0, height: 200)
-        editor.frame = NSRect(x: 0, y: 0, width: size.width, height: max(200, size.height - 60))
+        // 滚动视图尚未布局，使用其当前宽度以免后续自动调整时重复加上窗口宽度。
+        editor.frame = NSRect(x: 0, y: 0, width: scroll.contentSize.width, height: max(200, size.height - 60))
         editor.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         editor.textContainer?.widthTracksTextView = true
         editor.textContainer?.containerSize = NSSize(width: size.width, height: CGFloat.greatestFiniteMagnitude)
