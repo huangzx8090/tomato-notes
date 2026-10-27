@@ -28,6 +28,11 @@ struct WorkReportView: View {
                 }
                 if case .session(let id) = scope, let progress = SessionProgress.build(sessionID: id, from: state.data) {
                     SessionProgressCard(state: state, progress: progress, showSummaryPreview: false)
+                    if let task = state.taskWorkflow?.task(for: id) {
+                        TaskProgressCard(state: state, reminders: state.reminderTasks, sessionID: id, task: task,
+                                         focusSeconds: progress.focusSeconds, ended: progress.session.endedAt != nil,
+                                         configureAI: configureAI)
+                    }
                     ActivitySessionDetails(state: state, sessionID: id)
                     if !progress.apps.isEmpty {
                         DisclosureGroup("这一轮的 App 投入记录") {
