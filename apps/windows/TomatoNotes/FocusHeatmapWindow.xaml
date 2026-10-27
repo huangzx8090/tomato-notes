@@ -1,0 +1,67 @@
+<ui:FluentWindow x:Class="TomatoNotes.Windows.FocusHeatmapWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:local="clr-namespace:TomatoNotes.Windows"
+                 Title="专注热力图" Width="680" Height="640" MinWidth="520" MinHeight="520"
+                 WindowStartupLocation="CenterOwner" FontFamily="{StaticResource UIFont}"
+                 Foreground="{DynamicResource Ink}" ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="None" WindowCornerPreference="Round">
+  <ui:FluentWindow.Resources>
+    <local:IntensityConverter x:Key="Intensity" />
+  </ui:FluentWindow.Resources>
+  <DockPanel Background="{DynamicResource Background}">
+    <ui:TitleBar DockPanel.Dock="Top" Title="专注热力图" ShowMaximize="False" Height="36" />
+    <Border DockPanel.Dock="Top" Style="{StaticResource PaperCard}" Margin="22,0,22,12">
+      <DockPanel>
+        <ui:Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Click="Next_Click" ToolTip="更新一周"
+                   AutomationProperties.Name="更新一周">
+          <ui:SymbolIcon Symbol="ChevronRight24" FontSize="12" Foreground="{DynamicResource Secondary}" />
+        </ui:Button>
+        <ui:Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Click="Previous_Click" ToolTip="更早一周"
+                   AutomationProperties.Name="更早一周">
+          <ui:SymbolIcon Symbol="ChevronLeft24" FontSize="12" Foreground="{DynamicResource Secondary}" />
+        </ui:Button>
+        <StackPanel>
+          <TextBlock x:Name="RangeLabel" Style="{StaticResource CardTitle}" />
+          <TextBlock x:Name="SummaryLabel" Style="{StaticResource HintText}" Margin="0,4,0,0" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="22,0,22,14">
+      <TextBlock Text="少" Style="{StaticResource CaptionText}" VerticalAlignment="Center" Margin="0,0,6,0" />
+      <Border Width="12" Height="12" CornerRadius="3" Background="{DynamicResource BorderSoft}" Margin="0,0,4,0" />
+      <Border Width="12" Height="12" CornerRadius="3" Background="{DynamicResource AccentSoft}" Margin="0,0,4,0" />
+      <Border Width="12" Height="12" CornerRadius="3" Background="{DynamicResource Accent}" Margin="0,0,4,0" />
+      <Border Width="12" Height="12" CornerRadius="3" Background="{DynamicResource AccentFill}" Margin="0,0,6,0" />
+      <TextBlock Text="多" Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
+    </StackPanel>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+      <ItemsControl x:Name="Weeks" Margin="22,0,22,8">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <ItemsControl ItemsSource="{Binding Days}" Margin="0,0,0,4">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <UniformGrid Columns="7" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Width="18" Height="18" CornerRadius="4" Margin="2"
+                          Background="{Binding Intensity, Converter={StaticResource Intensity}}"
+                          BorderBrush="{DynamicResource BorderSoft}" BorderThickness="1"
+                          ToolTip="{Binding Tooltip}">
+                    <Button Background="Transparent" BorderThickness="0" Cursor="Hand"
+                            Click="Day_Click" Tag="{Binding}" Padding="0"
+                            AutomationProperties.Name="{Binding Tooltip}" />
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+  </DockPanel>
+</ui:FluentWindow>

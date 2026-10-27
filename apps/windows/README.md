@@ -13,6 +13,8 @@ macOS 工程位于 `apps/macos/`，由 macOS 维护者负责；`apps/windows/` �
 保留番茄钟、暂停恢复、待办与撤销、历史统计、独立浮动便签、TXT 导出、前台应用投入、
 本地备份、AI 模型查询和文字/图片回顾、自动回顾。托盘气泡代替 macOS 通知，
 Ctrl+Alt 快捷键代替 Control+Option，DPAPI 当前用户加密代替 Keychain。
+另支持本地历史搜索、专注热力图、未完成待办手动结转与撤销安排，
+以及待办删除后的本次运行内撤销。所有历史数据仍只写入既有 v4 JSON 字段。
 
 Liquid Glass、macOS 合盖检测、AppleScript Chrome 页面读取/截图/自动关闭不移植。
 Windows 版不展示不可用的守护设置。不会假装支持这些系统接口。

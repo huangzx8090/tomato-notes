@@ -113,8 +113,18 @@
         <!-- 品牌行：标语 + 日期（标题已在顶栏，避免重复） -->
         <DockPanel Grid.Row="0" Margin="22,10,22,14">
           <TextBlock Text="把时间留给在意的事" Style="{StaticResource HintText}" />
-          <TextBlock DockPanel.Dock="Right" Text="{Binding HeaderDate}" Style="{StaticResource CaptionText}"
-                     Typography.NumeralAlignment="Tabular" />
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+            <ui:Button Style="{StaticResource IconButton}" Click="HistorySearch_Click" ToolTip="历史搜索"
+                       AutomationProperties.Name="历史搜索">
+              <ui:SymbolIcon Symbol="Search24" FontSize="13" Foreground="{DynamicResource Secondary}" />
+            </ui:Button>
+            <ui:Button Style="{StaticResource IconButton}" Click="FocusHeatmap_Click" ToolTip="专注热力图"
+                       AutomationProperties.Name="专注热力图">
+              <ui:SymbolIcon Symbol="DataUsage24" FontSize="13" Foreground="{DynamicResource Secondary}" />
+            </ui:Button>
+            <TextBlock Text="{Binding HeaderDate}" Style="{StaticResource CaptionText}"
+                       Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" Margin="4,0,0,0" />
+          </StackPanel>
         </DockPanel>
 
         <!-- 读取失败提示 -->
@@ -281,6 +291,44 @@
                                Visibility="{Binding NewTodo, Converter={StaticResource EmptyVisibility}}" />
                   </Grid>
                 </DockPanel>
+              </Border>
+
+              <!-- 未完成旧待办：可批量安排到今天，并保留原记录与安排历史 -->
+              <Border Style="{StaticResource PaperCard}" Visibility="{Binding HasCarryoverRows, Converter={StaticResource BoolVisibility}}">
+                <StackPanel>
+                  <DockPanel Margin="0,0,0,9">
+                    <ui:Button DockPanel.Dock="Right" Content="顺延到今天" Style="{StaticResource SubtleButton}"
+                               Click="CarryoverAll_Click" AutomationProperties.Name="顺延选中的待办到今天" />
+                    <TextBlock Text="旧待办" Style="{StaticResource SectionText}" VerticalAlignment="Center" />
+                  </DockPanel>
+                  <TextBlock Text="{Binding CarryoverCountLabel}" Style="{StaticResource CaptionText}" Margin="0,0,0,8" />
+                  <ItemsControl ItemsSource="{Binding CarryoverRows}">
+                    <ItemsControl.ItemContainerStyle>
+                      <Style TargetType="ContentPresenter">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Text}" />
+                      </Style>
+                    </ItemsControl.ItemContainerStyle>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border BorderBrush="{DynamicResource BorderSoft}" BorderThickness="0,0,0,1" Padding="0,8">
+                          <DockPanel>
+                            <ui:Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="26" Height="26"
+                                       Click="UndoCarryover_Click" Tag="{Binding ID}" ToolTip="撤销今天安排">
+                              <ui:SymbolIcon Symbol="ArrowUndo24" FontSize="12" Foreground="{DynamicResource Secondary}" />
+                            </ui:Button>
+                            <StackPanel Orientation="Horizontal">
+                              <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" VerticalAlignment="Center" Margin="0,0,9,0" Cursor="Hand" />
+                              <StackPanel>
+                                <TextBlock Text="{Binding Text}" FontSize="12" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                <TextBlock Text="{Binding Detail}" Style="{StaticResource CaptionText}" Margin="0,3,0,0" />
+                              </StackPanel>
+                            </StackPanel>
+                          </DockPanel>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
               </Border>
 
               <!-- 纸张清单 -->

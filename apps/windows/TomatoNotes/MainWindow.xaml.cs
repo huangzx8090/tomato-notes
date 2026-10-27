@@ -78,6 +78,20 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (dialog.ShowDialog() == true) State.UpdateTodo(item.ID, dialog.Value);
     }
     private void UndoTodo_Click(object sender, RoutedEventArgs e) { State.UndoTodo(); DeletedBar.Visibility = Visibility.Collapsed; }
+    private void CarryoverAll_Click(object sender, RoutedEventArgs e) => State.ScheduleSelectedCarryovers();
+    private void UndoCarryover_Click(object sender, RoutedEventArgs e) => State.UndoCarryover(IdOf(sender));
+
+    // —— 历史 / 热力图 ——
+    private void HistorySearch_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new HistorySearchWindow(State) { Owner = this };
+        window.Show();
+    }
+    private void FocusHeatmap_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new FocusHeatmapWindow(State) { Owner = this };
+        window.Show();
+    }
 
     // —— 今日 ——
     private void PreviousDay_Click(object sender, RoutedEventArgs e) => State.MoveDay(-1);
@@ -127,3 +141,14 @@ public sealed class StrikeConverter : IValueConverter
 }
 public sealed class MinutesConverter : IValueConverter { public static MinutesConverter Instance { get; } = new(); public object Convert(object v, Type t, object p, CultureInfo c) => ((int)((double)v / 60)).ToString(); public object ConvertBack(object v, Type t, object p, CultureInfo c) => Binding.DoNothing; }
 public sealed class DurationConverter : IValueConverter { public static DurationConverter Instance { get; } = new(); public object Convert(object v, Type t, object p, CultureInfo c) => DisplayFormat.Duration((double)v); public object ConvertBack(object v, Type t, object p, CultureInfo c) => Binding.DoNothing; }
+public sealed class IntensityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => (int)value switch
+    {
+        1 => System.Windows.Application.Current.FindResource("AccentSoft"),
+        2 => System.Windows.Application.Current.FindResource("Accent"),
+        3 or 4 => System.Windows.Application.Current.FindResource("AccentFill"),
+        _ => System.Windows.Application.Current.FindResource("BorderSoft"),
+    };
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
+}

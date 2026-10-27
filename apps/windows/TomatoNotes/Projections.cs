@@ -21,6 +21,15 @@ public sealed record NoteRow(Guid ID, string Title, string Preview, string Meta,
 /// 历史便签按天分组，对应 macOS 的 NoteDayGroup。
 public sealed record NoteDayGroup(string DayLabel, int Count, List<NoteRow> Notes);
 
+/// 待办页的顺延候选。选择状态保存在行对象里，批量操作读取当前选择。
+public sealed class CarryoverRow
+{
+    public required Guid ID { get; init; }
+    public required string Text { get; init; }
+    public required string Detail { get; init; }
+    public bool IsSelected { get; set; }
+}
+
 public static class NoteProjections
 {
     public static NoteRow Row(StickyNote note, bool historical)
