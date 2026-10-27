@@ -65,6 +65,8 @@ struct MainPanel: View {
                                               showsHistory: $showsNoteHistory, createNote: createNote,
                                               openNote: openNote, continueNote: continueNote, deleteNote: deleteNote,
                                               exportNote: exportNote)
+                            case .ranking:
+                                LeaderboardPreviewView()
                             case .settings:
                                 SettingsView(state: state, page: $settingsPage, hasUnsavedChanges: $settingsHaveUnsavedChanges,
                                              openFocus: { navigate(to: .focus) }, testReminder: testReminder,

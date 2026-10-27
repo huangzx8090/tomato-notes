@@ -32,6 +32,10 @@ enum NoteTypography {
 }
 
 final class LinedTextView: NSTextView {
+    func ruleY(forLine line: Int) -> CGFloat {
+        textContainerOrigin.y + CGFloat(line + 1) * NoteTypography.lineHeight - 0.5
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
@@ -43,10 +47,15 @@ final class LinedTextView: NSTextView {
         let path = NSBezierPath()
         path.lineWidth = 0.5
         let pitch = NoteTypography.lineHeight
-        var y = floor(rect.minY / pitch) * pitch + 31
-        while y < rect.maxY + pitch {
-            path.move(to: NSPoint(x: 19, y: y))
-            path.line(to: NSPoint(x: bounds.width - 19, y: y))
+        let firstRule = ruleY(forLine: 0)
+        let firstVisibleLine = max(0, Int(floor((rect.minY - firstRule) / pitch)))
+        let left = textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0)
+        let right = bounds.width - left
+        var y = ruleY(forLine: firstVisibleLine)
+        // 横线使用与文本容器相同的起点和固定行高，滚动、换行后仍落在行尾。
+        while y <= rect.maxY {
+            path.move(to: NSPoint(x: left, y: y))
+            path.line(to: NSPoint(x: max(left, right), y: y))
             y += pitch
         }
         path.stroke()

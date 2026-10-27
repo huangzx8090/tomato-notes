@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum PanelTab: String, CaseIterable {
-    case focus = "专注", todos = "待办", today = "今日", notes = "便签", settings = "设置"
+    case focus = "专注", todos = "待办", today = "今日", notes = "便签", ranking = "排行", settings = "设置"
 
     var symbol: String {
         switch self {
@@ -9,6 +9,7 @@ enum PanelTab: String, CaseIterable {
         case .todos: "checklist"
         case .today: "sun.max"
         case .notes: "note.text"
+        case .ranking: "chart.bar.fill"
         case .settings: "slider.horizontal.3"
         }
     }
