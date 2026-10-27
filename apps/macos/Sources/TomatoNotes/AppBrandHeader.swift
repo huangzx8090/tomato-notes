@@ -4,6 +4,8 @@ import SwiftUI
 struct AppBrandHeader: View {
     var brandMark: NSImage? = Bundle.main.url(forResource: "BrandMark", withExtension: "png").flatMap(NSImage.init(contentsOf:))
     var date = Date()
+    var settingsSelected = false
+    var openSettings: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -21,6 +23,22 @@ struct AppBrandHeader: View {
             Spacer()
             Text(date, format: .dateTime.month(.twoDigits).day(.twoDigits))
                 .font(.system(size: 11, design: .rounded)).foregroundStyle(Theme.secondary)
+            if let openSettings {
+                Button(action: openSettings) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(settingsSelected ? Theme.accent : Theme.secondary)
+                        .frame(width: 34, height: 34)
+                        .background(settingsSelected ? Theme.accentSoft : Theme.surface.opacity(0.7), in: Circle())
+                        .overlay(Circle().stroke(Theme.border.opacity(0.65), lineWidth: 0.6))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("设置")
+                .accessibilityLabel("设置")
+                .accessibilityAddTraits(settingsSelected ? .isSelected : [])
+                .accessibilityIdentifier("navigation.设置")
+            }
         }
         .padding(.horizontal, 23).padding(.top, 18).padding(.bottom, 16)
     }

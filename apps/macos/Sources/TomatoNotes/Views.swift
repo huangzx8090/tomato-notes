@@ -28,7 +28,7 @@ struct MainPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AppBrandHeader()
+            AppBrandHeader(settingsSelected: tab == .settings, openSettings: { requestTab(.settings) })
             if !state.repository.isSharedLibrary { LocalDataStatusView(state: state) }
             PanelNavigation(selection: Binding(get: { tab }, set: requestTab))
             .padding(.horizontal, 22).padding(.bottom, 12)

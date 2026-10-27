@@ -3,6 +3,8 @@ import SwiftUI
 enum PanelTab: String, CaseIterable {
     case focus = "专注", todos = "待办", today = "今日", notes = "便签", ranking = "排行", settings = "设置"
 
+    static let primaryTabs: [PanelTab] = [.focus, .todos, .today, .notes, .ranking]
+
     var symbol: String {
         switch self {
         case .focus: "timer"
@@ -24,12 +26,12 @@ struct PanelNavigation: View {
     @ViewState private var capsuleOrigin: CGFloat = 0
 
     private var usesGlass: Bool { glassControlsEnabled && !reduceTransparency }
-    private var selectedIndex: CGFloat { CGFloat(PanelTab.allCases.firstIndex(of: selection) ?? 0) }
+    private var selectedIndex: CGFloat? { PanelTab.primaryTabs.firstIndex(of: selection).map(CGFloat.init) }
 
     var body: some View {
         ZStack {
             track
-            selectionSurface.padding(4)
+            selectionSurface.padding(4).opacity(selectedIndex == nil ? 0 : 1)
         }
         .allowsHitTesting(false)
         // 标签放在整个玻璃容器外，避免被材质采样、折射或模糊。
@@ -52,7 +54,7 @@ struct PanelNavigation: View {
     }
 
     @ViewBuilder private var selectionSurface: some View {
-        let shape = FlowingTabShape(position: capsulePosition, origin: capsuleOrigin, target: selectedIndex)
+        let shape = FlowingTabShape(position: capsulePosition, origin: capsuleOrigin, target: selectedIndex ?? capsulePosition)
         if usesGlass, #available(macOS 26.0, *) {
             GlassEffectContainer {
                 Color.clear.glassEffect(.regular.tint(Theme.surface.opacity(0.55)).interactive(), in: shape)
@@ -66,7 +68,7 @@ struct PanelNavigation: View {
 
     private var tabs: some View {
         HStack(spacing: 4) {
-            ForEach(PanelTab.allCases, id: \.self) { item in
+            ForEach(PanelTab.primaryTabs, id: \.self) { item in
                 Button { selection = item } label: {
                     HStack(spacing: 4) {
                         Image(systemName: item.symbol).font(.system(size: 12, weight: .medium))
@@ -85,6 +87,7 @@ struct PanelNavigation: View {
     }
 
     private func moveCapsule(animated: Bool) {
+        guard let selectedIndex else { return }
         capsuleOrigin = capsulePosition
         withAnimation(animated && !reduceMotion ? .spring(response: 0.52, dampingFraction: 0.84) : nil) {
             capsulePosition = selectedIndex
@@ -103,7 +106,7 @@ private struct FlowingTabShape: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
-        let count = CGFloat(PanelTab.allCases.count)
+        let count = CGFloat(PanelTab.primaryTabs.count)
         let gap: CGFloat = 4
         let slot = max(0, (rect.width - gap * (count - 1)) / count)
         let distance = target - origin
