@@ -21,8 +21,17 @@ struct AppBrandHeader: View {
             }.frame(width: 40, height: 40).accessibilityHidden(true)
             Text("番茄小记").font(.system(size: 17, weight: .semibold))
             Spacer()
-            Text(date, format: .dateTime.month(.twoDigits).day(.twoDigits))
-                .font(.system(size: 11, design: .rounded)).foregroundStyle(Theme.secondary)
+            VStack(alignment: .trailing, spacing: 3) {
+                HStack(spacing: 3) {
+                    Text("今天 ·")
+                    Text(date, format: .dateTime.weekday(.abbreviated))
+                }
+                .font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.secondary)
+                Text(date, format: .dateTime.month().day())
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.primary)
+            }
+            .accessibilityElement(children: .combine)
             if let openSettings {
                 Button(action: openSettings) {
                     Image(systemName: "gearshape")
