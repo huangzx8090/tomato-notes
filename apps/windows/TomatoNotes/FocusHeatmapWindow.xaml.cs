@@ -22,8 +22,7 @@ public partial class FocusHeatmapWindow : Ui.FluentWindow
     private void Refresh()
     {
         var range = FocusHeatmapRange.Build(state.Data.Intervals, 13, pageOffset);
-        var weeks = range.Weeks.Select(week => new HeatmapWeekRow(week.Days.Select(day => new HeatmapDayRow(day)).ToList())).ToList();
-        Weeks.ItemsSource = weeks;
+        Weeks.ItemsSource = HeatmapProjections.Weeks(range, null);
         RangeLabel.Text = $"{range.StartDay.Replace("-", ".")} - {range.EndDay.Replace("-", ".")}";
         SummaryLabel.Text = $"累计专注 {DisplayFormat.Duration(range.TotalSeconds)}，共 {range.ActiveDays} 天留下投入。";
     }
@@ -36,13 +35,4 @@ public partial class FocusHeatmapWindow : Ui.FluentWindow
         state.CurrentTab = 2;
         Close();
     }
-}
-
-internal sealed record HeatmapWeekRow(List<HeatmapDayRow> Days);
-internal sealed class HeatmapDayRow(FocusHeatmapDay day)
-{
-    public string Day { get; } = day.Day;
-    public int Intensity { get; } = day.Intensity;
-    public bool IsFuture { get; } = day.IsFuture;
-    public string Tooltip { get; } = $"{day.Date:yyyy-MM-dd dddd} · {(day.IsFuture ? "未到" : DisplayFormat.Duration(day.Seconds))}";
 }

@@ -36,11 +36,27 @@ public partial class App : System.Windows.Application
             singleInstance = new Mutex(true, $"Local\\TomatoNotes-{token}", out var first);
             activateSignal = new EventWaitHandle(false, EventResetMode.AutoReset, $"Local\\TomatoNotes-activate-{token}");
             shutdownSignal = new EventWaitHandle(false, EventResetMode.AutoReset, $"Local\\TomatoNotes-shutdown-{token}");
-            if (!first) { (e.Args.Contains("--shutdown") ? shutdownSignal : activateSignal).Set(); singleInstance.Dispose(); return; }
-            if (e.Args.Contains("--shutdown")) return;
+            // 复用已有实例后必须退出：ShutdownMode 是 OnExplicitShutdown，
+            // 只 return 会让进程没有窗口地一直留着，还会锁住 exe 导致无法重新编译。
+            if (!first) { (e.Args.Contains("--shutdown") ? shutdownSignal : activateSignal).Set(); singleInstance.Dispose(); Shutdown(); return; }
+            if (e.Args.Contains("--shutdown")) { Shutdown(); return; }
             activationLoop = new();
-            _ = Task.Run(async () => { while (!activationLoop.IsCancellationRequested) { var selected = WaitHandle.WaitAny([activateSignal, shutdownSignal]); if (selected == 1) { await Dispatcher.InvokeAsync(() => window?.ExitApplication()); break; } await Dispatcher.InvokeAsync(() => window?.ShowFromTray()); } }, activationLoop.Token);
-            repository = new LocalRepository(DataPath);
+            _ = Task.Run(async () =>
+            {
+                while (!activationLoop.IsCancellationRequested)
+                {
+                    var selected = WaitHandle.WaitAny([activateSignal, shutdownSignal]);
+                    try
+                    {
+                        if (selected == 1) { await Dispatcher.InvokeAsync(() => window?.ExitApplication()); break; }
+                        await Dispatcher.InvokeAsync(() => window?.ShowFromTray());
+                    }
+                    // 单次唤醒失败不能让循环退出，否则之后托盘激活与 --shutdown 都会失效。
+                    catch (Exception ex) { AppendActivationError(ex); }
+                }
+            }, activationLoop.Token);
+            // 共用本机资料库时传 null，否则 IsSharedLibrary 永远为假，日常实例会被标成独立测试资料。
+            repository = new LocalRepository(custom is null && !IsTest ? null : DataPath);
             state = new AppState(repository);
             // 先按保存的外观安装品牌令牌，再创建窗口，避免首帧闪一下默认色。
             ThemeService.Apply(state.Data.Settings.Appearance);
@@ -62,4 +78,14 @@ public partial class App : System.Windows.Application
         state?.Dispose(); tray?.Dispose(); ThemeService.StopWatching(); activationLoop?.Cancel(); activateSignal?.Dispose(); shutdownSignal?.Dispose(); singleInstance?.Dispose(); repository?.Dispose();
     }
     public void ShowMainWindow() => window?.ShowFromTray();
+
+    private static void AppendActivationError(Exception ex)
+    {
+        try
+        {
+            System.IO.File.AppendAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "tomato-crash.log"),
+                $"[activation] {DateTime.Now:O}\n{ex}\n\n");
+        }
+        catch { }
+    }
 }

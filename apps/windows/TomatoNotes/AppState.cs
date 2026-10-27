@@ -29,6 +29,7 @@ public sealed class AppState : ObservableObject, IDisposable
     private readonly Dictionary<string, WorkWindow> workWindows = [];
     private readonly TodoDeletionHistory deletedTodos = new();
     private readonly List<CarryoverRow> carryoverRows = [];
+    private FocusHeatmapRange heatmapRange = FocusHeatmapRange.Build(Array.Empty<FocusInterval>(), 13);
     private readonly HashSet<string> generating = [];
     private CancellationTokenSource lifetime = new();
     public event Action<string, string, bool, bool>? NotificationRequested;
@@ -59,6 +60,12 @@ public sealed class AppState : ObservableObject, IDisposable
     public IEnumerable<CarryoverRow> CarryoverRows => carryoverRows;
     public bool HasCarryoverRows => carryoverRows.Count > 0;
     public string CarryoverCountLabel => $"共 {carryoverRows.Count} 件未完成旧待办";
+
+    // —— 今日页常驻的紧凑热力图：与 macOS FocusHeatmapCompactView 一致，只统计真实专注分段 ——
+    public IReadOnlyList<HeatmapWeekRow> HeatmapWeeks { get; private set; } = [];
+    public string HeatmapSummaryLabel => $"{DisplayFormat.Duration(heatmapRange.TotalSeconds)} · 有记录 {heatmapRange.ActiveDays} 天";
+    public string HeatmapRangeLabel => $"{heatmapRange.StartDay} — {heatmapRange.EndDay}";
+    public bool HasHeatmapRecords => heatmapRange.ActiveDays > 0;
     public int CurrentTab { get => currentTab; set { if (Set(ref currentTab, value)) { if (value == 2) RefreshHistory(); Changed(nameof(IsFocusTab)); Changed(nameof(IsTodoTab)); Changed(nameof(IsTodayTab)); Changed(nameof(IsNotesTab)); Changed(nameof(IsSettingsTab)); } } }
     public bool IsFocusTab => CurrentTab == 0; public bool IsTodoTab => CurrentTab == 1; public bool IsTodayTab => CurrentTab == 2; public bool IsNotesTab => CurrentTab == 3; public bool IsSettingsTab => CurrentTab == 4;
 
@@ -314,6 +321,7 @@ public sealed class AppState : ObservableObject, IDisposable
     public void RefreshHistory() { Summary = DailySummary.Build(SelectedDay, Data); NotifySummary(); }
     private void NotifySummary()
     {
+        RefreshHeatmap();
         foreach (var name in new[] { nameof(IsToday), nameof(SelectedDayLabel), nameof(CanMoveNext), nameof(SummaryMinutes),
             nameof(SummarySentence), nameof(HasEarlySessions), nameof(EarlySessionsLabel), nameof(SummaryCompletedTodos),
             nameof(SummaryCompletedSessions),
@@ -321,6 +329,14 @@ public sealed class AppState : ObservableObject, IDisposable
             nameof(HasApps), nameof(ShowEmptyApps), nameof(RecordingOff), nameof(HasUnattributed), nameof(HasDisabled),
             nameof(UnattributedLabel), nameof(DisabledLabel), nameof(HiddenAppCount), nameof(HasHiddenApps),
             nameof(HiddenAppsLabel), nameof(SummaryApps), nameof(SessionRows), nameof(SummaryTodos) }) Changed(name);
+    }
+    /// 选中日期变化时也要重算，紧凑视图才能描出当前查看的那一天。
+    private void RefreshHeatmap()
+    {
+        heatmapRange = FocusHeatmapRange.Build(Data.Intervals, 13);
+        HeatmapWeeks = HeatmapProjections.Weeks(heatmapRange, SelectedDay);
+        Changed(nameof(HeatmapWeeks)); Changed(nameof(HeatmapSummaryLabel));
+        Changed(nameof(HeatmapRangeLabel)); Changed(nameof(HasHeatmapRecords));
     }
     /// 进展卡片需要聚合区间与待办，算一次缓存下来，避免每秒重复扫描。
     private void RefreshProgressCard()

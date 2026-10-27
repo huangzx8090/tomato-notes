@@ -92,6 +92,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         var window = new FocusHeatmapWindow(State) { Owner = this };
         window.Show();
     }
+    private void HeatmapDay_Click(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).Tag is not HeatmapDayRow day || day.IsFuture) return;
+        State.SelectedDay = day.Day;
+    }
 
     // —— 今日 ——
     private void PreviousDay_Click(object sender, RoutedEventArgs e) => State.MoveDay(-1);

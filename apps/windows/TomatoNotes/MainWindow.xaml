@@ -12,6 +12,22 @@
     <local:StrikeConverter x:Key="Strike" />
     <local:MinutesConverter x:Key="Minutes" />
     <local:DurationConverter x:Key="Duration" />
+    <local:IntensityConverter x:Key="Intensity" />
+
+    <!-- 热力图格子：固定 12×12，选中当天用强调色描边，悬停与选中都不改变布局 -->
+    <Style x:Key="HeatmapCell" TargetType="Border">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="12" />
+      <Setter Property="CornerRadius" Value="3" />
+      <Setter Property="Margin" Value="0,0,0,2" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+          <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
 
     <!-- 状态点：专注时番茄红，休息时苔绿 -->
     <Style x:Key="StatusDot" TargetType="Ellipse">
@@ -410,6 +426,64 @@
               </DockPanel>
               <ui:Button Content="回到今天" Style="{StaticResource LinkButton}" HorizontalAlignment="Center" Margin="0,0,0,10"
                          Click="Today_Click" Visibility="{Binding IsToday, Converter={StaticResource InverseBoolVisibility}}" />
+
+              <!-- 专注热力图：常驻今日页，点格子切换日期，查看全部打开独立窗口 -->
+              <Border Style="{StaticResource PaperCard}">
+                <StackPanel>
+                  <DockPanel Margin="0,0,0,6">
+                    <ui:Button DockPanel.Dock="Right" Content="查看全部" Style="{StaticResource LinkButton}"
+                               Click="FocusHeatmap_Click" AutomationProperties.Name="查看完整热力图" />
+                    <TextBlock Text="专注热力图" Style="{StaticResource SectionText}" VerticalAlignment="Center" />
+                  </DockPanel>
+                  <TextBlock Text="{Binding HeatmapSummaryLabel, Mode=OneWay}" FontSize="12" FontWeight="Medium"
+                             Typography.NumeralAlignment="Tabular" Margin="0,0,0,10" />
+                  <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,0,0,10">
+                    <ItemsControl ItemsSource="{Binding HeatmapWeeks, Mode=OneWay}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <ItemsControl ItemsSource="{Binding Days}" Margin="0,0,3,0">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate>
+                                <StackPanel />
+                              </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate>
+                                <Border Style="{StaticResource HeatmapCell}"
+                                        Background="{Binding Intensity, Converter={StaticResource Intensity}}"
+                                        ToolTip="{Binding Tooltip}">
+                                  <Button Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand"
+                                          Click="HeatmapDay_Click" Tag="{Binding}"
+                                          AutomationProperties.Name="{Binding Tooltip}" />
+                                </Border>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                  <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                      <TextBlock Text="少" Style="{StaticResource CaptionText}" VerticalAlignment="Center" Margin="0,0,5,0" />
+                      <Border Width="10" Height="10" CornerRadius="3" Background="{DynamicResource BorderSoft}" Margin="0,0,3,0" />
+                      <Border Width="10" Height="10" CornerRadius="3" Background="{DynamicResource AccentSoft}" Margin="0,0,3,0" />
+                      <Border Width="10" Height="10" CornerRadius="3" Background="{DynamicResource Accent}" Margin="0,0,3,0" />
+                      <Border Width="10" Height="10" CornerRadius="3" Background="{DynamicResource AccentFill}" Margin="0,0,5,0" />
+                      <TextBlock Text="多" Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding HeatmapRangeLabel, Mode=OneWay}" Style="{StaticResource CaptionText}"
+                               Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" />
+                  </DockPanel>
+                  <TextBlock Text="完成第一段专注后，这里会留下记录" Style="{StaticResource HintText}" Margin="0,8,0,0"
+                             Visibility="{Binding HasHeatmapRecords, Mode=OneWay, Converter={StaticResource InverseBoolVisibility}}" />
+                </StackPanel>
+              </Border>
 
               <!-- 进展总览卡 -->
               <Border Style="{StaticResource PaperCard}">
