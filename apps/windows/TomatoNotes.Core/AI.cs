@@ -22,7 +22,7 @@ public static class AIProviders
     public static AIProvider Resolve(AISettings settings)
     {
         var preset = Presets.FirstOrDefault(x => x.ID == settings.ProviderID) ?? Presets[0];
-        return settings.ProviderID == "custom" ? preset with { BaseURL = settings.CustomBaseURL.Trim(), DefaultModel = settings.ModelOverride.Trim() } : preset with { DefaultModel = string.IsNullOrWhiteSpace(settings.ModelOverride) ? preset.DefaultModel : settings.ModelOverride.Trim() };
+        return settings.ProviderID == "custom" ? preset with { BaseURL = settings.CustomBaseURL.Trim().TrimEnd('/'), DefaultModel = settings.ModelOverride.Trim() } : preset with { DefaultModel = string.IsNullOrWhiteSpace(settings.ModelOverride) ? preset.DefaultModel : settings.ModelOverride.Trim() };
     }
 }
 
@@ -39,8 +39,13 @@ public sealed class AIClient : IDisposable
     {
         using var response = await Send("models", key, null, cancellation);
         var text = await ReadLimited(response, 2 * 1024 * 1024, cancellation);
-        var root = JsonNode.Parse(text) ?? throw new InvalidDataException("AI 返回内容无效。");
-        return root["data"]?.AsArray().Select(x => x?["id"]?.GetValue<string>()).Where(x => !string.IsNullOrWhiteSpace(x)).Cast<string>().Distinct().Order().ToList() ?? throw new InvalidDataException("AI 未返回模型列表。");
+        try
+        {
+            var root = JsonNode.Parse(text) ?? throw new InvalidDataException("AI 返回内容无效。");
+            var models = root["data"]?.AsArray().Select(x => x?["id"]?.GetValue<string>()).Where(x => !string.IsNullOrWhiteSpace(x)).Cast<string>().Distinct().Order().ToList() ?? throw new InvalidDataException("AI 未返回模型列表。");
+            return models.Count > 0 ? models : throw new InvalidDataException("AI 未返回可用模型，请检查接口或手动输入模型名。");
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException) { throw new InvalidDataException("AI 返回的模型列表无效。", ex); }
     }
     public async Task<WorkSummary> Summarize(string context, IReadOnlyList<(WorkImage Image, byte[] Bytes)> images, string key, CancellationToken cancellation = default)
     {
@@ -52,13 +57,17 @@ public sealed class AIClient : IDisposable
         if (Provider.SendsThinkingFlag) body["thinking"] = new JsonObject { ["type"] = "disabled" };
         using var response = await Send("chat/completions", key, body, cancellation);
         var text = await ReadLimited(response, 5 * 1024 * 1024, cancellation);
-        var completion = JsonNode.Parse(text) ?? throw new InvalidDataException("AI 返回内容无效。");
-        var choice = completion["choices"]?[0] ?? throw new InvalidDataException("AI 未返回可读取的总结，请重试。");
-        if (choice["finish_reason"]?.GetValue<string>() != "stop") throw new InvalidDataException("AI 返回内容不完整，请重新生成。");
-        var result = choice["message"]?["content"]?.GetValue<string>() ?? throw new InvalidDataException("AI 未返回可读取的总结。");
-        var summary = JsonSerializer.Deserialize<WorkSummary>(result, TomatoJson.Options) ?? throw new InvalidDataException("AI 返回内容无效。");
-        if (summary.Activities.Count + summary.Outcomes.Count + summary.NextSteps.Count + summary.Uncertainties.Count == 0) throw new InvalidDataException("AI 返回内容不完整，请重试。");
-        return summary;
+        try
+        {
+            var completion = JsonNode.Parse(text) ?? throw new InvalidDataException("AI 返回内容无效。");
+            var choice = completion["choices"]?[0] ?? throw new InvalidDataException("AI 未返回可读取的总结，请重试。");
+            if (choice["finish_reason"]?.GetValue<string>() != "stop") throw new InvalidDataException("AI 返回内容不完整，请重新生成。");
+            var result = choice["message"]?["content"]?.GetValue<string>() ?? throw new InvalidDataException("AI 未返回可读取的总结。");
+            var summary = JsonSerializer.Deserialize<WorkSummary>(result, TomatoJson.Options) ?? throw new InvalidDataException("AI 返回内容无效。");
+            if (summary.Activities.Count + summary.Outcomes.Count + summary.NextSteps.Count + summary.Uncertainties.Count == 0) throw new InvalidDataException("AI 返回内容不完整，请重试。");
+            return summary;
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException) { throw new InvalidDataException("AI 返回内容无效，请重试。已有记录和总结均已保留。", ex); }
     }
     private async Task<HttpResponseMessage> Send(string path, string key, JsonObject? body, CancellationToken cancellation)
     {

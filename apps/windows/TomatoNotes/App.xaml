@@ -203,6 +203,28 @@
         </ControlTemplate.Triggers>
       </ControlTemplate>
 
+      <!-- PasswordBox 不继承 TextBoxBase，不能复用上面的模板，否则首次显示会触发布局异常。 -->
+      <ControlTemplate x:Key="BrandPasswordInputTemplate" TargetType="{x:Type PasswordBox}">
+        <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="10" SnapsToDevicePixels="True">
+          <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"
+                        VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                        Background="Transparent" BorderThickness="0" Focusable="False" />
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True">
+            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Border}" />
+          </Trigger>
+          <Trigger Property="IsKeyboardFocusWithin" Value="True">
+            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
+          </Trigger>
+          <Trigger Property="IsEnabled" Value="False">
+            <Setter Property="Opacity" Value="0.5" />
+          </Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate>
+
       <Style x:Key="BrandTextBox" TargetType="{x:Type TextBox}">
         <Setter Property="Template" Value="{StaticResource BrandInputTemplate}" />
         <Setter Property="Background" Value="{DynamicResource Surface}" />
@@ -217,7 +239,7 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
       </Style>
       <Style x:Key="BrandPasswordBox" TargetType="{x:Type PasswordBox}">
-        <Setter Property="Template" Value="{StaticResource BrandInputTemplate}" />
+        <Setter Property="Template" Value="{StaticResource BrandPasswordInputTemplate}" />
         <Setter Property="Background" Value="{DynamicResource Surface}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSoft}" />
         <Setter Property="BorderThickness" Value="1" />

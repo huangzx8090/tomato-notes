@@ -16,6 +16,8 @@ public sealed class WorkWindow : Ui.FluentWindow
     private readonly WrapPanel images;
     private readonly StackPanel result;
     private readonly TextBlock status;
+    private readonly Ui.Button addImages;
+    private readonly Ui.Button generate;
 
     public WorkWindow(AppState state, WorkScope scope)
     {
@@ -76,13 +78,13 @@ public sealed class WorkWindow : Ui.FluentWindow
         images = new WrapPanel();
         root.Children.Add(images);
         var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 16) };
-        var add = new Ui.Button { Content = "添加图片（最多 6 张）", Style = subtle };
-        add.Click += async (_, _) => { state.UpdateWorkText(scope, input.Text); await state.AddWorkImages(scope); Refresh(); };
-        row.Children.Add(add);
+        addImages = new Ui.Button { Content = "添加图片（最多 6 张）", Style = subtle };
+        addImages.Click += async (_, _) => { state.UpdateWorkText(scope, input.Text); await state.AddWorkImages(scope); Refresh(); };
+        row.Children.Add(addImages);
         row.Children.Add(new TextBlock { Text = "PNG / JPEG / BMP / GIF，导入为 JPEG", Style = caption, Margin = new Thickness(9, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
         root.Children.Add(row);
 
-        var generate = new Ui.Button { Content = "让 AI 总结工作与成果", Style = primary };
+        generate = new Ui.Button { Content = "让 AI 总结工作与成果", Style = primary };
         generate.Click += async (_, _) => { state.UpdateWorkText(scope, input.Text); await state.GenerateReview(scope); Refresh(); };
         root.Children.Add(generate);
         root.Children.Add(new TextBlock { Text = "生成时将对应记录、补充文字及所选图片发送给当前 AI 服务商。AI 可能理解有误，请核对。", Style = caption, Margin = new Thickness(0, 9, 0, 16) });
@@ -98,7 +100,11 @@ public sealed class WorkWindow : Ui.FluentWindow
     {
         var record = state.WorkRecord(scope);
         if (record is null) return;
+        var busy = state.IsGenerating(scope);
         input.Text = record.UserText;
+        input.IsReadOnly = busy;
+        addImages.IsEnabled = !busy;
+        generate.IsEnabled = !busy;
         images.Children.Clear();
         var subtle = (Style)Application.Current.FindResource("SubtleButton");
         var caption = (Style)Application.Current.FindResource("CaptionText");
@@ -126,14 +132,14 @@ public sealed class WorkWindow : Ui.FluentWindow
             }
             catch { /* 图片缺失时只留文件名，不阻断整页 */ }
             panel.Children.Add(new TextBlock { Text = image.Name, TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap, FontSize = 10, Foreground = ThemeService.Token("Secondary"), Margin = new Thickness(0, 5, 0, 4) });
-            var remove = new Ui.Button { Content = "移除", Style = subtle };
+            var remove = new Ui.Button { Content = "移除", Style = subtle, IsEnabled = !busy };
             remove.Click += (_, _) => { state.RemoveWorkImage(scope, image.ID); Refresh(); };
             panel.Children.Add(remove);
             images.Children.Add(panel);
         }
 
         result.Children.Clear();
-        status.Text = state.IsGenerating(scope) ? "AI 正在整理文字与图片…" : state.Feedback;
+        status.Text = busy ? "AI 正在整理文字与图片，完成后可继续编辑…" : state.Feedback;
         var summary = record.Summary;
         if (summary is null) return;
 
