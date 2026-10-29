@@ -24,7 +24,6 @@ public sealed class AppState : ObservableObject, IDisposable
     private string selectedDay = LocalTime.DayKey(DateTimeOffset.Now);
     private string goal = "", feedback = "", aiStatus = "", newTodo = "";
     private DailySummary summary;
-    private AIClient ai;
     private readonly Dictionary<Guid, NoteWindow> notes = [];
     private readonly Dictionary<string, WorkWindow> workWindows = [];
     private readonly TodoDeletionHistory deletedTodos = new();
@@ -97,6 +96,7 @@ public sealed class AppState : ObservableObject, IDisposable
     public int SummaryMinutes => (int)(Summary.FocusSeconds / 60);
     public int SummaryCompletedSessions => Summary.CompletedSessions;
     public string AIStatusLabel => HasAPIKey ? "已配置" : "可选";
+    public string DefaultModelLabel => CurrentProviderID == "custom" ? "请输入服务商支持的模型名" : $"留空使用默认模型：{Provider.DefaultModel}";
     public string SummarySentence => Summary.Sentence;
     public int SummaryEarlySessions => Summary.EarlySessions;
     public bool HasEarlySessions => Summary.EarlySessions > 0;
@@ -199,7 +199,7 @@ public sealed class AppState : ObservableObject, IDisposable
     {
         Repository = repository; Data = repository.Load(); engine = new(Data); engine.RecoverAfterLaunch();
         if (Data.Timer.Phase == TimerPhase.Paused && CanWrite) Save();
-        summary = DailySummary.Build(SelectedDay, Data); ai = new(Provider);
+        summary = DailySummary.Build(SelectedDay, Data);
         RefreshProgressCard();
         aiStatus = HasAPIKey ? $"{Provider.Name} 已配置，可生成成果总结" : $"尚未配置 {Provider.Name} 的 API Key";
         StartCommand = new(_ => StartOrPause(), _ => CanWrite); EndCommand = new(_ => EndEarly(), _ => CanWrite);
@@ -357,7 +357,7 @@ public sealed class AppState : ObservableObject, IDisposable
         var record = WorkRecord(scope); if (record is not null) return record;
         record = new() { LocalDay = scope.Day ?? Data.Sessions.FirstOrDefault(x => x.ID == scope.SessionID)?.EndedLocalDay ?? TodayKey, SessionID = scope.SessionID }; Data.WorkRecords.Add(record); Commit(); return record;
     }
-    public void UpdateWorkText(WorkScope scope, string text) { if (!CanWrite) return; var record = EnsureWorkRecord(scope); record.UserText = text; record.UpdatedAt = DateTimeOffset.UtcNow; Save(); }
+    public void UpdateWorkText(WorkScope scope, string text) { if (!CanWrite || generating.Contains(scope.Key)) return; var record = EnsureWorkRecord(scope); record.UserText = text; record.UpdatedAt = DateTimeOffset.UtcNow; Save(); }
     public async Task AddWorkImages(WorkScope scope)
     {
         if (!CanWrite || generating.Contains(scope.Key)) return; var dialog = new OpenFileDialog { Filter = "图片|*.png;*.jpg;*.jpeg;*.bmp;*.gif|所有文件|*.*", Multiselect = true }; if (dialog.ShowDialog() != true) return;
@@ -373,10 +373,10 @@ public sealed class AppState : ObservableObject, IDisposable
         generating.Add(scope.Key); NotifyWork(scope);
         try
         {
-            var provider = Provider; var client = ai; var key = CredentialStore.Read(provider.ID) ?? throw new InvalidOperationException("请先在设置中保存 API Key。"); EnsureWorkRecord(scope);
+            var provider = Provider; using var client = new AIClient(provider); var key = CredentialStore.Read(provider.ID) ?? throw new InvalidOperationException("请先在设置中保存 API Key。"); EnsureWorkRecord(scope);
             var context = ReviewContextBuilder.Build(scope, Data); var images = context.Images.Select(x => (x, File.Exists(WorkImagePath(x)) ? File.ReadAllBytes(WorkImagePath(x)) : throw new InvalidDataException("有图片未能读取，请重新添加。"))).ToList();
             var content = await client.Summarize(context.Text, images, key, lifetime.Token);
-            if (client != ai || provider != Provider || !CanWrite) return;
+            if (provider != Provider || !CanWrite) return;
             var record = EnsureWorkRecord(scope); record.Summary = new() { Content = content, Model = provider.DefaultModel, ContextDigest = context.Digest, ImageIDs = context.Images.Select(x => x.ID).ToList() }; record.UpdatedAt = DateTimeOffset.UtcNow; Commit();
             if (scheduled) Data.LastReviewError = null; Feedback = "AI 总结已保存"; if (scheduled) Notify("每日回顾已生成", "打开番茄小记，查看今天留下的进展。");
         }
@@ -391,18 +391,19 @@ public sealed class AppState : ObservableObject, IDisposable
         catch (Exception ex) { Feedback = "备份失败：" + ex.Message; }
         if (MessageBox.Show($"备份目录：\n{Path.Combine(Repository.Root, "Backups")}\n\n是否打开备份目录？", "备份完成", MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes) Process.Start(new ProcessStartInfo("explorer.exe", $"\"{Path.Combine(Repository.Root, "Backups")}\"") { UseShellExecute = true });
     }
-    public void ChangeProvider(string id) { Data.Settings.AI.ProviderID = id; Data.Settings.AI.ModelOverride = ""; ai.Dispose(); ai = new(Provider); Models.Clear(); SaveSettings(); AIStatus = HasAPIKey ? $"{Provider.Name} 已配置" : $"尚未配置 {Provider.Name} 的 API Key"; Changed(nameof(Provider)); Changed(nameof(HasAPIKey)); }
+    public void ChangeProvider(string id) { Data.Settings.AI.ProviderID = id; Data.Settings.AI.ModelOverride = ""; Models.Clear(); SaveSettings(); AIStatus = HasAPIKey ? $"{Provider.Name} 已配置" : $"尚未配置 {Provider.Name} 的 API Key"; Changed(nameof(Provider)); Changed(nameof(HasAPIKey)); Changed(nameof(DefaultModelLabel)); }
     public void SetModel(string model) { Data.Settings.AI.ModelOverride = model; Save(); Changed(nameof(Provider)); }
     public void SaveAPIKey(string key) { if (string.IsNullOrWhiteSpace(key)) return; try { CredentialStore.Save(Provider.ID, key); AIStatus = "API Key 已使用 Windows 当前用户加密保存"; Changed(nameof(HasAPIKey)); } catch (Exception ex) { AIStatus = ex.Message; } }
     public void RemoveAPIKey() { CredentialStore.Remove(Provider.ID); AIStatus = "本机密钥已移除"; Changed(nameof(HasAPIKey)); }
     public async Task FetchModels()
     {
         if (BusyAI) return; BusyAI = true; Changed(nameof(BusyAI));
-        try { var key = CredentialStore.Read(Provider.ID) ?? throw new InvalidOperationException("请先保存 API Key。"); var models = await ai.FetchModels(key, lifetime.Token); Models.Clear(); foreach (var model in models) Models.Add(model); AIStatus = $"已获取 {models.Count} 个可用模型，请选择"; }
-        catch (Exception ex) { AIStatus = ex.Message; }
+        var provider = Provider;
+        try { var key = CredentialStore.Read(provider.ID) ?? throw new InvalidOperationException("请先保存 API Key。"); using var client = new AIClient(provider); var models = await client.FetchModels(key, lifetime.Token); if (provider != Provider) return; Models.Clear(); foreach (var model in models) Models.Add(model); AIStatus = $"已获取 {models.Count} 个可用模型，可选择或直接输入"; }
+        catch (Exception ex) when (ex is not OperationCanceledException) { if (provider == Provider) AIStatus = ex.Message; }
         finally { BusyAI = false; Changed(nameof(BusyAI)); }
     }
-    public async Task TestAI() { await FetchModels(); if (!AIStatus.StartsWith("已获取")) return; AIStatus = $"{Provider.Name} 连接成功，模型列表已读取"; }
+    public async Task TestAI() { var provider = Provider; await FetchModels(); if (provider != Provider || !AIStatus.StartsWith("已获取")) return; AIStatus = $"{Provider.Name} 连接成功，模型列表已读取"; }
     private void SaveSettings()
     {
         if (Data.Settings.FocusMinutes is < 1 or > 180 || Data.Settings.ShortBreakMinutes is < 1 or > 120 || Data.Settings.LongBreakMinutes is < 1 or > 180 || Data.Settings.LongBreakEvery is < 1 or > 20) { Feedback = "请填写有效的分钟数与轮数。"; return; }
@@ -424,7 +425,7 @@ public sealed class AppState : ObservableObject, IDisposable
             nameof(HeaderDate), nameof(HasTodos), nameof(TodoProgressLabel), nameof(HasTodayNotes), nameof(HasHistoryNotes),
             nameof(AppearanceLabel), nameof(TimerSummaryLabel), nameof(ReviewLabel), nameof(RecordingLabel), nameof(DataStatusLabel), nameof(StorageLabel),
             nameof(HasTodos), nameof(AllTodosDone), nameof(TodoCompletionPercent), nameof(TodoProgressLabel), nameof(TodoDateLabel),
-            nameof(TodoShortLabel), nameof(TodoFooterLabel), nameof(AIStatusLabel),
+            nameof(TodoShortLabel), nameof(TodoFooterLabel), nameof(AIStatusLabel), nameof(DefaultModelLabel),
             nameof(HasTodayNotes), nameof(HasHistoryNotes), nameof(TodayNoteCount), nameof(HistoryNoteCount), nameof(NotesCountLabel),
             nameof(TodayNoteRows), nameof(HistoryNoteGroups) }) Changed(name);
         RefreshCarryoverRows();
@@ -448,5 +449,5 @@ public sealed class AppState : ObservableObject, IDisposable
         IsQuitting = true;
         foreach (var note in notes.Values.ToList()) note.Flush(); if (!CanWrite) return; AdvanceToNow(); if (Data.Timer.Phase == TimerPhase.Running) engine.Pause("应用退出已暂停", DateTimeOffset.UtcNow); Save();
     }
-    public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); timer.Stop(); SystemEvents.SessionSwitch -= SessionSwitch; SystemEvents.PowerModeChanged -= PowerModeChanged; ai.Dispose(); if (CanWrite) Save(); }
+    public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); timer.Stop(); SystemEvents.SessionSwitch -= SessionSwitch; SystemEvents.PowerModeChanged -= PowerModeChanged; if (CanWrite) Save(); }
 }

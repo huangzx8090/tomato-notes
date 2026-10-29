@@ -49,7 +49,10 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
 
         PageTitle.Text = PageMeta[(int)page].Title;
         PageSubtitle.Text = PageMeta[(int)page].Subtitle;
+        UpdateCustomProviderVisibility();
     }
+
+    private void UpdateCustomProviderVisibility() => CustomProviderPane.Visibility = state.CurrentProviderID == "custom" ? Visibility.Visible : Visibility.Collapsed;
 
     private void Nav_Click(object sender, RoutedEventArgs e)
     {
@@ -85,14 +88,20 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     private void Provider_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (loaded && ProviderBox.SelectedValue is string id && id != state.CurrentProviderID) state.ChangeProvider(id);
+        if (loaded) UpdateCustomProviderVisibility();
     }
     private void Model_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (loaded && e.AddedItems.Count > 0 && e.AddedItems[0] is string model) state.SetModel(model);
     }
+    private void Model_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (loaded && sender is System.Windows.Controls.ComboBox box) state.SetModel(box.Text.Trim());
+    }
     private void SaveKey_Click(object sender, RoutedEventArgs e)
     {
         state.SaveSettingsCommand.Execute(null);
+        UpdateCustomProviderVisibility();
         state.SaveAPIKey(APIKeyBox.Password);
         APIKeyBox.Clear();
     }

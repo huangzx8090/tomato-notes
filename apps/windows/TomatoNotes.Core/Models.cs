@@ -198,6 +198,7 @@ public sealed class WorkSummary : JsonModel
     [JsonPropertyName("nextSteps")] public List<string> NextSteps { get; set; } = [];
     [JsonPropertyName("uncertainties")] public List<string> Uncertainties { get; set; } = [];
     public string Markdown => string.Join("\n\n", new[] { ("做了什么", Activities), ("取得的成果", Outcomes), ("待继续", NextSteps), ("待确认", Uncertainties) }.Where(x => x.Item2.Count > 0).Select(x => $"## {x.Item1}\n" + string.Join("\n", x.Item2.Select(y => $"- {y}"))));
+    [OnDeserialized] internal void Repair(StreamingContext _) { Activities ??= []; Outcomes ??= []; NextSteps ??= []; Uncertainties ??= []; }
 }
 
 public static class TimerStage { public const string Focus = "focus", ShortBreak = "shortBreak", LongBreak = "longBreak"; public static string Label(string? stage) => stage switch { ShortBreak => "短休息", LongBreak => "长休息", _ => "专注" }; }

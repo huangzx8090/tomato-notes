@@ -21,6 +21,7 @@ var tests = new (string Name, Func<Task> Run)[] {
     ("会话只归集期间完成的待办", () => SessionAttribution()),
     ("OpenAI 兼容模型与总结接口", () => AIContract()),
     ("AI 接口错误不暴露密钥", () => AIError()),
+    ("AI 使用最新模型配置并处理无效响应", () => AISettingsAndInvalidResponses()),
 };
 var failed = 0;
 foreach (var test in tests)
@@ -208,6 +209,27 @@ static async Task AIError()
 {
     using var client = new AIClient(new("custom", "Test", "https://example.test/v1", "model"), new StubHandler(_ => new(HttpStatusCode.Unauthorized) { Content = new StringContent("do not expose") }));
     try { await client.FetchModels("secret-key"); throw new Exception("预期401"); } catch (InvalidOperationException ex) { Equal(false, ex.Message.Contains("secret-key")); }
+}
+static async Task AISettingsAndInvalidResponses()
+{
+    var settings = new AISettings { ProviderID = "openai" };
+    Equal("gpt-4o-mini", AIProviders.Resolve(settings).DefaultModel);
+    settings.ModelOverride = " manually-entered-model ";
+    Equal("manually-entered-model", AIProviders.Resolve(settings).DefaultModel);
+    settings.ProviderID = "custom"; settings.CustomBaseURL = "ai.example.test/v1/";
+    Equal("ai.example.test/v1", AIProviders.Resolve(settings).BaseURL);
+
+    using var invalidModels = new AIClient(new("custom", "Test", "https://example.test/v1", "model"), new StubHandler(_ => Json("""{"data":[]}""")));
+    try { await invalidModels.FetchModels("secret"); throw new Exception("预期拒绝空模型列表"); }
+    catch (InvalidDataException ex) { Contains("手动输入模型名", ex.Message); }
+    using var invalidJson = new AIClient(new("custom", "Test", "https://example.test/v1", "model"), new StubHandler(_ => Json("not-json")));
+    try { await invalidJson.FetchModels("secret"); throw new Exception("预期拒绝无效 JSON"); }
+    catch (InvalidDataException ex) { Contains("模型列表无效", ex.Message); }
+    using var invalidSummary = new AIClient(new("custom", "Test", "https://example.test/v1", "model"), new StubHandler(_ => Json("""{"choices":[{"finish_reason":"stop","message":{"content":"not-json"}}]}""")));
+    try { await invalidSummary.Summarize("资料", [], "secret"); throw new Exception("预期拒绝无效总结"); }
+    catch (InvalidDataException ex) { Contains("已有记录和总结均已保留", ex.Message); }
+    var summary = JsonSerializer.Deserialize<WorkSummary>("""{"activities":["保留合法字段"]}""", TomatoJson.Options)!;
+    Equal(0, summary.Outcomes.Count + summary.NextSteps.Count + summary.Uncertainties.Count);
 }
 static HttpResponseMessage Json(string text) => new(HttpStatusCode.OK) { Content = new StringContent(text, Encoding.UTF8, "application/json") };
 static void Equal<T>(T expected, T actual) { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new Exception($"Expected: {expected}\nActual: {actual}"); }
