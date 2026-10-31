@@ -16,7 +16,13 @@ Ctrl+Alt 快捷键代替 Control+Option，DPAPI 当前用户加密代替 Keychai
 另支持本地历史搜索、专注热力图、未完成待办手动结转与撤销安排，
 以及待办删除后的本次运行内撤销。所有历史数据仍只写入既有 v4 JSON 字段。
 
+AI 活动记录与 macOS 同源：专注中采集便签新增文字与待办勾选，交给 AI 归纳本轮主题，
+时间线按主题归组统计投入，工作面板可改名、查看和逐条删除材料。
+删除材料写入 `excludedActivityKeys`，两端读同一份资料时都不会再把它采集回来。
+
 Liquid Glass、macOS 合盖检测、AppleScript Chrome 页面读取/截图/自动关闭不移植。
+Chrome 浏览页面只在 macOS 端采集；Windows 端能读出、显示并原样保存 macOS 写下的
+`chromePage` 材料，但不产生新的浏览记录，设置里也不显示 Chrome 开关。
 Windows 版不展示不可用的守护设置。不会假装支持这些系统接口。
 
 ## 资料兼容

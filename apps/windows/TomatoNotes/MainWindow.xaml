@@ -541,32 +541,42 @@
                     </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate>
                       <DataTemplate>
-                        <ui:Button Style="{StaticResource FlatRow}" Click="SessionRow_Click" Tag="{Binding ID}"
-                                   HorizontalAlignment="Stretch">
-                          <DockPanel>
-                            <ui:SymbolIcon DockPanel.Dock="Right" Symbol="ChevronRight24" FontSize="10"
-                                           Foreground="{DynamicResource Secondary}" VerticalAlignment="Center" />
-                            <Ellipse Width="7" Height="7" Margin="0,5,11,0" VerticalAlignment="Top">
-                              <Ellipse.Style>
-                                <Style TargetType="Ellipse">
-                                  <Setter Property="Fill" Value="{DynamicResource Green}" />
-                                  <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Completed}" Value="False">
-                                      <Setter Property="Fill" Value="{DynamicResource Accent}" />
-                                    </DataTrigger>
-                                  </Style.Triggers>
-                                </Style>
-                              </Ellipse.Style>
-                            </Ellipse>
-                            <StackPanel>
-                              <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Medium" Margin="0,0,0,4" />
-                              <TextBlock Text="{Binding Detail}" Style="{StaticResource CaptionText}"
-                                         Typography.NumeralAlignment="Tabular" Margin="0,0,0,3" />
-                              <TextBlock Text="{Binding Todos}" FontSize="11" Foreground="{DynamicResource Green}"
-                                         Visibility="{Binding Todos, Converter={StaticResource NotEmptyVisibility}}" />
-                            </StackPanel>
+                        <StackPanel>
+                          <!-- 同一主题多于一轮时，在第一轮上方标出组名与合计投入。 -->
+                          <DockPanel Margin="2,11,2,5" Visibility="{Binding GroupTitle, Converter={StaticResource NotEmptyVisibility}}">
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding GroupDetail}" FontSize="10"
+                                       Foreground="{DynamicResource Secondary}" Typography.NumeralAlignment="Tabular"
+                                       VerticalAlignment="Center" Margin="0,1,0,0" />
+                            <TextBlock Text="{Binding GroupTitle}" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource Ink}" VerticalAlignment="Center" Margin="0,0,10,0" />
                           </DockPanel>
-                        </ui:Button>
+                          <ui:Button Style="{StaticResource FlatRow}" Click="SessionRow_Click" Tag="{Binding ID}"
+                                     HorizontalAlignment="Stretch">
+                            <DockPanel>
+                              <ui:SymbolIcon DockPanel.Dock="Right" Symbol="ChevronRight24" FontSize="10"
+                                             Foreground="{DynamicResource Secondary}" VerticalAlignment="Center" />
+                              <Ellipse Width="7" Height="7" Margin="0,5,11,0" VerticalAlignment="Top">
+                                <Ellipse.Style>
+                                  <Style TargetType="Ellipse">
+                                    <Setter Property="Fill" Value="{DynamicResource Green}" />
+                                    <Style.Triggers>
+                                      <DataTrigger Binding="{Binding Completed}" Value="False">
+                                        <Setter Property="Fill" Value="{DynamicResource Accent}" />
+                                      </DataTrigger>
+                                    </Style.Triggers>
+                                  </Style>
+                                </Ellipse.Style>
+                              </Ellipse>
+                              <StackPanel>
+                                <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Medium" Margin="0,0,0,4" />
+                                <TextBlock Text="{Binding Detail}" Style="{StaticResource CaptionText}"
+                                           Typography.NumeralAlignment="Tabular" Margin="0,0,0,3" />
+                                <TextBlock Text="{Binding Todos}" FontSize="11" Foreground="{DynamicResource Green}"
+                                           Visibility="{Binding Todos, Converter={StaticResource NotEmptyVisibility}}" />
+                              </StackPanel>
+                            </DockPanel>
+                          </ui:Button>
+                        </StackPanel>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>

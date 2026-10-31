@@ -5,9 +5,9 @@ namespace TomatoNotes.Windows;
 /// 今日页「专注时使用的 App」一行：名称、时长文本，以及相对当日专注总时长的占比。
 public sealed record AppUsageRow(string Name, string Duration, double Ratio);
 
-/// 时间线里的一轮专注。Windows 端没有活动记录与主题归组，
-/// 因此按轮次平铺，标题取目标或本轮勾选完成的第一件事。
-public sealed record SessionRow(Guid ID, string Title, string Detail, string? Todos, bool Completed, bool InProgress);
+/// 时间线里的一轮专注。标题依次取用户改名、本轮目标、AI 识别的主题，
+/// 最后退回本轮勾选完成的第一件事。同主题多于一轮时，组头文字挂在第一轮上。
+public sealed record SessionRow(Guid ID, string Title, string Detail, string? Todos, bool Completed, bool InProgress, string? GroupTitle = null, string? GroupDetail = null);
 
 /// 当天待办一行，用于今日页的回顾卡片。
 public sealed record TodoDayRow(Guid ID, string Text, bool CompletedOnDay, string Detail);
@@ -94,14 +94,23 @@ public static class Progressions
 
     public static IEnumerable<SessionRow> SessionRows(DailySummary summary, AppData data)
     {
-        foreach (var session in summary.Sessions)
+        // 与 macOS 的 ProgressTimeline 一致：先按主题归组，组内保持时间顺序。
+        foreach (var group in ActivityTopicGroup.Build(summary.Day, summary.Sessions, data))
         {
-            var progress = SessionProgress.Build(session.ID, data, summary.Day);
-            if (progress is null) continue;
-            var status = session.EndedAt is null ? "进行中" : session.Completed ? "完整番茄" : "提前结束";
-            var detail = $"{session.StartedAt.LocalDateTime:HH:mm} · 本日投入 {DisplayFormat.Duration(progress.FocusSeconds)} · {status}";
-            var todos = progress.CompletedTodos.Count == 0 ? null : "勾选完成：" + string.Join("、", progress.CompletedTodos.Select(x => x.Text));
-            yield return new SessionRow(session.ID, progress.Title, detail, todos, session.Completed, session.EndedAt is null);
+            var grouped = group.Sessions.Count > 1;
+            var first = true;
+            foreach (var session in group.Sessions)
+            {
+                var progress = SessionProgress.Build(session.ID, data, summary.Day);
+                if (progress is null) continue;
+                var status = session.EndedAt is null ? "进行中" : session.Completed ? "完整番茄" : "提前结束";
+                var detail = $"{session.StartedAt.LocalDateTime:HH:mm} · 本日投入 {DisplayFormat.Duration(progress.FocusSeconds)} · {status}";
+                var todos = progress.CompletedTodos.Count == 0 ? null : "勾选完成：" + string.Join("、", progress.CompletedTodos.Select(x => x.Text));
+                yield return new SessionRow(session.ID, progress.Title, detail, todos, session.Completed, session.EndedAt is null,
+                    first && grouped ? group.Title : null,
+                    first && grouped ? $"{group.Sessions.Count} 轮 · {DisplayFormat.Duration(group.Seconds)}" : null);
+                first = false;
+            }
         }
     }
 
