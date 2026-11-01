@@ -55,11 +55,8 @@ enum RankingSync {
     }
 
     static func parse(_ text: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: text) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: text)
+        // ISO8601DateFormatter 会把服务端微秒截断为毫秒，可能导致授权前区间被误上传。
+        try? Date(text, strategy: .iso8601)
     }
     private static func format(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()

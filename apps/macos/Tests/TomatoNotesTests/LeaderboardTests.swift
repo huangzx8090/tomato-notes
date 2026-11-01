@@ -35,6 +35,12 @@ struct LeaderboardTests {
         return (data, start)
     }
 
+    @Test func retainsServerMicrosecondsBeforeRoundingConsentUp() throws {
+        let parsed = try #require(RankingSync.parse("2026-11-01T08:00:00.123678+08:00"))
+        #expect(abs(parsed.timeIntervalSince1970 - 1_793_491_200.123678) < 0.000001)
+        #expect(RankingSync.parse("2026-11-01T00:00:00Z") != nil)
+    }
+
     @Test func clipsConsentAndKeepsPausedIntervalsSeparate() throws {
         let (data, start) = fixture()
         let since = start.addingTimeInterval(20.1234)
