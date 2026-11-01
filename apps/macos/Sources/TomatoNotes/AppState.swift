@@ -367,10 +367,11 @@ final class AppState: ObservableObject {
         onGuardSetupRequired?()
     }
 
-    func saveGuardPlan(_ plan: FocusGuardPlan) {
+    func saveGuardPlan(_ plan: FocusGuardPlan, whitelistMemory: FocusWhitelistMemory? = nil) {
         guard canWrite else { return }
         var settings = self.settings
         settings.focusGuard.enabled = true
+        if let whitelistMemory { settings.focusGuard.whitelistMemory = whitelistMemory }
         settings.focusGuard.rememberDraft(plan)
         guard updateSettings(settings) else { return }
         if guardSetupStartsTimer {

@@ -43,8 +43,9 @@ public struct FocusWhitelistSnapshot: Sendable {
     }
 
     /// 只有确认按钮调用此方法；AI 无法增加快照之外的 App、网址或网站规则。
-    public func adding(_ selectedIDs: Set<String>, to plan: FocusGuardPlan) -> FocusGuardPlan {
+    public func adding(_ selectedIDs: Set<String>, to plan: FocusGuardPlan, replacingSelection: Bool = false) -> FocusGuardPlan {
         var result = plan
+        if replacingSelection { result.appIDs = []; result.pages = [] }
         for item in items where selectedIDs.contains(item.id) {
             if let appID = item.appID { result.appIDs.insert(appID) }
             if let rule = item.pageRule, !result.pages.contains(where: { $0.matches(rule.value) }) {
