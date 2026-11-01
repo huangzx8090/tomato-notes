@@ -12,6 +12,9 @@ public sealed class FocusGuardSettings : JsonModel
     [JsonPropertyName("remindAfterSeconds")] public int RemindAfterSeconds { get => remindAfterSeconds; set => remindAfterSeconds = ClampRemind(value); }
     [JsonPropertyName("graceSeconds")] public int GraceSeconds { get => graceSeconds; set => graceSeconds = ClampGrace(value); }
     [JsonPropertyName("maxChecks")] public int MaxChecks { get => maxChecks; set => maxChecks = ClampChecks(value); }
+    /// 让 AI 自行判断当前内容是否与本轮学习相关：只判断并放行，不代表授权关闭。
+    /// 关闭仍要本轮单独打开 AllowAIClosing；macOS 暂不读取此字段，按未知字段原样保留。
+    [JsonPropertyName("aiRelevance")] public bool AIRelevance { get; set; }
     [JsonPropertyName("reuseLastPlan")] public bool ReuseLastPlan { get; set; }
     [JsonPropertyName("lastGoal")] public string LastGoal { get => lastGoal; set => lastGoal = value ?? ""; }
     /// Windows 存进程标识（如 code.exe），macOS 存 bundleID；同为字符串，互不匹配但不影响各自使用。
@@ -256,6 +259,20 @@ public sealed record FocusRelevance(string Verdict, double Confidence, string Re
 }
 
 public sealed record FocusAssessment(FocusRelevance Relevance, int InputTokens, int OutputTokens);
+
+/// 是否把当前内容交给 AI 判断，以及判断结果能否触发关闭。
+/// 判定与关闭是两件事：本轮授权关闭，或开启「AI 判断相关性」，都会发起判定；
+/// 只有单独授权关闭且判定明确无关、高度确信时才动手。
+public static class GuardAssessmentPolicy
+{
+    /// 每轮 AI 判定次数上限，与 macOS 的 maxChecks 夹取范围一致。
+    public static int CheckLimit(FocusGuardSettings settings) => Math.Clamp(settings.MaxChecks, 1, 5);
+
+    public static bool MayAssess(FocusGuardSettings settings, FocusGuardPlan plan, bool hasAPIKey, GuardTarget target, int checksUsed)
+        => (plan.AllowAIClosing || settings.AIRelevance) && hasAPIKey && target.MayAssess && checksUsed < CheckLimit(settings);
+
+    public static bool MayClose(FocusGuardPlan plan, FocusRelevance relevance) => plan.AllowAIClosing && relevance.PermitsClosing;
+}
 
 /// 关闭进程的安全边界：系统外壳、会话关键进程与本应用绝不触碰。
 public static class GuardProcessPolicy

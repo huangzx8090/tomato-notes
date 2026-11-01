@@ -186,12 +186,17 @@
             <Border Style="{StaticResource PaperCard}">
               <StackPanel>
                 <TextBlock Text="专注守护" Style="{StaticResource CardTitle}" Margin="0,0,0,10" />
-                <TextBlock Text="专注时离开本轮目标会先提醒你回来。如果你没有理会，且本轮已单独授权，AI 才会核对当前内容并收起明确无关的部分。"
+                <TextBlock Text="专注时离开本轮目标会先提醒你回来。开启「让 AI 判断当前页面是否与学习相关」后，AI 会自己核对当前页面；收起窗口仍需本轮单独授权。"
                            Style="{StaticResource HintText}" Margin="0,0,0,14" />
                 <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="开启专注守护" OnContent="" OffContent=""
                                  IsChecked="{Binding Data.Settings.FocusGuard.Enabled}" Margin="0,0,0,4"
                                  Checked="FocusGuard_Changed" Unchecked="FocusGuard_Changed" />
                 <TextBlock Text="只在专注进行中生效；暂停、休息、锁屏时不检查。默认关闭，本轮可随时停止。"
+                           Style="{StaticResource CaptionText}" Margin="0,0,0,14" />
+                <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="让 AI 判断当前页面是否与学习相关" OnContent="" OffContent=""
+                                 IsChecked="{Binding Data.Settings.FocusGuard.AIRelevance}" Margin="0,0,0,4"
+                                 Checked="FocusGuard_Changed" Unchecked="FocusGuard_Changed" />
+                <TextBlock Text="离开目标后交给 AI 核对：判定相关就自动放行本轮，无关或无法确定时只提醒、不动窗口。需要已配置 AI 密钥。"
                            Style="{StaticResource CaptionText}" Margin="0,0,0,14" />
                 <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="沿用上轮目标与白名单" OnContent="" OffContent=""
                                  IsChecked="{Binding Data.Settings.FocusGuard.ReuseLastPlan}" Margin="0,0,0,4"
@@ -223,7 +228,7 @@
                            Style="{StaticResource BrandTextBox}" Margin="10,0,8,0" LostFocus="GuardNumber_LostFocus" />
                   <TextBlock Text="次，可填 1 到 5" Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
                 </DockPanel>
-                <TextBlock Text="先提醒，再等待，最后按本轮授权判断。无法确定、读取失败或没有密钥时一律保留当前内容。"
+                <TextBlock Text="先提醒，再等待，最后交给 AI 判断。无法确定、读取失败或没有密钥时一律保留当前内容。"
                            Style="{StaticResource CaptionText}" />
               </StackPanel>
             </Border>

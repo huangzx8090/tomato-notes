@@ -250,7 +250,7 @@ public sealed class AppState : ObservableObject, IDisposable
         GuardSaveFavoriteCommand = new(_ => SaveGuardFavorite());
         GuardRemoveFavoriteCommand = new(_ => RemoveGuardFavorite(_));
         timer.Tick += Tick; timer.Start(); clock.Start(); SystemEvents.SessionSwitch += SessionSwitch; SystemEvents.PowerModeChanged += PowerModeChanged;
-        guard = new FocusGuardController(AssessGuardTarget, NotifyGuard, PublishGuard); guard.Start();
+        guard = new FocusGuardController(AssessGuardTarget, NotifyGuard, AllowGuardAssessed, PublishGuard); guard.Start();
         RefreshAll();
         if (CanWrite) foreach (var note in Data.Notes.Where(x => x.IsOpen).ToList()) OpenNote(note.ID, false);
     }
@@ -638,7 +638,7 @@ public sealed class AppState : ObservableObject, IDisposable
     public string GuardStatus => guard?.Status ?? "守护未启用";
     public string GuardTargetLabel => guard?.Current?.Describe() ?? "暂无前台内容";
     public string GuardMetrics => guard is null ? "" : guard.Assessing ? "AI 正在核对当前内容…"
-        : $"本轮已判断 {guard.Checks} / {Math.Clamp(Data.Settings.FocusGuard.MaxChecks, 1, 5)} 次 · tokens {guard.InputTokens} 入 / {guard.OutputTokens} 出";
+        : $"本轮已判断 {guard.Checks} / {GuardAssessmentPolicy.CheckLimit(Data.Settings.FocusGuard)} 次 · tokens {guard.InputTokens} 入 / {guard.OutputTokens} 出";
     public bool GuardAllowClosing { get => guardAllowClosing; set { if (value != guardAllowClosing) SetGuardClosing(value, guardAllowForce); } }
     public bool GuardAllowForce { get => guardAllowForce; set { if (value != guardAllowForce) SetGuardClosing(guardAllowClosing, value); } }
     public IEnumerable<FocusPageRule> GuardFavoritePages => Data.Settings.FocusGuard.FavoritePages;
@@ -680,7 +680,8 @@ public sealed class AppState : ObservableObject, IDisposable
     private static FocusGuardSettings CopyGuardSettings(FocusGuardSettings source) => new()
     {
         Enabled = source.Enabled, RemindAfterSeconds = source.RemindAfterSeconds,
-        GraceSeconds = source.GraceSeconds, MaxChecks = source.MaxChecks, ReuseLastPlan = source.ReuseLastPlan,
+        GraceSeconds = source.GraceSeconds, MaxChecks = source.MaxChecks,
+        AIRelevance = source.AIRelevance, ReuseLastPlan = source.ReuseLastPlan,
     };
 
     /// 每秒由界面线程发布快照，守护线程只读这一份，不直接访问资料。
@@ -748,20 +749,37 @@ public sealed class AppState : ObservableObject, IDisposable
     /// 放行当前内容：浏览器精确到这一页，其他应用放行整个进程。只在本轮有效。
     public void AllowGuardCurrent()
     {
-        if (guardPlan is not { } plan) { Feedback = "本轮没有正在生效的守护"; return; }
+        if (guardPlan is null) { Feedback = "本轮没有正在生效的守护"; return; }
         if (guard?.Current is not { } target) { Feedback = "暂时没有读到前台内容"; return; }
+        if (target.IsBrowser && target.PageKey is null) { Feedback = target.IsPrivate ? "隐私窗口不读取网址，无法放行" : "读不到当前网址，无法放行这一页"; return; }
+        ExtendGuardPlan(target, "已放行，只在本轮专注中有效");
+        guard?.Invalidate("已放行，只在本轮专注中有效");
+    }
+
+    /// 守护线程调用：AI 判定相关后放行该内容，切回界面线程改本轮计划。
+    /// 不调用 Invalidate：那会作废在途判定的 generation，让 assessing 永远收不回来。
+    private void AllowGuardAssessed(GuardTarget target)
+    {
+        var dispatcher = Application.Current?.Dispatcher; if (dispatcher is null) return;
+        if (dispatcher.CheckAccess()) { ExtendGuardPlan(target, "AI 判定与本轮学习相关，已放行"); return; }
+        try { dispatcher.BeginInvoke(() => ExtendGuardPlan(target, "AI 判定与本轮学习相关，已放行")); }
+        catch (TaskCanceledException) { } catch (InvalidOperationException) { }
+    }
+
+    private void ExtendGuardPlan(GuardTarget target, string feedback)
+    {
+        if (guardPlan is not { } plan) return;
         var pages = plan.Pages.ToList();
         var apps = plan.AppIDs.ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (target.IsBrowser)
         {
-            if (target.PageKey is not { } key) { Feedback = target.IsPrivate ? "隐私窗口不读取网址，无法放行" : "读不到当前网址，无法放行这一页"; return; }
+            if (target.PageKey is not { } key) return;
             if (!pages.Any(x => x.Kind == FocusPageKind.Page && x.Value == key))
                 pages.Add(new FocusPageRule(FocusPageKind.Page, key, string.IsNullOrWhiteSpace(target.PageTitle) ? key : target.PageTitle!));
         }
         else apps.Add(target.AppID);
         guardPlan = new FocusGuardPlan(plan.Goal, apps, pages, plan.AllowAIClosing, plan.AllowForceKill);
-        guard?.Invalidate("已放行，只在本轮专注中有效");
-        Feedback = "已放行，只在本轮专注中有效";
+        Feedback = feedback;
         RefreshGuard();
     }
 

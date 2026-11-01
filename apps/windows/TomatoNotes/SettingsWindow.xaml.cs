@@ -106,11 +106,12 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     }
 
     // 数值也直接写模型属性：失焦时夹取范围并回填，避免界面显示与生效值不一致。
+    // LostFocus 早于双向绑定回写，必须先把输入推进模型，否则读到旧值会把用户刚填的数字覆盖回去。
     private void GuardNumber_LostFocus(object sender, RoutedEventArgs e)
     {
-        if (!loaded) return;
+        if (!loaded || sender is not TextBox box) return;
+        box.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
         state.NormalizeGuardSettings();
-        if (sender is not TextBox box) return;
         var guard = state.Data.Settings.FocusGuard;
         var value = box.Tag switch
         {
