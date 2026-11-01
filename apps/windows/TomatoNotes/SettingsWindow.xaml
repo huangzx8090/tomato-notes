@@ -267,8 +267,10 @@
                 <TextBlock Text="服务商" Style="{StaticResource FieldLabel}" />
                 <ComboBox x:Name="ProviderBox" SelectionChanged="Provider_Changed" DisplayMemberPath="Name"
                           SelectedValuePath="ID" SelectedValue="{Binding Data.Settings.AI.ProviderID}" />
-                <TextBlock Text="自定义接口基础地址（通常以 /v1 结尾）" Style="{StaticResource FieldLabel}" Margin="0,11,0,5" />
-                <TextBox Text="{Binding Data.Settings.AI.CustomBaseURL, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource BrandTextBox}" />
+                <StackPanel x:Name="CustomProviderPane" Visibility="Collapsed">
+                  <TextBlock Text="自定义接口基础地址（通常以 /v1 结尾）" Style="{StaticResource FieldLabel}" Margin="0,11,0,5" />
+                  <TextBox Text="{Binding Data.Settings.AI.CustomBaseURL, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource BrandTextBox}" />
+                </StackPanel>
                 <TextBlock Text="API Key（留空则保留已保存密钥）" Style="{StaticResource FieldLabel}" Margin="0,11,0,5" />
                 <PasswordBox x:Name="APIKeyBox" Style="{StaticResource BrandPasswordBox}" />
                 <StackPanel Orientation="Horizontal" Margin="0,11,0,0">
