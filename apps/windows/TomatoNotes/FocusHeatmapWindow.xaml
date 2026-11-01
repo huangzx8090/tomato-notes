@@ -14,12 +14,18 @@
     <ui:TitleBar DockPanel.Dock="Top" Title="专注热力图" ShowMaximize="False" Height="36" />
     <Border DockPanel.Dock="Top" Style="{StaticResource PaperCard}" Margin="22,0,22,12">
       <DockPanel>
-        <ui:Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Click="Next_Click" ToolTip="更新一周"
-                   AutomationProperties.Name="更新一周">
+        <ComboBox x:Name="RangeBox" DockPanel.Dock="Right" Width="104" MinHeight="32" FontSize="12"
+                  VerticalAlignment="Center" Margin="8,0,0,0" SelectedIndex="0" SelectionChanged="Range_Changed"
+                  ToolTip="选择最近 13 周或完整 53 周视图" AutomationProperties.Name="热力图周数">
+          <ComboBoxItem Content="近 13 周" Tag="13" />
+          <ComboBoxItem Content="近 53 周" Tag="53" />
+        </ComboBox>
+        <ui:Button x:Name="NextButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Click="Next_Click" ToolTip="更新一页"
+                   AutomationProperties.Name="更新一页">
           <ui:SymbolIcon Symbol="ChevronRight24" FontSize="12" Foreground="{DynamicResource Secondary}" />
         </ui:Button>
-        <ui:Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Click="Previous_Click" ToolTip="更早一周"
-                   AutomationProperties.Name="更早一周">
+        <ui:Button x:Name="PreviousButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Click="Previous_Click" ToolTip="更早一页"
+                   AutomationProperties.Name="更早一页">
           <ui:SymbolIcon Symbol="ChevronLeft24" FontSize="12" Foreground="{DynamicResource Secondary}" />
         </ui:Button>
         <StackPanel>

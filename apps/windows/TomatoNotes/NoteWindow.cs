@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using TomatoNotes.Core;
+using TomatoNotes.Windows.Controls;
 using Ui = Wpf.Ui.Controls;
 
 namespace TomatoNotes.Windows;
@@ -60,11 +61,13 @@ public sealed class NoteWindow : Ui.FluentWindow
         root.Children.Add(toolbar);
 
         // 先建编辑器：下面的按钮回调会引用它，先赋值可避开“可能为空”告警
-        editor = new TextBox { Style = (Style)Application.Current.FindResource("NoteTextBox"), Text = note.Text };
+        var editor = new LinedTextBox { Style = (Style)Application.Current.FindResource("NoteTextBox"), Text = note.Text };
+        this.editor = editor;
         editor.TextChanged += (_, _) => { save.Stop(); save.Start(); };
 
         var subtle = (Style)Application.Current.FindResource("SubtleButton");
         var convert = new Ui.Button { Content = "按行转待办", Style = subtle, Margin = new Thickness(7, 0, 0, 0) };
+        convert.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "NoteAction");
         convert.Click += (_, _) =>
         {
             Flush();
@@ -72,6 +75,7 @@ public sealed class NoteWindow : Ui.FluentWindow
             status.Text = $"已添加 {count} 条待办";
         };
         var export = new Ui.Button { Content = "导出 TXT", Style = subtle, Margin = new Thickness(7, 0, 0, 0) };
+        export.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "NoteAction");
         export.Click += (_, _) => { Flush(); state.ExportNote(note.ID, editor.Text); status.Text = state.Feedback; };
         DockPanel.SetDock(status, Dock.Left);
         DockPanel.SetDock(export, Dock.Right);
@@ -110,6 +114,8 @@ public sealed class NoteWindow : Ui.FluentWindow
             paper.Background = ThemeService.Token("NotePaper");
             Foreground = ThemeService.Token("NoteInk");
             status.Foreground = ThemeService.Token("NoteAction");
+            // 行线颜色来自 NoteRule，换肤后需要重绘本行。
+            editor.InvalidateVisual();
         });
     }
 

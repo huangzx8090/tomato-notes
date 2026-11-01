@@ -36,7 +36,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         foreach (var (id, hotkey, action) in HotkeyActions())
         { var error = hotkeys.Register(id, hotkey, action); if (error is not null) State.Feedback = error; }
     }
-    private (int, Hotkey, Action)[] HotkeyActions() => [(1, State.Data.Settings.TimerHotkey, () => Dispatcher.Invoke(() => State.StartCommand.Execute(null))), (2, State.Data.Settings.TodoHotkey, () => Dispatcher.Invoke(ShowQuickTodo)), (3, State.Data.Settings.NoteHotkey, () => Dispatcher.Invoke(State.CreateNote))];
+    private (int, Hotkey, Action)[] HotkeyActions() => [(1, State.Data.Settings.TimerHotkey, () => Dispatcher.Invoke(() => State.StartCommand.Execute(null))), (2, State.Data.Settings.TodoHotkey, () => Dispatcher.Invoke(ShowQuickTodo)), (3, State.Data.Settings.NoteHotkey, () => Dispatcher.Invoke(State.OpenRecentNote))];
     private void RegisterHotkeys()
     {
         hotkeys = new(this);
@@ -108,6 +108,13 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
     // —— 便签 ——
     private void CreateNote_Click(object sender, RoutedEventArgs e) => State.CreateNote();
+    private void GoalTodo_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        // 选择只填入本轮目标，不勾选待办；清空选择以便再次选择同一条。
+        if (sender is not System.Windows.Controls.ComboBox box || box.SelectedItem is not string text) return;
+        State.Goal = text;
+        box.SelectedIndex = -1;
+    }
     private void OpenNote_Click(object sender, RoutedEventArgs e) => State.ShowNote(IdOf(sender));
     private void ContinueNote_Click(object sender, RoutedEventArgs e) => State.ContinueNote(IdOf(sender));
     private void DeleteNote_Click(object sender, RoutedEventArgs e) => State.DeleteNote(IdOf(sender));

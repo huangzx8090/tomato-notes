@@ -195,6 +195,14 @@ public sealed class AppState : ObservableObject, IDisposable
     public void RefreshActivityRecording() => Changed(nameof(ActivityNeedsKey));
     public string DataStatusLabel => CanWrite ? $"可写入 · {StorageLabel}" : "只读 · 已停止写入";
     public string Goal { get => goal; set => Set(ref goal, value); }
+    /// 专注目标下拉：只列今天未完成的待办，选中后填入 Goal，不改变待办完成状态。
+    public IEnumerable<string> GoalCandidates => Data.Todos
+        .Where(x => x.IsScheduledOn(TodayKey) && !x.IsCompleted && !string.IsNullOrWhiteSpace(x.Text))
+        .OrderBy(x => x.CreatedAt)
+        .Select(x => x.Text)
+        .Distinct()
+        .ToList();
+    public bool HasGoalCandidates => Data.Todos.Any(x => x.IsScheduledOn(TodayKey) && !x.IsCompleted && !string.IsNullOrWhiteSpace(x.Text));
     public string NewTodo { get => newTodo; set => Set(ref newTodo, value); }
     public string Feedback { get => feedback; set => Set(ref feedback, value); }
     public string AIStatus { get => aiStatus; set => Set(ref aiStatus, value); }
@@ -228,6 +236,13 @@ public sealed class AppState : ObservableObject, IDisposable
     {
         if (!CanWrite) return; var note = new StickyNote { LocalDay = TodayKey }; Data.Notes.Add(note); Commit(); OpenNote(note.ID);
     }
+    /// 「最近便签」快捷键：今天有便签就打开最近更新的一张，没有才新建，对应 macOS 的 openRecent。
+    public void OpenRecentNote()
+    {
+        if (!CanWrite) return;
+        var recent = NoteRules.RecentToday(Data.Notes, TodayKey);
+        if (recent is null) CreateNote(); else OpenNote(recent.ID);
+    }
     public void OpenNote(Guid id, bool activate = true)
     {
         if (!notes.TryGetValue(id, out var window))
@@ -239,7 +254,10 @@ public sealed class AppState : ObservableObject, IDisposable
     }
     public void ContinueNote(Guid id)
     {
-        var source = Data.Notes.FirstOrDefault(x => x.ID == id); if (source is null || !CanWrite) return;
+        if (!CanWrite) return;
+        // 先落盘已打开编辑器的防抖文字，再从资料里复制，避免继续使用拿到旧原文。
+        if (notes.TryGetValue(id, out var open)) open.Flush();
+        var source = Data.Notes.FirstOrDefault(x => x.ID == id); if (source is null) return;
         if (source.DayKey == TodayKey) { OpenNote(id); return; }
         var note = Data.Notes.FirstOrDefault(x => x.ContinuedFromNoteID == id && x.DayKey == TodayKey);
         if (note is null) { note = new() { Text = source.Text, LocalDay = TodayKey, ContinuedFromNoteID = id, Width = source.Width, Height = source.Height }; Data.Notes.Add(note); }
@@ -560,7 +578,7 @@ public sealed class AppState : ObservableObject, IDisposable
     {
         foreach (var name in new[] { nameof(Data), nameof(Remaining), nameof(StatusText), nameof(PrimaryAction), nameof(TimerCaption), nameof(CanEndEarly), nameof(CanSkipBreak), nameof(EndEarlyLabel), nameof(TodayTodos), nameof(TodayMinutes), nameof(TodayCompleted), nameof(VisibleNotes), nameof(HistoryNotes), nameof(Provider), nameof(HasAPIKey),
             nameof(IsFocusStage), nameof(IsRunning), nameof(CompletedInSet), nameof(LongBreakEvery), nameof(SetLabel), nameof(RoundDots), nameof(HasRoundDots), nameof(PrimarySymbol),
-            nameof(CanEditGoal), nameof(CurrentSessionGoal), nameof(HasCurrentSessionGoal),
+            nameof(CanEditGoal), nameof(CurrentSessionGoal), nameof(HasCurrentSessionGoal), nameof(GoalCandidates), nameof(HasGoalCandidates),
             nameof(HeaderDate), nameof(HasTodos), nameof(TodoProgressLabel), nameof(HasTodayNotes), nameof(HasHistoryNotes),
             nameof(AppearanceLabel), nameof(TimerSummaryLabel), nameof(ReviewLabel), nameof(RecordingLabel), nameof(DataStatusLabel), nameof(StorageLabel),
             nameof(HasTodos), nameof(AllTodosDone), nameof(TodoCompletionPercent), nameof(TodoProgressLabel), nameof(TodoDateLabel),

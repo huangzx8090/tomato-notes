@@ -18,6 +18,7 @@ var tests = new (string Name, Func<Task> Run)[] {
     ("待办结转候选、批量顺延与撤销", () => TodoCarryoverRules()),
     ("删除待办后恢复原记录", () => TodoDeletionRestore()),
     ("热力图按自然周分页统计真实分段", () => HeatmapRange()),
+    ("最近便签优先当天最近更新", () => RecentNoteSelection()),
     ("历史搜索合并同轮目标与成果", () => SearchHistory()),
     ("会话只归集期间完成的待办", () => SessionAttribution()),
     ("OpenAI 兼容模型与总结接口", () => AIContract()),
@@ -184,6 +185,24 @@ static Task HeatmapRange()
     Equal(1, range.Weeks[0].Days.First(x => x.Day == "2026-10-26").Intensity);
     var previous = FocusHeatmapRange.Build(intervals, 1, 1, today);
     Equal("2026-10-19", previous.StartDay);
+    // 53 周完整视图与分页共用同一聚合，不因跨度变化漏日或重复。
+    var full = FocusHeatmapRange.Build(intervals, 53, today: today);
+    Equal(53, full.Weeks.Count);
+    Equal("2025-10-27", full.StartDay);
+    Equal("2026-11-01", full.EndDay);
+    Equal(2700, full.TotalSeconds);
+    return Task.CompletedTask;
+}
+static Task RecentNoteSelection()
+{
+    var today = "2026-11-01";
+    var earlier = new StickyNote { Text = "早上", LocalDay = today, UpdatedAt = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero) };
+    var later = new StickyNote { Text = "午后", LocalDay = today, UpdatedAt = new DateTimeOffset(2026, 11, 1, 14, 0, 0, TimeSpan.Zero) };
+    var historical = new StickyNote { Text = "昨天", LocalDay = "2026-10-31", UpdatedAt = new DateTimeOffset(2026, 10, 31, 23, 0, 0, TimeSpan.Zero) };
+    Equal(later.ID, NoteRules.RecentToday([earlier, later, historical], today)!.ID);
+    // 当天没有便签时返回 null，由界面新建；不能拿历史原稿凑数。
+    Equal(null, NoteRules.RecentToday([historical], today));
+    Equal(null, NoteRules.RecentToday([], today));
     return Task.CompletedTask;
 }
 static Task SearchHistory()

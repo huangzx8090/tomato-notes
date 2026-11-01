@@ -191,6 +191,16 @@
                              Margin="14,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
                              Visibility="{Binding Goal, Converter={StaticResource EmptyVisibility}}" />
                 </Grid>
+                <!-- 从今日未完成待办选目标：只填入文字，不改变待办完成状态；没有候选时隐藏 -->
+                <Grid Visibility="{Binding CanEditGoal, Converter={StaticResource BoolVisibility}}">
+                  <DockPanel Margin="4,0,4,8" Visibility="{Binding HasGoalCandidates, Converter={StaticResource BoolVisibility}}">
+                    <TextBlock Text="从今日待办选择" Style="{StaticResource CaptionText}" DockPanel.Dock="Left"
+                               VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ComboBox x:Name="GoalTodoBox" ItemsSource="{Binding GoalCandidates}"
+                              SelectionChanged="GoalTodo_Changed" MinHeight="34" FontSize="12"
+                              ToolTip="选择今天未完成的待办作为本轮目标，不会自动勾选完成" />
+                  </DockPanel>
+                </Grid>
                 <TextBlock Text="{Binding CurrentSessionGoal}" FontSize="13" FontWeight="Medium" TextAlignment="Center"
                            Margin="6,6,6,0" Visibility="{Binding HasCurrentSessionGoal, Converter={StaticResource BoolVisibility}}" />
 

@@ -256,8 +256,10 @@
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Foreground" Value="{DynamicResource NoteInk}" />
         <Setter Property="CaretBrush" Value="{DynamicResource NoteAction}" />
+        <!-- 与 macOS NoteTypography 一致：衬线字体、15 号字、宽松行距感。 -->
+        <Setter Property="FontFamily" Value="SimSun, Georgia" />
         <Setter Property="FontSize" Value="15" />
-        <Setter Property="Padding" Value="12,10" />
+        <Setter Property="Padding" Value="15,7" />
         <Setter Property="AcceptsReturn" Value="True" />
         <Setter Property="AcceptsTab" Value="True" />
         <Setter Property="TextWrapping" Value="Wrap" />
