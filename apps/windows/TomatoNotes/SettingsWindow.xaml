@@ -55,6 +55,12 @@
               <TextBlock Text="专注与休息" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
             </StackPanel>
           </RadioButton>
+          <RadioButton x:Name="NavGuard" Style="{StaticResource SettingsNavItem}" GroupName="SettingsNav" Tag="Guard" Click="Nav_Click">
+            <StackPanel Orientation="Horizontal">
+              <ui:SymbolIcon Style="{StaticResource NavIcon}" Symbol="ShieldCheckmark24" Foreground="{DynamicResource Accent}" />
+              <TextBlock Text="专注守护" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+          </RadioButton>
           <RadioButton x:Name="NavReminders" Style="{StaticResource SettingsNavItem}" GroupName="SettingsNav" Tag="Reminders" Click="Nav_Click">
             <StackPanel Orientation="Horizontal">
               <ui:SymbolIcon Style="{StaticResource NavIcon}" Symbol="Clock24" />
@@ -175,7 +181,94 @@
             </Border>
           </StackPanel>
 
-          <!-- ── 提醒与快捷键 ── -->
+          <!-- ── 专注守护 ── -->
+          <StackPanel x:Name="GuardPane" Visibility="Collapsed">
+            <Border Style="{StaticResource PaperCard}">
+              <StackPanel>
+                <TextBlock Text="专注守护" Style="{StaticResource CardTitle}" Margin="0,0,0,10" />
+                <TextBlock Text="专注时离开本轮目标会先提醒你回来。如果你没有理会，且本轮已单独授权，AI 才会核对当前内容并收起明确无关的部分。"
+                           Style="{StaticResource HintText}" Margin="0,0,0,14" />
+                <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="开启专注守护" OnContent="" OffContent=""
+                                 IsChecked="{Binding Data.Settings.FocusGuard.Enabled}" Margin="0,0,0,4"
+                                 Checked="FocusGuard_Changed" Unchecked="FocusGuard_Changed" />
+                <TextBlock Text="只在专注进行中生效；暂停、休息、锁屏时不检查。默认关闭，本轮可随时停止。"
+                           Style="{StaticResource CaptionText}" Margin="0,0,0,14" />
+                <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="沿用上轮目标与白名单" OnContent="" OffContent=""
+                                 IsChecked="{Binding Data.Settings.FocusGuard.ReuseLastPlan}" Margin="0,0,0,4"
+                                 Checked="FocusGuard_Changed" Unchecked="FocusGuard_Changed" />
+                <TextBlock Text="开启后会保存一次本轮名单，下次直接复用。AI 关闭授权不沿用，每轮都要重新确认。"
+                           Style="{StaticResource CaptionText}" />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PaperCard}" Margin="0,14,0,0">
+              <StackPanel>
+                <TextBlock Text="离开目标时" Style="{StaticResource CardTitle}" Margin="0,0,0,12" />
+                <DockPanel Margin="0,0,0,6">
+                  <TextBlock Text="停留多久后提醒" FontSize="12" VerticalAlignment="Center" />
+                  <TextBox Text="{Binding Data.Settings.FocusGuard.RemindAfterSeconds}" Width="64" Tag="remind"
+                           Style="{StaticResource BrandTextBox}" Margin="10,0,8,0" LostFocus="GuardNumber_LostFocus" />
+                  <TextBlock Text="秒，可填 5 到 1800" Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
+                </DockPanel>
+                <TextBlock Text="连续离开这么久就提醒你回来；返回白名单后重新计时。" Style="{StaticResource CaptionText}" Margin="0,0,0,12" />
+                <DockPanel Margin="0,0,0,6">
+                  <TextBlock Text="提醒后再等待" FontSize="12" VerticalAlignment="Center" />
+                  <TextBox Text="{Binding Data.Settings.FocusGuard.GraceSeconds}" Width="64" Tag="grace"
+                           Style="{StaticResource BrandTextBox}" Margin="10,0,8,0" LostFocus="GuardNumber_LostFocus" />
+                  <TextBlock Text="秒，可填 5 到 600" Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
+                </DockPanel>
+                <DockPanel Margin="0,0,0,6">
+                  <TextBlock Text="每轮最多判断" FontSize="12" VerticalAlignment="Center" />
+                  <TextBox Text="{Binding Data.Settings.FocusGuard.MaxChecks}" Width="64" Tag="checks"
+                           Style="{StaticResource BrandTextBox}" Margin="10,0,8,0" LostFocus="GuardNumber_LostFocus" />
+                  <TextBlock Text="次，可填 1 到 5" Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
+                </DockPanel>
+                <TextBlock Text="先提醒，再等待，最后按本轮授权判断。无法确定、读取失败或没有密钥时一律保留当前内容。"
+                           Style="{StaticResource CaptionText}" />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PaperCard}" Margin="0,14,0,0">
+              <StackPanel>
+                <DockPanel Margin="0,0,0,10">
+                  <ui:Button DockPanel.Dock="Right" Content="存当前网页" Style="{StaticResource SubtleButton}"
+                             Command="{Binding GuardSaveFavoriteCommand}" Margin="8,0,0,0" />
+                  <TextBlock Text="常用网页白名单" Style="{StaticResource CardTitle}" VerticalAlignment="Center" />
+                </DockPanel>
+                <TextBlock Text="跨轮次保留。把浏览器切到要放行的网页，再点「存当前网页」；网址保留路径与查询条件，不同视频不会被当成同一页。"
+                           Style="{StaticResource CaptionText}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                <ItemsControl ItemsSource="{Binding GuardFavoritePages}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <DockPanel Margin="0,0,0,8">
+                        <ui:Button DockPanel.Dock="Right" Style="{StaticResource SubtleButton}" Content="移除"
+                                   Command="{Binding DataContext.GuardRemoveFavoriteCommand, RelativeSource={RelativeSource AncestorType=ui:FluentWindow}}"
+                                   CommandParameter="{Binding}" />
+                        <StackPanel Margin="0,0,10,0" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding Value}" FontSize="10" Foreground="{DynamicResource Secondary}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                      </DockPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PaperCard}" Margin="0,14,0,0">
+              <StackPanel>
+                <TextBlock Text="读取范围与边界" Style="{StaticResource CardTitle}" Margin="0,0,0,10" />
+                <TextBlock Style="{StaticResource HintText}" TextWrapping="Wrap"
+                           Text="只读取前台窗口标题与进程名；浏览器另读地址栏网址，用来精确到网页。不截图，不读取网页正文，不记录键盘输入。" />
+                <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,8,0,0"
+                           Text="隐私窗口不读取网址，也不判定、不关闭。判断依据会发送给已配置的 AI 服务商。" />
+                <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,8,0,0"
+                           Text="关闭动作先发正常关闭请求，让应用有机会保存；只有本轮单独授权强制结束，且正常关闭无效时才会终止进程。系统与外壳进程永远不会被自动关闭。" />
+                <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,8,0,0"
+                           Text="浏览器按标签关闭，不会关掉整个浏览器。macOS 端通过 AppleScript 读取 Chrome，Windows 端改用系统辅助功能读取地址栏，两端互不依赖。" />
+              </StackPanel>
+            </Border>
+          </StackPanel>          <!-- ── 提醒与快捷键 ── -->
           <StackPanel x:Name="RemindersPane" Visibility="Collapsed">
             <Border Style="{StaticResource PaperCard}">
               <StackPanel>
@@ -338,7 +431,7 @@
                 <TextBlock Text="记录了什么" Style="{StaticResource CardTitle}" Margin="0,0,0,8" />
                 <TextBlock Text="专注轮次与投入时长、前台应用名称与停留时长、待办与便签原文、AI 回顾文本与你补充的图片。"
                            Style="{StaticResource HintText}" />
-                <TextBlock Text="不包含窗口截图、键盘输入或浏览器内容；这些能力只在 macOS 的专注守护中存在，Windows 版不提供。"
+                <TextBlock Text="不包含窗口截图与键盘输入。专注守护只读取前台窗口标题、进程名和浏览器地址栏网址，不读取网页正文。"
                            Style="{StaticResource CaptionText}" Margin="0,7,0,0" />
               </StackPanel>
             </Border>

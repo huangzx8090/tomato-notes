@@ -232,6 +232,39 @@
                            Visibility="{Binding CanSkipBreak, Converter={StaticResource BoolVisibility}}" />
               </StackPanel>
 
+              <!-- 专注守护：只在本轮生效，关闭授权不跨轮沿用 -->
+              <Border Style="{StaticResource PaperCard}"
+                      Visibility="{Binding GuardVisible, Converter={StaticResource BoolVisibility}}">
+                <StackPanel>
+                  <DockPanel Margin="0,0,0,8">
+                    <ui:SymbolIcon DockPanel.Dock="Left" Symbol="ShieldCheckmark24" FontSize="14"
+                                   Foreground="{DynamicResource Accent}" Margin="0,1,6,0" />
+                    <ui:Button DockPanel.Dock="Right" Content="放行当前" Style="{StaticResource SubtleButton}"
+                               Command="{Binding GuardAllowCurrentCommand}" Margin="8,0,0,0" />
+                    <TextBlock Text="专注守护" Style="{StaticResource CardTitle}" VerticalAlignment="Center" />
+                  </DockPanel>
+                  <TextBlock Text="{Binding GuardStatus}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6" />
+                  <TextBlock Text="{Binding GuardTargetLabel}" FontSize="11" Foreground="{DynamicResource Secondary}"
+                             TextWrapping="Wrap" Margin="0,0,0,6" />
+                  <TextBlock Text="{Binding GuardMetrics}" Style="{StaticResource CaptionText}"
+                             Typography.NumeralAlignment="Tabular" Margin="0,0,0,10" />
+                  <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="本轮允许 AI 自动关闭" OnContent="" OffContent=""
+                                   IsChecked="{Binding GuardAllowClosing}" Margin="0,0,0,4" />
+                  <TextBlock Text="先提醒，等宽限期过后才判定；只有明确无关且高度确信时才会关闭，浏览器只关当前标签。"
+                             Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                  <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="正常关闭无效时强制结束进程" OnContent="" OffContent=""
+                                   IsChecked="{Binding GuardAllowForce}" IsEnabled="{Binding GuardAllowClosing}" Margin="0,0,0,4" />
+                  <TextBlock Text="强制结束不给应用保存机会，请谨慎开启。"
+                             Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                  <StackPanel Orientation="Horizontal">
+                    <ui:Button Content="停止本轮守护" Style="{StaticResource SubtleButton}" Command="{Binding GuardStopCommand}"
+                               Visibility="{Binding GuardRunning, Converter={StaticResource BoolVisibility}}" />
+                    <ui:Button Content="恢复本轮守护" Style="{StaticResource SubtleButton}" Command="{Binding GuardResumeCommand}"
+                               Visibility="{Binding GuardRunning, Converter={StaticResource InverseBoolVisibility}}" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
               <!-- 本轮进展卡片 -->
               <Border Style="{StaticResource PaperCard}"
                       Visibility="{Binding HasCurrentProgress, Converter={StaticResource BoolVisibility}}">
@@ -270,15 +303,6 @@
                     <TextBlock Text="完整番茄 / 轮" Style="{StaticResource CaptionText}" HorizontalAlignment="Center" />
                   </StackPanel>
                 </Grid>
-              </Border>
-
-              <!-- Windows 端不提供专注守护，说明保留 -->
-              <Border Style="{StaticResource PaperCard}">
-                <StackPanel>
-                  <TextBlock Text="Windows 专注守护暂未提供" Style="{StaticResource CardTitle}" />
-                  <TextBlock Text="macOS 的 AppleScript、窗口截图及自动关闭 Chrome 标签依赖专属接口，本版不展示不可用的守护开关。前台 App 投入统计仍可使用。"
-                             Style="{StaticResource HintText}" Margin="0,8,0,0" />
-                </StackPanel>
               </Border>
             </StackPanel>
 
@@ -854,6 +878,22 @@
                       </StackPanel>
                     </DockPanel>
                   </ui:Button>
+                  <Rectangle Style="{StaticResource Divider}" Margin="0,2" />
+                  <ui:Button Style="{StaticResource FlatRow}" Click="OpenGuardSettings_Click" HorizontalAlignment="Stretch">
+                    <DockPanel>
+                      <ui:SymbolIcon DockPanel.Dock="Right" Symbol="ChevronRight24" FontSize="9"
+                                     Foreground="{DynamicResource Secondary}" VerticalAlignment="Center" />
+                      <TextBlock DockPanel.Dock="Right" Text="{Binding GuardLabel}" Style="{StaticResource CaptionText}"
+                                 Margin="0,0,10,0" VerticalAlignment="Center" />
+                      <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="ShieldCheckmark24" FontSize="13" Foreground="{DynamicResource Accent}" Margin="0,1,10,0" />
+                        <StackPanel>
+                          <TextBlock Text="专注守护" FontSize="12" FontWeight="SemiBold" />
+                          <TextBlock Text="离开本轮目标时提醒与收起" Style="{StaticResource CaptionText}" />
+                        </StackPanel>
+                      </StackPanel>
+                    </DockPanel>
+                  </ui:Button>
                 </StackPanel>
               </Border>
 
@@ -910,7 +950,7 @@
                 </StackPanel>
               </Border>
 
-              <TextBlock Text="Windows 10（1809）及 Windows 11 · x64&#x0a;系统托盘气泡通知 · Ctrl+Alt+P / T / N&#x0a;不包含 macOS 玻璃效果、合盖策略和 Chrome 自动关闭。"
+              <TextBlock Text="Windows 10（1809）及 Windows 11 · x64&#x0a;系统托盘气泡通知 · Ctrl+Alt+P / T / N&#x0a;不包含 macOS 玻璃效果与合盖策略。"
                          Style="{StaticResource CaptionText}" TextAlignment="Center" Margin="0,8,0,0" />
             </StackPanel>
 
