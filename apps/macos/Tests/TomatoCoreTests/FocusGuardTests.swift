@@ -47,6 +47,27 @@ struct FocusGuardTests {
         }
         #expect(reminders == 1)
     }
+
+    @Test func aiRelevanceEnablesAssessmentWithoutClosingPermission() throws {
+        // 判定与关闭拆开：并开「AI 判断相关性」即可发起判定，与授权关闭的等待节奏一致。
+        var relevance = settings
+        relevance.aiRelevance = true
+        var watch = GuardDwellMonitor()
+        for time in 0...4 { _ = watch.update(identity: "tab", at: Double(time), settings: relevance, mayAssess: true) }
+        #expect(watch.update(identity: "tab", at: 5, settings: relevance, mayAssess: true) == .remind)
+        for time in 6...9 { _ = watch.update(identity: "tab", at: Double(time), settings: relevance, mayAssess: true) }
+        #expect(watch.update(identity: "tab", at: 10, settings: relevance, mayAssess: true) == .assess)
+        // 两个开关都关时只提醒，不发起 AI 请求。
+        var watch2 = GuardDwellMonitor()
+        for time in 0...30 {
+            #expect(watch2.update(identity: "tab", at: Double(time), settings: settings, mayAssess: false) != .assess)
+        }
+        // 资料往返：开启后保存重开，字段仍在且不再落在 extraFields 里。
+        var saved = relevance
+        saved.extraFields = [:]
+        let reopened = try JSONDecoder().decode(FocusGuardSettings.self, from: JSONEncoder().encode(saved))
+        #expect(reopened.aiRelevance == true && reopened.extraFields["aiRelevance"] == nil)
+    }
     @Test func siteRulesRespectHostBoundariesAndPageRulesKeepVideoQuery() throws {
         let domain = FocusPageRule(kind: .site, value: "example.com", title: "学习网站")
         #expect(domain.matches("https://course.example.com/lesson"))

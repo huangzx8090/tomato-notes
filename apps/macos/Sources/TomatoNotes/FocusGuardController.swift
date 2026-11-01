@@ -188,14 +188,19 @@ final class FocusGuardController: ObservableObject {
             else if plan.allowAIClosing && self.checks >= max(1, min(5, settings.maxChecks)) {
                 self.status = "本轮已达到 AI 判断上限，之后仅提醒"
             }
-            else { self.status = "当前不在白名单内，停留超时后提醒" }
-            let mayAssess = plan.allowAIClosing && page?.mayAssess == true &&
+            else if !plan.allowAIClosing && !settings.aiRelevance {
+                self.status = "当前不在白名单内，停留超时后提醒"
+            }
+            else { self.status = "当前不在白名单内，停留超时后" + (plan.allowAIClosing ? "提醒并交给 AI 核对" : "由 AI 判断是否相关") }
+            let mayAssess = (plan.allowAIClosing || settings.aiRelevance) && page?.mayAssess == true &&
                 self.checks < max(1, min(5, settings.maxChecks))
             let action = self.monitor.update(identity: identity, at: ProcessInfo.processInfo.systemUptime,
                                              settings: settings, mayAssess: mayAssess)
             if action == .remind {
                 self.trace("reminded")
-                self.status = mayAssess ? "已提醒，\(settings.graceSeconds) 秒后仍未返回将交由 AI 核对" : "已提醒，本轮对当前内容仅提醒"
+                self.status = mayAssess
+                    ? "已提醒，\(settings.graceSeconds) 秒后仍未离开将交由 AI 判断" + (plan.allowAIClosing ? "" : "（不关闭）")
+                    : "已提醒，本轮对当前内容仅提醒"
                 var allowAction: (() -> Void)?
                 if app.bundleID != "com.google.Chrome" || page.flatMap({ FocusPageRule.pageKey($0.url) }) != nil {
                     allowAction = { [weak self] in self?.allow(app: app, page: page, round: bound) }
@@ -230,9 +235,11 @@ final class FocusGuardController: ObservableObject {
 
     @discardableResult
     func assess(_ page: GuardPage, round: UUID, plan: FocusGuardPlan) -> Task<Void, Never>? {
-        guard !assessing, let (_, _, settings) = currentSnapshot?(), checks < max(1, min(5, settings.maxChecks)) else { return nil }
+        guard !assessing, let (_, _, settings) = currentSnapshot?(),
+              (plan.allowAIClosing || settings.aiRelevance),
+              checks < max(1, min(5, settings.maxChecks)) else { return nil }
         assessing = true
-        status = "关闭前由 AI 核对当前 Chrome 页面…"
+        status = plan.allowAIClosing ? "关闭前由 AI 核对当前 Chrome 页面…" : "由 AI 判断当前 Chrome 页面是否与本轮学习相关…"
         let token = generation
         // 客户端和凭据必须属于同一份配置；等待截图后不能改用新的服务商地址。
         let client = ai
@@ -255,18 +262,28 @@ final class FocusGuardController: ObservableObject {
                 self.outputTokens += max(0, result.outputTokens)
                 self.ignoredPages.insert(page.id)
                 self.trace("decision-" + result.relevance.verdict.rawValue)
-                if result.relevance.permitsClosing {
-                    guard self.plan?.allows(appID: "com.google.Chrome", url: page.url, title: page.title) == false,
-                          self.plan?.allowAIClosing == true else { return }
+                if result.relevance.verdict == .related {
+                    // AI 认定与本轮目标相关时顺手放行本轮，省掉同一页反复判定消耗 maxChecks 配额；与授权关闭无关。
+                    if settings.aiRelevance && self.plan?.allows(appID: "com.google.Chrome", url: page.url, title: page.title) == false,
+                       let key = FocusPageRule.pageKey(page.url) {
+                        self.plan?.pages.append(.init(kind: .page, value: key, title: page.title))
+                    }
+                    self.status = "AI 判定与本轮学习相关：\(result.relevance.reason)"
+                    self.decisionStatus[page.id] = self.status
+                    self.onNotice?("这个页面可以继续学习", result.relevance.reason, nil)
+                } else if result.relevance.permitsClosing, self.plan?.allowAIClosing == true {
+                    guard self.plan?.allows(appID: "com.google.Chrome", url: page.url, title: page.title) == false else { return }
                     _ = try await self.closePage(page)
                     guard self.isCurrentAssessment(round, token: token, provider: provider) else { return }
                     self.trace("closed")
                     self.status = "已关闭无关标签：\(result.relevance.reason)"
                     self.onNotice?("已收起无关页面", result.relevance.reason, nil)
                 } else {
-                    self.status = "本轮保留此页：\(result.relevance.reason)"
+                    self.status = result.relevance.verdict == .unrelated
+                        ? "AI 判定与本轮学习无关，已保留：\(result.relevance.reason)"
+                        : "本轮保留此页：\(result.relevance.reason)"
                     self.decisionStatus[page.id] = self.status
-                    self.onNotice?(result.relevance.verdict == .related ? "这个页面可以继续学习" : "AI 无法确认，已保留页面", result.relevance.reason, nil)
+                    self.onNotice?(result.relevance.verdict == .unrelated ? "AI 判定与本轮学习无关，已保留页面" : "AI 无法确认，已保留页面", result.relevance.reason, nil)
                 }
             } catch {
                 guard self.isCurrentAssessment(round, token: token, provider: provider) else { return }

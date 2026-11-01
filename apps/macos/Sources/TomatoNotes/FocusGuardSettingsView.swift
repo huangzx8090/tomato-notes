@@ -39,18 +39,22 @@ struct FocusGuardSettingsSection: View {
                 PaperCard {
                     VStack(alignment: .leading, spacing: 13) {
                         Text("离开白名单时").font(.system(size: 13, weight: .semibold))
+                        SettingsToggleRow(title: "让 AI 判断当前页面是否与学习相关",
+                                          detail: "开启后，离开目标超时会交给 AI 核对：判定相关就自动放行本轮，无关或无法确定时只提醒、不动窗口。需要已配置 AI 密钥，判定仍受每轮次数限制。",
+                                          value: guardToggle(\.aiRelevance)).disabled(!state.settings.focusGuard.enabled)
+                        Divider()
                         SettingsNumberRow(title: "停留多久后提醒", unit: "秒", bounds: 5...1800,
                                           value: integer(\.remindAfterSeconds, bounds: 5...1800))
                         SettingsHelpText("连续离开 \(state.settings.focusGuard.remindAfterSeconds) 秒时提醒你回来。返回白名单后重新计算；暂停时不检查。")
                         Divider()
                         DisclosureGroup {
                             VStack(alignment: .leading, spacing: 13) {
-                                SettingsHelpText("下面两项只在本轮允许 AI 关闭网页时生效。AI 检查 Chrome，其他 App 只提醒。")
+                                SettingsHelpText("AI 检查 Chrome，其他 App 只提醒。自动判断相关性只放行不关闭，关闭前核对需在本轮单独授权。")
                                 SettingsNumberRow(title: "提醒后再等待", unit: "秒", bounds: 5...600,
                                                   value: integer(\.graceSeconds, bounds: 5...600))
                                 SettingsNumberRow(title: "每轮最多判断", unit: "次", bounds: 1...5,
                                                   value: integer(\.maxChecks, bounds: 1...5))
-                                SettingsHelpText("先提醒 → 再等待 \(state.settings.focusGuard.graceSeconds) 秒 → 按本轮授权判断。无法确定或调用失败时，保留页面。")
+                                SettingsHelpText("先提醒 → 再等待 \(state.settings.focusGuard.graceSeconds) 秒 → 交给 AI 判断。无法确定或调用失败时，保留页面。")
                                 if !state.hasAPIKey {
                                     Button("先配置 AI 助手", action: openAI).buttonStyle(SettingsButtonStyle())
                                 }
@@ -72,7 +76,7 @@ struct FocusGuardSettingsSection: View {
                                     next.focusGuard.favoritePages.removeAll { $0.id == rule.id }
                                     _ = state.updateSettings(next)
                                 }
-                                SettingsHelpText("点击 × 移除规则，更改自动保存。")
+                            SettingsHelpText("点击 × 移除规则，更改自动保存。")
                             }
                         }.padding(.top, 10)
                     } label: {
