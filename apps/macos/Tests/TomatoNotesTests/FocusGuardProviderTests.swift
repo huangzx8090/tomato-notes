@@ -232,3 +232,95 @@ struct FocusGuardProviderTests {
         #expect(keyReads == 0 && captures == 0 && requests == 0 && closed == 0)
     }
 }
+
+/// 「AI 判断相关性」与关闭授权分开生效：只开相关性也能发起判定，
+/// 判定相关时自动放行本轮；判定的 unrelated 在未授权关闭时只保留并通知。
+@Suite(.timeLimit(.minutes(1)))
+struct GuardAIRelevanceProviderTests {
+    private func provider(_ id: String) -> AIProviderConfig {
+        .init(id: id, name: id, baseURL: "https://\(id).example/v1", defaultModel: "vision-test", sendsThinkingFlag: false)
+    }
+
+    private var page: GuardPage {
+        .init(windowID: "w", tabID: "t", url: "https://page.example/lesson", title: "模拟页面",
+              isPrivate: false, bounds: .init(x: 0, y: 0, width: 1000, height: 700))
+    }
+
+    @MainActor private func activate(_ controller: FocusGuardController, allowClosing: Bool, aiRelevance: Bool) -> (UUID, FocusGuardPlan) {
+        let round = UUID()
+        var timer = TimerSnapshot()
+        timer.phase = .running
+        timer.sessionID = round
+        var settings = FocusGuardSettings()
+        settings.enabled = true
+        settings.aiRelevance = aiRelevance
+        let plan = FocusGuardPlan(goal: "学习数据库", appIDs: [], pages: [], allowAIClosing: allowClosing)
+        controller.currentSnapshot = { (timer, false, settings) }
+        controller.configure(plan, sessionID: round)
+        return (round, plan)
+    }
+
+    @Test(arguments: [FocusRelevance.Verdict.related, .unrelated, .uncertain])
+    @MainActor func relevanceOnlyAssessesWithoutClosing(verdict: FocusRelevance.Verdict) async throws {
+        let selected = provider("first"), page = page
+        let result = FocusAssessment(relevance: .init(verdict: verdict, confidence: 0.99, reason: "模拟判定"),
+                                     inputTokens: 10, outputTokens: 4)
+        var requests = 0, closed = 0, notices = 0
+        let controller = FocusGuardController(
+            keyReader: { _ in "fake-key-first" },
+            capturePage: { _ in Data([1]) },
+            frontPage: { page },
+            assessPage: { _, _, _, _, _ in requests += 1; return result },
+            closePage: { _ in closed += 1; return true })
+        controller.onNotice = { _, _, _ in notices += 1 }
+        controller.updateAIProvider(selected)
+        let (round, plan) = activate(controller, allowClosing: false, aiRelevance: true)
+        let task = try #require(controller.assess(page, round: round, plan: plan))
+        await task.value
+        // 判定确实发生，但未授权关闭时绝不关窗。
+        #expect(requests == 1 && closed == 0 && notices == 1)
+        #expect(controller.checks == 1 && controller.inputTokens == 10 && controller.outputTokens == 4)
+        if verdict == .related {
+            // 相关即放行本轮：本页进入白名单，后续 tick 不再计停留。
+            #expect(controller.plan?.allows(appID: "com.google.Chrome", url: page.url) == true)
+            #expect(controller.status.contains("相关"))
+        } else {
+            #expect(controller.plan?.allows(appID: "com.google.Chrome", url: page.url) == false)
+        }
+    }
+
+    @Test @MainActor func bothSwitchesOffNeverAssesses() async throws {
+        let selected = provider("first"), page = page
+        var requests = 0, closed = 0
+        let controller = FocusGuardController(
+            keyReader: { _ in "fake-key-first" },
+            capturePage: { _ in Data([1]) },
+            frontPage: { page },
+            assessPage: { _, _, _, _, _ in requests += 1
+                return .init(relevance: .init(verdict: .unrelated, confidence: 0.99, reason: "x"), inputTokens: 1, outputTokens: 1) },
+            closePage: { _ in closed += 1; return true })
+        controller.updateAIProvider(selected)
+        let (round, plan) = activate(controller, allowClosing: false, aiRelevance: false)
+        // 两个开关都关：直接被拒，不消耗 token。
+        #expect(controller.assess(page, round: round, plan: plan) == nil)
+        #expect(requests == 0 && closed == 0 && controller.checks == 0)
+    }
+
+    @Test @MainActor func authorizedClosingStillWorksWithoutRelevanceSwitch() async throws {
+        let selected = provider("first"), page = page
+        let result = FocusAssessment(relevance: .init(verdict: .unrelated, confidence: 0.99, reason: "模拟无关页面"),
+                                     inputTokens: 12, outputTokens: 3)
+        var requests = 0, closed = 0
+        let controller = FocusGuardController(
+            keyReader: { _ in "fake-key-first" },
+            capturePage: { _ in Data([1]) },
+            frontPage: { page },
+            assessPage: { _, _, _, _, _ in requests += 1; return result },
+            closePage: { _ in closed += 1; return true })
+        controller.updateAIProvider(selected)
+        let (round, plan) = activate(controller, allowClosing: true, aiRelevance: false)
+        let task = try #require(controller.assess(page, round: round, plan: plan))
+        await task.value
+        #expect(requests == 1 && closed == 1)
+    }
+}

@@ -5,17 +5,21 @@ public struct FocusGuardSettings: Codable, ExtraFieldPreserving, Sendable {
     public var remindAfterSeconds = 60
     public var graceSeconds = 60
     public var maxChecks = 3
+    /// 让 AI 自行判断当前内容是否与本轮学习相关：只判断并放行，不代表授权关闭。
+    /// 关闭仍要本轮单独打开 allowAIClosing；与 Windows 的同名 v4 共享字段逐项一致。
+    public var aiRelevance = false
     public var reuseLastPlan = false
     /// 未知字段：Windows 或未来版本保存的守护设置，macOS 不理解但必须原样保留。
     public var extraFields: [String: JSONValue] = [:]
     public init() {}
-    private enum CodingKeys: String, CodingKey { case enabled, remindAfterSeconds, graceSeconds, maxChecks, reuseLastPlan, lastGoal, lastAppIDs, lastPages, lastAllowAIClosing, favoritePages }
+    private enum CodingKeys: String, CodingKey { case enabled, remindAfterSeconds, graceSeconds, maxChecks, aiRelevance, reuseLastPlan, lastGoal, lastAppIDs, lastPages, lastAllowAIClosing, favoritePages }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         remindAfterSeconds = min(1800, max(5, try values.decodeIfPresent(Int.self, forKey: .remindAfterSeconds) ?? 60))
         graceSeconds = min(600, max(5, try values.decodeIfPresent(Int.self, forKey: .graceSeconds) ?? 60))
         maxChecks = min(5, max(1, try values.decodeIfPresent(Int.self, forKey: .maxChecks) ?? 3))
+        aiRelevance = try values.decodeIfPresent(Bool.self, forKey: .aiRelevance) ?? false
         reuseLastPlan = try values.decodeIfPresent(Bool.self, forKey: .reuseLastPlan) ?? false
         lastGoal = try values.decodeIfPresent(String.self, forKey: .lastGoal) ?? ""
         lastAppIDs = try values.decodeIfPresent(Set<String>.self, forKey: .lastAppIDs) ?? []
@@ -23,7 +27,7 @@ public struct FocusGuardSettings: Codable, ExtraFieldPreserving, Sendable {
         lastAllowAIClosing = try values.decodeIfPresent(Bool.self, forKey: .lastAllowAIClosing) ?? false
         favoritePages = try values.decodeIfPresent([FocusPageRule].self, forKey: .favoritePages) ?? []
         extraFields = try Self.captureExtraFields(from: decoder, known: [
-            "enabled", "remindAfterSeconds", "graceSeconds", "maxChecks", "reuseLastPlan",
+            "enabled", "remindAfterSeconds", "graceSeconds", "maxChecks", "aiRelevance", "reuseLastPlan",
             "lastGoal", "lastAppIDs", "lastPages", "lastAllowAIClosing", "favoritePages"])
     }
     public func encode(to encoder: Encoder) throws {
@@ -32,6 +36,7 @@ public struct FocusGuardSettings: Codable, ExtraFieldPreserving, Sendable {
         try container.encode(remindAfterSeconds, forKey: .remindAfterSeconds)
         try container.encode(graceSeconds, forKey: .graceSeconds)
         try container.encode(maxChecks, forKey: .maxChecks)
+        try container.encode(aiRelevance, forKey: .aiRelevance)
         try container.encode(reuseLastPlan, forKey: .reuseLastPlan)
         try container.encode(lastGoal, forKey: .lastGoal)
         try container.encode(lastAppIDs, forKey: .lastAppIDs)

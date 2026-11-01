@@ -9,7 +9,7 @@
     "review": { "scheduleEnabled": false, "autoSummarizeSessions": false, "hour": 21, "minute": 30 },
     "ai": { "providerID": "deepseek", "customBaseURL": "", "modelOverride": "" },
     "timerHotkey": { "enabled": true, "letter": "P", "modifier": "controlOption" },
-    "focusGuard": { "enabled": false, "macOSOnlyRule": "preserve-me" },
+    "focusGuard": { "enabled": false, "aiRelevance": true, "macOSOnlyRule": "preserve-me" },
     "activityRecording": { "enabled": false },
     "futureSettingFromEitherPlatform": { "keep": true }
   },
