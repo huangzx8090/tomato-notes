@@ -32,6 +32,12 @@ AI 活动记录与 macOS 同源：专注中采集便签新增文字与待办勾�
 地址栏通过 Windows UI Automation 读取，实测 Chromium 内核浏览器可用，读不到网址就不判定；
 全程不截图、不读取网页正文、不记录键盘输入。
 
+守护设置里可另开「让 AI 判断当前页面是否与学习相关」：开启后不必等本轮授权关闭，
+离开目标就会交给 AI 核对，判定相关即自动放行本轮、不再重复判断同一页，
+判定无关或无法确定时只提醒、不动窗口。判定与关闭是两件事，收起窗口仍要本轮单独授权，
+关闭阈值与进程边界不变。这个开关写入 `settings.focusGuard.aiRelevance`（默认关闭），
+是新增的 v4 共享字段；macOS 目前按未知字段原样保留，尚未实现同一开关。
+
 Liquid Glass、macOS 合盖检测与窗口截图不移植。macOS 依赖 AppleScript 读取和关闭 Chrome，
 Windows 端改用系统 UI Automation，两端互不依赖，也不假装支持对方平台的接口。
 Chrome 浏览页面材料仍只在 macOS 端采集；Windows 端能读出、显示并原样保存 macOS 写下的

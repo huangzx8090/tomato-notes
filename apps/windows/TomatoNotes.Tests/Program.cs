@@ -41,6 +41,7 @@ var tests = new (string Name, Func<Task> Run)[] {
     ("守护关闭授权与判定阈值", () => GuardClosingThresholds()),
     ("守护不触碰系统与受保护进程", () => GuardProcessSafety()),
     ("守护设置夹取范围并保留未知字段", () => GuardSettingsContract()),
+    ("守护判定与关闭授权分开生效", () => GuardAssessmentRules()),
     ("AI 守护判定按 macOS 规则校验", () => GuardAssessmentValidation()),
 };
 var failed = 0;
@@ -789,13 +790,14 @@ static Task GuardProcessSafety()
 static Task GuardSettingsContract()
 {
     // 越界数值按 macOS 的范围夹取，未知字段原样保留，关闭授权不跨轮沿用。
-    const string json = """{"schemaVersion":4,"settings":{"focusGuard":{"enabled":true,"remindAfterSeconds":99999,"graceSeconds":0,"maxChecks":42,"reuseLastPlan":true,"lastGoal":"高数","lastAppIDs":["code.exe"],"lastPages":[{"kind":"site","value":"example.com","title":"示例"}],"lastAllowAIClosing":true,"favoritePages":[{"kind":"page","value":"https://example.com/a","title":"A"}],"macOSOnlyRule":"preserve-me"}},"timer":{},"sessions":[],"intervals":[],"usage":[],"todos":[],"notes":[],"workRecords":[],"focusActivities":[]}""";
+    const string json = """{"schemaVersion":4,"settings":{"focusGuard":{"enabled":true,"remindAfterSeconds":99999,"graceSeconds":0,"maxChecks":42,"aiRelevance":true,"reuseLastPlan":true,"lastGoal":"高数","lastAppIDs":["code.exe"],"lastPages":[{"kind":"site","value":"example.com","title":"示例"}],"lastAllowAIClosing":true,"favoritePages":[{"kind":"page","value":"https://example.com/a","title":"A"}],"macOSOnlyRule":"preserve-me"}},"timer":{},"sessions":[],"intervals":[],"usage":[],"todos":[],"notes":[],"workRecords":[],"focusActivities":[]}""";
     var data = JsonSerializer.Deserialize<AppData>(json, TomatoJson.Options)!;
     var guard = data.Settings.FocusGuard;
     Equal(true, guard.Enabled);
     Equal(1800, guard.RemindAfterSeconds);
     Equal(5, guard.GraceSeconds);
     Equal(5, guard.MaxChecks);
+    Equal(true, guard.AIRelevance);
     Equal(true, guard.ReuseLastPlan);
     Equal("高数", guard.LastGoal);
     Equal("code.exe", guard.LastAppIDs.Single());
@@ -807,6 +809,10 @@ static Task GuardSettingsContract()
     Contains("macOSOnlyRule", saved);
     Contains("preserve-me", saved);
     Contains("\"lastAllowAIClosing\": false", saved);
+    Contains("\"aiRelevance\": true", saved);
+
+    // 资料里没写这个字段时按关闭处理，老资料打开不会意外开始 AI 判定。
+    Equal(false, JsonSerializer.Deserialize<FocusGuardSettings>("{}", TomatoJson.Options)!.AIRelevance);
 
     var plan = guard.ReusablePlan;
     Equal(true, plan is not null);
@@ -822,6 +828,43 @@ static Task GuardSettingsContract()
     guard.RememberDraft(new FocusGuardPlan("又一轮", [], [], false));
     Equal("", guard.LastGoal);
     Equal(0, guard.LastAppIDs.Count);
+    return Task.CompletedTask;
+}
+
+static Task GuardAssessmentRules()
+{
+    // 判定与关闭是两件事：开「AI 判断相关性」就能判定，但只有本轮单独授权关闭才动手。
+    var settings = new FocusGuardSettings { AIRelevance = true, MaxChecks = 3 };
+    var page = new GuardTarget("chrome.exe", "Chrome", "线性代数 - Google Chrome", "https://example.com/linear-algebra", "线性代数");
+    var unauthorized = new FocusGuardPlan("复习线性代数", [], [], false);
+
+    Equal(3, GuardAssessmentPolicy.CheckLimit(settings));
+    Equal(1, GuardAssessmentPolicy.CheckLimit(new FocusGuardSettings { MaxChecks = 0 }));
+    Equal(5, GuardAssessmentPolicy.CheckLimit(new FocusGuardSettings { MaxChecks = 42 }));
+
+    // 没授权关闭，但开了相关性判断，仍然交给 AI。
+    Equal(true, GuardAssessmentPolicy.MayAssess(settings, unauthorized, true, page, 0));
+    // 本轮授权关闭时不必再开相关性判断。
+    Equal(true, GuardAssessmentPolicy.MayAssess(new FocusGuardSettings(), new FocusGuardPlan("复习", [], [], true), true, page, 0));
+    // 两个开关都关：只提醒，不判定。
+    Equal(false, GuardAssessmentPolicy.MayAssess(new FocusGuardSettings(), unauthorized, true, page, 0));
+    // 用满本轮上限、没有密钥都不判定。
+    Equal(false, GuardAssessmentPolicy.MayAssess(settings, unauthorized, true, page, 3));
+    Equal(false, GuardAssessmentPolicy.MayAssess(settings, unauthorized, false, page, 0));
+    // 隐私窗口不读内容；浏览器拿不到网址也不判定。
+    Equal(false, GuardAssessmentPolicy.MayAssess(settings, unauthorized, true, new GuardTarget("chrome.exe", "Chrome", "无痕模式", "https://example.com/x", "x"), 0));
+    Equal(false, GuardAssessmentPolicy.MayAssess(settings, unauthorized, true, new GuardTarget("chrome.exe", "Chrome", "新标签页", null, null), 0));
+    // 普通进程有窗口标题就够判定。
+    Equal(true, GuardAssessmentPolicy.MayAssess(settings, unauthorized, true, new GuardTarget("code.exe", "Code", "FocusGuard.cs", null, null), 0));
+
+    // 关闭要本轮授权 + 明确无关 + 高度确信 + 有理由，缺一不动手。
+    var authorized = new FocusGuardPlan("复习线性代数", [], [], true);
+    var unrelated = new FocusRelevance(FocusVerdict.Unrelated, .95, "购物页面与线性代数无关");
+    Equal(true, GuardAssessmentPolicy.MayClose(authorized, unrelated));
+    Equal(false, GuardAssessmentPolicy.MayClose(unauthorized, unrelated));
+    Equal(false, GuardAssessmentPolicy.MayClose(authorized, new FocusRelevance(FocusVerdict.Related, .95, "教材章节")));
+    Equal(false, GuardAssessmentPolicy.MayClose(authorized, new FocusRelevance(FocusVerdict.Uncertain, .95, "看不出来")));
+    Equal(false, GuardAssessmentPolicy.MayClose(authorized, new FocusRelevance(FocusVerdict.Unrelated, .6, "把握不足")));
     return Task.CompletedTask;
 }
 

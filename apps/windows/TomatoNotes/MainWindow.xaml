@@ -250,7 +250,7 @@
                              Typography.NumeralAlignment="Tabular" Margin="0,0,0,10" />
                   <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="本轮允许 AI 自动关闭" OnContent="" OffContent=""
                                    IsChecked="{Binding GuardAllowClosing}" Margin="0,0,0,4" />
-                  <TextBlock Text="先提醒，等宽限期过后才判定；只有明确无关且高度确信时才会关闭，浏览器只关当前标签。"
+                  <TextBlock Text="先提醒，等宽限期过后交给 AI 判定；这个开关只决定要不要动手，判定明确无关且高度确信才关闭，浏览器只关当前标签。"
                              Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,10" />
                   <ui:ToggleSwitch Style="{StaticResource SettingsRowToggle}" Content="正常关闭无效时强制结束进程" OnContent="" OffContent=""
                                    IsChecked="{Binding GuardAllowForce}" IsEnabled="{Binding GuardAllowClosing}" Margin="0,0,0,4" />
