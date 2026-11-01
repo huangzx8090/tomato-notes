@@ -34,6 +34,13 @@ var tests = new (string Name, Func<Task> Run)[] {
     ("活动来源键与 macOS 大写 UUID 一致", () => ActivitySourceKeyInterop()),
     ("活动标题清洗去掉网址与超长文字", () => ActivityPrivacyClean()),
     ("AI 使用最新模型配置并处理无效响应", () => AISettingsAndInvalidResponses()),
+    ("网页规则归一化与匹配", () => FocusPageRules()),
+    ("守护白名单只放行到网页", () => FocusGuardPlanRules()),
+    ("守护停留先提醒再判定", () => GuardDwellSequence()),
+    ("守护关闭授权与判定阈值", () => GuardClosingThresholds()),
+    ("守护不触碰系统与受保护进程", () => GuardProcessSafety()),
+    ("守护设置夹取范围并保留未知字段", () => GuardSettingsContract()),
+    ("AI 守护判定按 macOS 规则校验", () => GuardAssessmentValidation()),
 };
 var failed = 0;
 foreach (var test in tests)
@@ -615,5 +622,239 @@ static Task ActivityPrivacyClean()
     return Task.CompletedTask;
 }
 
-sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> response) : HttpMessageHandler { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) => Task.FromResult(response(request)); }
+static Task FocusPageRules()
+{
+    // 协议与主机小写、去掉账号密码与锚点、路径缺省补 "/"，并保留查询条件。
+    Equal("https://example.com/", FocusPageRule.PageKey("HTTPS://Example.COM")!);
+    Equal("https://example.com/watch?v=2", FocusPageRule.PageKey("https://user:pw@Example.com/watch?v=2#t=30")!);
+    Equal("http://example.com/a", FocusPageRule.PageKey("http://example.com/a")!);
+    Equal<string?>(null, FocusPageRule.PageKey("ftp://example.com/a"));
+    Equal<string?>(null, FocusPageRule.PageKey("not a url"));
+    Equal<string?>(null, FocusPageRule.PageKey("   "));
+    Equal("example.com", FocusPageRule.SiteHost("https://WWW.Example.com/path")!);
+    Equal("example.com", FocusPageRule.SiteHost("example.com")!);
+    Equal("localhost", FocusPageRule.SiteHost("http://localhost:8080")!);
+    Equal<string?>(null, FocusPageRule.SiteHost("内网"));
+
+    // 保留查询条件才能区分同一站点上的不同视频或文档。
+    var page = new FocusPageRule(FocusPageKind.Page, "https://example.com/watch?v=2", "网课第二节");
+    Equal(true, page.Matches("https://example.com/watch?v=2#t=10"));
+    Equal(false, page.Matches("https://example.com/watch?v=3"));
+    var site = new FocusPageRule(FocusPageKind.Site, "example.com", "示例站");
+    Equal(true, site.Matches("https://www.example.com/a/b"));
+    Equal(true, site.Matches("https://docs.example.com/"));
+    Equal(false, site.Matches("https://notexample.com/"));
+    Equal("page:https://example.com/watch?v=2", page.Id);
+    return Task.CompletedTask;
+}
+
+static Task FocusGuardPlanRules()
+{
+    var page = new FocusPageRule(FocusPageKind.Page, "https://learn.example.com/course/1", "课程");
+    var plan = new FocusGuardPlan("高数复习", ["chrome.exe", "code.exe", "msedge.exe"], [page], true, true);
+    // 浏览器不放行整个进程，必须精确到网页。
+    Equal(false, plan.AppIDs.Contains("chrome.exe"));
+    Equal(false, plan.AppIDs.Contains("msedge.exe"));
+    Equal(true, plan.AppIDs.Contains("code.exe"));
+    Equal(false, plan.Allows("chrome.exe"));
+    Equal(true, plan.Allows("chrome.exe", "https://learn.example.com/course/1"));
+    Equal(false, plan.Allows("chrome.exe", "https://other.example.com/"));
+    Equal(true, plan.Allows("code.exe"));
+    Equal(true, plan.Allows("tomatonotes.exe"));
+    Equal(true, plan.WhitelistAppIDs.Contains("chrome.exe"));
+    // 没有网页规则时，浏览器不算白名单进程。
+    Equal(false, new FocusGuardPlan("目标", ["code.exe"], [], false).WhitelistAppIDs.Contains("chrome.exe"));
+    // 强制结束必须先允许 AI 关闭，否则单独打开也无效。
+    Equal(true, plan.AllowForceKill);
+    Equal(false, new FocusGuardPlan("目标", [], [], false, true).AllowForceKill);
+    return Task.CompletedTask;
+}
+
+static Task GuardDwellSequence()
+{
+    var settings = new FocusGuardSettings { RemindAfterSeconds = 10, GraceSeconds = 5, MaxChecks = 3 };
+    var monitor = new GuardDwellMonitor();
+    double now = 1000;
+    Equal(GuardAction.None, monitor.Update("code.exe", now, settings, true));
+    now += 5; Equal(GuardAction.None, monitor.Update("code.exe", now, settings, true));
+    now += 5; Equal(GuardAction.Remind, monitor.Update("code.exe", now, settings, true));
+    now += 3; Equal(GuardAction.None, monitor.Update("code.exe", now, settings, true));
+    now += 2; Equal(GuardAction.Assess, monitor.Update("code.exe", now, settings, true));
+    // 同一段内容只判定一次。
+    now += 5; Equal(GuardAction.None, monitor.Update("code.exe", now, settings, true));
+    now += 5; Equal(GuardAction.None, monitor.Update("code.exe", now, settings, true));
+
+    // 未授权关闭时只提醒，永远不进入判定。
+    var remindOnly = new GuardDwellMonitor();
+    now = 2000;
+    Equal(GuardAction.None, remindOnly.Update("chrome.exe", now, settings, false));
+    now += 5; Equal(GuardAction.None, remindOnly.Update("chrome.exe", now, settings, false));
+    now += 5; Equal(GuardAction.Remind, remindOnly.Update("chrome.exe", now, settings, false));
+    now += 5; Equal(GuardAction.None, remindOnly.Update("chrome.exe", now, settings, false));
+    now += 5; Equal(GuardAction.None, remindOnly.Update("chrome.exe", now, settings, false));
+
+    // 换内容重新计时。
+    var switched = new GuardDwellMonitor();
+    now = 3000;
+    switched.Update("a", now, settings, true);
+    now += 8; Equal(GuardAction.None, switched.Update("b", now, settings, true));
+    now += 8; Equal(GuardAction.None, switched.Update("b", now, settings, true));
+    now += 2; Equal(GuardAction.Remind, switched.Update("b", now, settings, true));
+
+    // 心跳中断超过 8 秒视为离开过，重新计时。
+    var gap = new GuardDwellMonitor();
+    now = 4000;
+    gap.Update("a", now, settings, true);
+    now += 20; Equal(GuardAction.None, gap.Update("a", now, settings, true));
+    now += 5; Equal(GuardAction.None, gap.Update("a", now, settings, true));
+    now += 5; Equal(GuardAction.Remind, gap.Update("a", now, settings, true));
+
+    // 白名单内不计时。
+    var allowed = new GuardDwellMonitor();
+    now = 5000;
+    Equal(GuardAction.None, allowed.Update(null, now, settings, true));
+    now += 999; Equal(GuardAction.None, allowed.Update(null, now, settings, true));
+    return Task.CompletedTask;
+}
+
+static Task GuardClosingThresholds()
+{
+    Equal(true, new FocusRelevance(FocusVerdict.Unrelated, .9, "购物页面").PermitsClosing);
+    Equal(true, new FocusRelevance(FocusVerdict.Unrelated, 1, "购物页面").PermitsClosing);
+    Equal(false, new FocusRelevance(FocusVerdict.Unrelated, .89, "购物页面").PermitsClosing);
+    Equal(false, new FocusRelevance(FocusVerdict.Unrelated, 1.01, "购物页面").PermitsClosing);
+    Equal(false, new FocusRelevance(FocusVerdict.Unrelated, double.NaN, "购物页面").PermitsClosing);
+    Equal(false, new FocusRelevance(FocusVerdict.Unrelated, .95, "   ").PermitsClosing);
+    Equal(false, new FocusRelevance(FocusVerdict.Related, 1, "课程").PermitsClosing);
+    Equal(false, new FocusRelevance(FocusVerdict.Uncertain, 1, "看不清").PermitsClosing);
+
+    // 浏览器要拿到可归一化的网址才够具体；隐私窗口一律不判定。
+    var page = new GuardTarget("chrome.exe", "Chrome", "网课 - Google Chrome", "https://learn.example.com/c/1", "网课");
+    Equal(true, page.MayAssess);
+    Equal(true, page.IsBrowser);
+    Equal("page:https://learn.example.com/c/1", page.Identity(false));
+    Equal<string?>(null, page.Identity(true));
+    Contains("learn.example.com", page.Describe());
+    Equal(false, new GuardTarget("chrome.exe", "Chrome", "新标签页", null, null).MayAssess);
+    Equal("chrome.exe", new GuardTarget("chrome.exe", "Chrome", "新标签页", null, null).Identity(false));
+
+    var app = new GuardTarget("code.exe", "Visual Studio Code", "Program.cs - 项目", null, null);
+    Equal(true, app.MayAssess);
+    Equal(false, app.IsBrowser);
+    Equal("code.exe", app.Identity(false));
+    // 没有窗口标题就没有判断依据，只提醒不判定。
+    Equal(false, new GuardTarget("some.exe", "Some", "", null, null).MayAssess);
+    var privatePage = new GuardTarget("msedge.exe", "Edge", "网页 - InPrivate", "https://example.com/", "网页");
+    Equal(true, privatePage.IsPrivate);
+    Equal(false, privatePage.MayAssess);
+    return Task.CompletedTask;
+}
+
+static Task GuardProcessSafety()
+{
+    Equal(false, GuardProcessPolicy.MayClose("explorer.exe", null));
+    Equal(false, GuardProcessPolicy.MayClose("svchost.exe", null));
+    Equal(false, GuardProcessPolicy.MayClose("TomatoNotes.exe", null));
+    Equal(false, GuardProcessPolicy.MayClose("cmd.exe", null));
+    Equal(false, GuardProcessPolicy.MayClose("powershell.exe", null));
+    Equal(false, GuardProcessPolicy.MayClose("", null));
+    Equal(false, GuardProcessPolicy.MayClose(null, null));
+    // 系统目录下的可执行文件一律不动。
+    Equal(false, GuardProcessPolicy.MayClose("some.exe", @"C:\Windows\System32\some.exe"));
+    Equal(true, GuardProcessPolicy.MayClose("code.exe", @"C:\Program Files\Code\Code.exe"));
+    Equal(true, GuardProcessPolicy.MayClose("chrome.exe", @"C:\Program Files\Google\Chrome\Application\chrome.exe"));
+    Equal(true, GuardProcessPolicy.MayClose("wechat.exe", null));
+    return Task.CompletedTask;
+}
+
+static Task GuardSettingsContract()
+{
+    // 越界数值按 macOS 的范围夹取，未知字段原样保留，关闭授权不跨轮沿用。
+    const string json = """{"schemaVersion":4,"settings":{"focusGuard":{"enabled":true,"remindAfterSeconds":99999,"graceSeconds":0,"maxChecks":42,"reuseLastPlan":true,"lastGoal":"高数","lastAppIDs":["code.exe"],"lastPages":[{"kind":"site","value":"example.com","title":"示例"}],"lastAllowAIClosing":true,"favoritePages":[{"kind":"page","value":"https://example.com/a","title":"A"}],"macOSOnlyRule":"preserve-me"}},"timer":{},"sessions":[],"intervals":[],"usage":[],"todos":[],"notes":[],"workRecords":[],"focusActivities":[]}""";
+    var data = JsonSerializer.Deserialize<AppData>(json, TomatoJson.Options)!;
+    var guard = data.Settings.FocusGuard;
+    Equal(true, guard.Enabled);
+    Equal(1800, guard.RemindAfterSeconds);
+    Equal(5, guard.GraceSeconds);
+    Equal(5, guard.MaxChecks);
+    Equal(true, guard.ReuseLastPlan);
+    Equal("高数", guard.LastGoal);
+    Equal("code.exe", guard.LastAppIDs.Single());
+    Equal(FocusPageKind.Site, guard.LastPages.Single().Kind);
+    Equal("https://example.com/a", guard.FavoritePages.Single().Value);
+    Equal(false, guard.LastAllowAIClosing);
+
+    var saved = JsonSerializer.Serialize(data, TomatoJson.Options);
+    Contains("macOSOnlyRule", saved);
+    Contains("preserve-me", saved);
+    Contains("\"lastAllowAIClosing\": false", saved);
+
+    var plan = guard.ReusablePlan;
+    Equal(true, plan is not null);
+    Equal("高数", plan!.Goal);
+    Equal(false, plan.AllowAIClosing);
+    Equal("example.com", plan.Pages.Single().Value);
+
+    guard.RememberDraft(new FocusGuardPlan("新一轮", ["code.exe"], [], true, true));
+    Equal("新一轮", guard.LastGoal);
+    Equal(false, guard.LastAllowAIClosing);
+    // 关掉沿用后不再保存草稿。
+    guard.ReuseLastPlan = false;
+    guard.RememberDraft(new FocusGuardPlan("又一轮", [], [], false));
+    Equal("", guard.LastGoal);
+    Equal(0, guard.LastAppIDs.Count);
+    return Task.CompletedTask;
+}
+
+static HttpResponseMessage GuardResponse(JsonObject payload) => Json(new JsonObject
+{
+    ["choices"] = new JsonArray(new JsonObject
+    {
+        ["finish_reason"] = "stop",
+        ["message"] = new JsonObject { ["content"] = payload.ToJsonString() },
+    }),
+    // usage 按真实 OpenAI 响应的位置放在补全对象顶层，不在 choices[0] 里。
+    ["usage"] = new JsonObject { ["prompt_tokens"] = 120, ["completion_tokens"] = 18 },
+}.ToJsonString());
+
+static async Task GuardAssessmentValidation()
+{
+    var provider = new AIProvider("custom", "Test", "https://example.test/v1", "test-model");
+    var target = new GuardTarget("chrome.exe", "Chrome", "购物 - Google Chrome", "https://shop.example.com/item?id=9", "购物");
+    async Task<FocusAssessment> Assess(JsonObject payload)
+    {
+        using var client = new AIClient(provider, new StubHandler(_ => GuardResponse(payload)));
+        return await client.AssessFocus(target, "高数复习", "secret");
+    }
+    static JsonObject Verdict(string verdict, double confidence, string reason) => new()
+    {
+        ["verdict"] = verdict, ["confidence"] = confidence, ["reason"] = reason,
+    };
+
+    var ok = await Assess(Verdict("unrelated", .95, "明显的购物页面"));
+    Equal(FocusVerdict.Unrelated, ok.Relevance.Verdict);
+    Equal(.95, ok.Relevance.Confidence);
+    Equal("明显的购物页面", ok.Relevance.Reason);
+    Equal(true, ok.Relevance.PermitsClosing);
+    Equal(120, ok.InputTokens); Equal(18, ok.OutputTokens);
+
+    // 置信度越界、理由为空或超长、判定值非法，都不能拿来决定是否关闭。
+    await Throws<InvalidDataException>(() => Assess(Verdict("unrelated", 1.4, "购物")), "置信度越界");
+    await Throws<InvalidDataException>(() => Assess(Verdict("unrelated", .95, "  ")), "理由为空");
+    await Throws<InvalidDataException>(() => Assess(Verdict("unrelated", .95, new string('长', 401))), "理由超长");
+    await Throws<InvalidDataException>(() => Assess(Verdict("maybe", .95, "购物")), "判定值非法");
+    // 不是 stop 结束说明内容被截断。
+    await Throws<InvalidDataException>(() => new AIClient(provider, new StubHandler(_ => Json(new JsonObject
+    {
+        ["choices"] = new JsonArray(new JsonObject { ["finish_reason"] = "length", ["message"] = new JsonObject { ["content"] = "{}" } }),
+    }.ToJsonString()))).AssessFocus(target, "高数复习", "secret"), "内容被截断");
+    // 浏览器读不到网址时不发请求。
+    await Throws<InvalidDataException>(() => new AIClient(provider, new StubHandler(_ => GuardResponse(Verdict("related", 1, "课程"))))
+        .AssessFocus(new GuardTarget("chrome.exe", "Chrome", "新标签页", null, null), "高数复习", "secret"), "读不到网址");
+    // 普通进程没有网址也能判定，依据是进程名与窗口标题。
+    var app = await new AIClient(provider, new StubHandler(_ => GuardResponse(Verdict("related", .99, "编辑器里是作业"))))
+        .AssessFocus(new GuardTarget("code.exe", "Visual Studio Code", "作业.cs - 项目", null, null), "高数复习", "secret");
+    Equal(FocusVerdict.Related, app.Relevance.Verdict);
+    Equal(false, app.Relevance.PermitsClosing);
+}sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> response) : HttpMessageHandler { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) => Task.FromResult(response(request)); }
 sealed class TemporaryDirectory : IDisposable { public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "TomatoTests-" + Guid.NewGuid().ToString("N")); public TemporaryDirectory() => Directory.CreateDirectory(Path); public void Dispose() { try { Directory.Delete(Path, true); } catch { } } }

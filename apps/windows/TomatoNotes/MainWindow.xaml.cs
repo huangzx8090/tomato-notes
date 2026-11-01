@@ -123,6 +123,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     // —— 设置总览入口 ——
     private void OpenTimerSettings_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsPage.Timer);
     private void OpenAISettings_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsPage.AI);
+    private void OpenGuardSettings_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsPage.Guard);
     private void OpenReminderSettings_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsPage.Reminders);
     private void OpenAppearanceSettings_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsPage.Appearance);
     private void OpenDataSettings_Click(object sender, RoutedEventArgs e) => OpenSettings(SettingsPage.Data);

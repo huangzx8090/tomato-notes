@@ -3,8 +3,8 @@ using System.Windows.Controls;
 
 namespace TomatoNotes.Windows;
 
-/// 设置分页，对应 macOS 的 SettingsPage（去掉 Windows 端没有的专注守护页）。
-public enum SettingsPage { Overview, Timer, Reminders, Appearance, AI, Data }
+/// 设置分页，对应 macOS 的 SettingsPage；macOS 的 overview 与 guide 在 Windows 合并为「从这里开始」。
+public enum SettingsPage { Overview, Timer, Reminders, Appearance, AI, Data, Guard }
 
 public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
 {
@@ -16,6 +16,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         ("外观", "调整配色，浅色、深色或跟随系统。"),
         ("AI 助手", "连接服务商，整理成果和生成每日回顾。"),
         ("数据与隐私", "了解记录内容，查看和备份本地数据。"),
+        ("专注守护", "离开本轮目标时提醒，必要时按你的授权收起无关内容。"),
     ];
 
     private readonly AppState state;
@@ -39,6 +40,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         AppearancePane.Visibility = page == SettingsPage.Appearance ? Visibility.Visible : Visibility.Collapsed;
         AIPane.Visibility = page == SettingsPage.AI ? Visibility.Visible : Visibility.Collapsed;
         DataPane.Visibility = page == SettingsPage.Data ? Visibility.Visible : Visibility.Collapsed;
+        GuardPane.Visibility = page == SettingsPage.Guard ? Visibility.Visible : Visibility.Collapsed;
 
         NavOverview.IsChecked = page == SettingsPage.Overview;
         NavTimer.IsChecked = page == SettingsPage.Timer;
@@ -46,6 +48,7 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
         NavAppearance.IsChecked = page == SettingsPage.Appearance;
         NavAI.IsChecked = page == SettingsPage.AI;
         NavData.IsChecked = page == SettingsPage.Data;
+        NavGuard.IsChecked = page == SettingsPage.Guard;
 
         PageTitle.Text = PageMeta[(int)page].Title;
         PageSubtitle.Text = PageMeta[(int)page].Subtitle;
@@ -95,6 +98,28 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     private void ActivityRecording_Changed(object sender, RoutedEventArgs e)
     {
         if (loaded) state.RefreshActivityRecording();
+    }
+
+    private void FocusGuard_Changed(object sender, RoutedEventArgs e)
+    {
+        if (loaded) state.NormalizeGuardSettings();
+    }
+
+    // 数值也直接写模型属性：失焦时夹取范围并回填，避免界面显示与生效值不一致。
+    private void GuardNumber_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (!loaded) return;
+        state.NormalizeGuardSettings();
+        if (sender is not TextBox box) return;
+        var guard = state.Data.Settings.FocusGuard;
+        var value = box.Tag switch
+        {
+            "remind" => guard.RemindAfterSeconds,
+            "grace" => guard.GraceSeconds,
+            _ => guard.MaxChecks,
+        };
+        var text = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (box.Text != text) box.Text = text;
     }
     private void Model_Changed(object sender, SelectionChangedEventArgs e)
     {

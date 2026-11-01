@@ -41,6 +41,17 @@ public sealed class AppState : ObservableObject, IDisposable
     private readonly HashSet<Guid> pendingSessionReviews = [];
     private readonly Queue<Guid> reviewQueue = [];
     private bool reviewQueueRunning;
+    // 专注守护：计划与授权只存在于本轮内存，AI 关闭授权不跨轮沿用，与 macOS 一致。
+    private FocusGuardController? guard;
+    private FocusGuardPlan? guardPlan;
+    private Guid? guardSessionID;
+    private bool guardStopped;
+    private bool guardAllowClosing;
+    private bool guardAllowForce;
+    private DateTime lastGuardKeyCheck = DateTime.MinValue;
+    // 守护线程不读资料：AI 配置与密钥由界面线程每 10 秒缓存一份给它。
+    private AIProvider? guardProvider;
+    private string? guardKey;
     private CancellationTokenSource lifetime = new();
     public event Action<string, string, bool, bool>? NotificationRequested;
     public ObservableCollection<string> Models { get; } = [];
@@ -190,6 +201,7 @@ public sealed class AppState : ObservableObject, IDisposable
         ? $"每天 {Data.Settings.Review.Hour:00}:{Data.Settings.Review.Minute:00} 自动生成"
         : Data.Settings.Review.AutoSummarizeSessions || Data.Settings.ActivityRecording.Enabled ? "每轮结束后自动整理" : "按需手动生成";
     public string RecordingLabel => Data.Settings.RecordingEnabled ? "已记录前台 App 时长" : "App 记录已关闭";
+    public string GuardLabel => Data.Settings.FocusGuard.Enabled ? "已开启 · 只在本轮专注时生效" : "未开启";
     /// 开了自动记录但还没配密钥：活动照样在本机留着，只是暂时没法识别主题。
     public bool ActivityNeedsKey => Data.Settings.ActivityRecording.Enabled && !HasAPIKey;
     public void RefreshActivityRecording() => Changed(nameof(ActivityNeedsKey));
@@ -208,6 +220,11 @@ public sealed class AppState : ObservableObject, IDisposable
     public RelayCommand SaveSettingsCommand { get; }
     public RelayCommand FetchModelsCommand { get; }
     public RelayCommand TestAICommand { get; }
+    public RelayCommand GuardAllowCurrentCommand { get; }
+    public RelayCommand GuardStopCommand { get; }
+    public RelayCommand GuardResumeCommand { get; }
+    public RelayCommand GuardSaveFavoriteCommand { get; }
+    public RelayCommand GuardRemoveFavoriteCommand { get; }
 
     public AppState(LocalRepository repository)
     {
@@ -219,7 +236,13 @@ public sealed class AppState : ObservableObject, IDisposable
         StartCommand = new(_ => StartOrPause(), _ => CanWrite); EndCommand = new(_ => EndEarly(), _ => CanWrite);
         AddTodoCommand = new(_ => AddTodo(NewTodo), _ => CanWrite); BackupCommand = new(_ => Backup());
         SaveSettingsCommand = new(_ => SaveSettings()); FetchModelsCommand = new(_ => _ = FetchModels()); TestAICommand = new(_ => _ = TestAI());
+        GuardAllowCurrentCommand = new(_ => AllowGuardCurrent(), _ => guardPlan is not null);
+        GuardStopCommand = new(_ => StopGuardRound(), _ => guardPlan is not null);
+        GuardResumeCommand = new(_ => ResumeGuardRound(), _ => guardPlan is null);
+        GuardSaveFavoriteCommand = new(_ => SaveGuardFavorite());
+        GuardRemoveFavoriteCommand = new(_ => RemoveGuardFavorite(_));
         timer.Tick += Tick; timer.Start(); clock.Start(); SystemEvents.SessionSwitch += SessionSwitch; SystemEvents.PowerModeChanged += PowerModeChanged;
+        guard = new FocusGuardController(AssessGuardTarget, NotifyGuard, PublishGuard); guard.Start();
         RefreshAll();
         if (CanWrite) foreach (var note in Data.Notes.Where(x => x.IsOpen).ToList()) OpenNote(note.ID, false);
     }
@@ -299,6 +322,7 @@ public sealed class AppState : ObservableObject, IDisposable
         if (dayBefore != TodayKey) RefreshAll();
         CheckReviewSchedule();
         MarkAutomaticRecording(); CheckActivityTopic();
+        UpdateGuard();
     }
     /// 每 15 秒最多判断一次主题，避免逐秒重建上下文；是否真的发请求由 ActivityTopicPolicy 决定。
     private void CheckActivityTopic()
@@ -562,7 +586,7 @@ public sealed class AppState : ObservableObject, IDisposable
             nameof(IsFocusStage), nameof(IsRunning), nameof(CompletedInSet), nameof(LongBreakEvery), nameof(SetLabel), nameof(RoundDots), nameof(HasRoundDots), nameof(PrimarySymbol),
             nameof(CanEditGoal), nameof(CurrentSessionGoal), nameof(HasCurrentSessionGoal),
             nameof(HeaderDate), nameof(HasTodos), nameof(TodoProgressLabel), nameof(HasTodayNotes), nameof(HasHistoryNotes),
-            nameof(AppearanceLabel), nameof(TimerSummaryLabel), nameof(ReviewLabel), nameof(RecordingLabel), nameof(DataStatusLabel), nameof(StorageLabel),
+            nameof(AppearanceLabel), nameof(TimerSummaryLabel), nameof(ReviewLabel), nameof(RecordingLabel), nameof(GuardLabel), nameof(DataStatusLabel), nameof(StorageLabel),
             nameof(HasTodos), nameof(AllTodosDone), nameof(TodoCompletionPercent), nameof(TodoProgressLabel), nameof(TodoDateLabel),
             nameof(TodoShortLabel), nameof(TodoFooterLabel), nameof(AIStatusLabel), nameof(ActivityNeedsKey), nameof(DefaultModelLabel),
             nameof(HasTodayNotes), nameof(HasHistoryNotes), nameof(TodayNoteCount), nameof(HistoryNoteCount), nameof(NotesCountLabel),
@@ -588,5 +612,191 @@ public sealed class AppState : ObservableObject, IDisposable
         IsQuitting = true;
         foreach (var note in notes.Values.ToList()) note.Flush(); if (!CanWrite) return; AdvanceToNow(); if (Data.Timer.Phase == TimerPhase.Running) engine.Pause("应用退出已暂停", DateTimeOffset.UtcNow); Save();
     }
-    public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); timer.Stop(); SystemEvents.SessionSwitch -= SessionSwitch; SystemEvents.PowerModeChanged -= PowerModeChanged; if (CanWrite) Save(); }
+    // ── 专注守护 ──
+    public bool GuardVisible => Data.Settings.FocusGuard.Enabled || guardPlan is not null;
+    public bool GuardRunning => guardPlan is not null && !guardStopped;
+    public bool GuardHasKey => guardKey is not null;
+    public string GuardGoalLabel => guardPlan is { } plan && !string.IsNullOrWhiteSpace(plan.Goal) ? plan.Goal : "未填写本轮目标，AI 只能按内容本身判断";
+    public string GuardStatus => guard?.Status ?? "守护未启用";
+    public string GuardTargetLabel => guard?.Current?.Describe() ?? "暂无前台内容";
+    public string GuardMetrics => guard is null ? "" : guard.Assessing ? "AI 正在核对当前内容…"
+        : $"本轮已判断 {guard.Checks} / {Math.Clamp(Data.Settings.FocusGuard.MaxChecks, 1, 5)} 次 · tokens {guard.InputTokens} 入 / {guard.OutputTokens} 出";
+    public bool GuardAllowClosing { get => guardAllowClosing; set { if (value != guardAllowClosing) SetGuardClosing(value, guardAllowForce); } }
+    public bool GuardAllowForce { get => guardAllowForce; set { if (value != guardAllowForce) SetGuardClosing(guardAllowClosing, value); } }
+    public IEnumerable<FocusPageRule> GuardFavoritePages => Data.Settings.FocusGuard.FavoritePages;
+
+    /// 本轮守护计划：开始专注时建立，中途打开开关也会补上；轮次结束即收尾。
+    private void EnsureGuardPlan()
+    {
+        var settings = Data.Settings.FocusGuard;
+        var sessionID = Data.Timer.Stage == TimerStage.Focus ? Data.Timer.SessionID : null;
+        if (guardPlan is not null && (sessionID is null || sessionID != guardSessionID)) EndGuardRound();
+        if (guardPlan is null && settings.Enabled && !guardStopped && sessionID is Guid round) BeginGuardRound(round);
+    }
+
+    private void BeginGuardRound(Guid sessionID)
+    {
+        var settings = Data.Settings.FocusGuard;
+        guardStopped = false; guardAllowClosing = false; guardAllowForce = false;
+        var goal = Data.Sessions.FirstOrDefault(x => x.ID == sessionID)?.Goal ?? "";
+        // 沿用上轮时用上轮名单，否则用常用网页；关闭授权一律从「不允许」重新开始。
+        var reusable = settings.ReusablePlan;
+        var pages = reusable is not null && reusable.Pages.Count > 0 ? reusable.Pages : settings.FavoritePages;
+        guardPlan = new FocusGuardPlan(goal, reusable?.AppIDs ?? [], pages, false);
+        guardSessionID = sessionID;
+        guard?.Invalidate(guardPlan.Pages.Count > 0 ? "本轮守护已生效" : "本轮守护已生效：还没有放行网页，离开目标会提醒");
+        RefreshGuard();
+    }
+
+    private void EndGuardRound()
+    {
+        if (guardPlan is null) return;
+        Data.Settings.FocusGuard.RememberDraft(guardPlan);
+        guardPlan = null; guardSessionID = null;
+        guard?.Invalidate("本轮守护已结束");
+        if (CanWrite) Save();
+        RefreshGuard();
+    }
+
+    /// 快照里带一份设置副本：守护线程读到的是不可变数值，不会与界面线程的修改打架。
+    private static FocusGuardSettings CopyGuardSettings(FocusGuardSettings source) => new()
+    {
+        Enabled = source.Enabled, RemindAfterSeconds = source.RemindAfterSeconds,
+        GraceSeconds = source.GraceSeconds, MaxChecks = source.MaxChecks, ReuseLastPlan = source.ReuseLastPlan,
+    };
+
+    /// 每秒由界面线程发布快照，守护线程只读这一份，不直接访问资料。
+    private void UpdateGuard()
+    {
+        if (guard is null) return;
+        EnsureGuardPlan();
+        if (DateTime.UtcNow - lastGuardKeyCheck > TimeSpan.FromSeconds(10))
+        {
+            lastGuardKeyCheck = DateTime.UtcNow;
+            try { guardProvider = Provider; guardKey = CredentialStore.Read(guardProvider.ID); }
+            catch (Exception) { guardProvider = null; guardKey = null; }
+        }
+        var settings = Data.Settings.FocusGuard;
+        var plan = guardPlan;
+        var active = settings.Enabled && !guardStopped && plan is not null && CanWrite && !locked
+            && guardSessionID is Guid sessionID && Data.Timer.SessionID == sessionID
+            && Data.Timer.Stage == TimerStage.Focus && Data.Timer.Phase == TimerPhase.Running;
+        guard.Update(active && plan is not null && guardSessionID is Guid round
+            ? new FocusGuardController.Snapshot(true, round, CopyGuardSettings(settings), plan, guardKey is not null)
+            : null);
+    }
+
+    /// 守护线程调用：只用界面线程预先缓存好的配置与密钥。
+    private async Task<FocusAssessment> AssessGuardTarget(GuardTarget target, string goal, CancellationToken cancellation)
+    {
+        var provider = guardProvider ?? throw new InvalidOperationException("AI 配置尚未就绪，请稍后重试。");
+        var key = guardKey ?? throw new InvalidOperationException("请先在设置中保存 API Key。");
+        using var client = new AIClient(provider);
+        return await client.AssessFocus(target, goal, key, cancellation);
+    }
+
+    private void NotifyGuard(string title, string body)
+    {
+        var dispatcher = Application.Current?.Dispatcher; if (dispatcher is null) return;
+        try { dispatcher.Invoke(() => Notify(title, body)); }
+        catch (TaskCanceledException) { } catch (InvalidOperationException) { }
+    }
+
+    private void PublishGuard()
+    {
+        var dispatcher = Application.Current?.Dispatcher; if (dispatcher is null) return;
+        if (dispatcher.CheckAccess()) { RefreshGuard(); return; }
+        try { dispatcher.BeginInvoke(RefreshGuard); }
+        catch (TaskCanceledException) { } catch (InvalidOperationException) { }
+    }
+
+    private void RefreshGuard()
+    {
+        foreach (var name in new[] { nameof(GuardVisible), nameof(GuardRunning), nameof(GuardHasKey), nameof(GuardGoalLabel),
+            nameof(GuardStatus), nameof(GuardTargetLabel), nameof(GuardMetrics), nameof(GuardAllowClosing),
+            nameof(GuardAllowForce), nameof(GuardFavoritePages), nameof(GuardLabel) }) Changed(name);
+    }
+
+    /// 关闭授权只在当前轮次有效；强制结束需要单独打开，且必须先允许 AI 关闭。
+    public void SetGuardClosing(bool allowClosing, bool allowForce)
+    {
+        guardAllowClosing = allowClosing;
+        guardAllowForce = allowForce && allowClosing;
+        if (guardPlan is { } plan) guardPlan = new FocusGuardPlan(plan.Goal, plan.AppIDs, plan.Pages, guardAllowClosing, guardAllowForce);
+        guard?.Invalidate(guardAllowClosing ? "已授权本轮 AI 自动关闭" : "已收回本轮 AI 自动关闭授权");
+        RefreshGuard();
+    }
+
+    /// 放行当前内容：浏览器精确到这一页，其他应用放行整个进程。只在本轮有效。
+    public void AllowGuardCurrent()
+    {
+        if (guardPlan is not { } plan) { Feedback = "本轮没有正在生效的守护"; return; }
+        if (guard?.Current is not { } target) { Feedback = "暂时没有读到前台内容"; return; }
+        var pages = plan.Pages.ToList();
+        var apps = plan.AppIDs.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (target.IsBrowser)
+        {
+            if (target.PageKey is not { } key) { Feedback = target.IsPrivate ? "隐私窗口不读取网址，无法放行" : "读不到当前网址，无法放行这一页"; return; }
+            if (!pages.Any(x => x.Kind == FocusPageKind.Page && x.Value == key))
+                pages.Add(new FocusPageRule(FocusPageKind.Page, key, string.IsNullOrWhiteSpace(target.PageTitle) ? key : target.PageTitle!));
+        }
+        else apps.Add(target.AppID);
+        guardPlan = new FocusGuardPlan(plan.Goal, apps, pages, plan.AllowAIClosing, plan.AllowForceKill);
+        guard?.Invalidate("已放行，只在本轮专注中有效");
+        Feedback = "已放行，只在本轮专注中有效";
+        RefreshGuard();
+    }
+
+    public void StopGuardRound()
+    {
+        guardStopped = true; guardPlan = null;
+        guard?.Invalidate("本轮已停止守护，下一轮按设置重新开启");
+        Feedback = "本轮已停止守护";
+        RefreshGuard();
+    }
+
+    public void ResumeGuardRound()
+    {
+        if (!Data.Settings.FocusGuard.Enabled) { Feedback = "请先在设置中开启专注守护"; return; }
+        guardStopped = false; EnsureGuardPlan();
+        Feedback = guardPlan is null ? "先开始一轮专注，守护才会生效" : "本轮守护已恢复";
+        RefreshGuard();
+    }
+
+    /// 存为常用网页：现读一次前台浏览器，确保存下的是用户此刻看到的这一页。
+    public void SaveGuardFavorite()
+    {
+        var service = new GuardForegroundService();
+        var front = service.Current();
+        if (front is null || !BrowserCatalog.IsBrowser(front.AppID)) { Feedback = "先把浏览器网页切到前台，再存为常用"; return; }
+        var title = service.Title(front.Handle);
+        var url = new BrowserPageReader().Read(front.Handle, title);
+        var target = new GuardTarget(front.AppID, front.AppName, title, url, BrowserWindowTitle.PageTitle(title));
+        if (target.IsPrivate) { Feedback = "隐私窗口不写入常用网页"; return; }
+        if (target.PageKey is not { } key) { Feedback = "读不到当前网址，无法存为常用网页"; return; }
+        var favorites = Data.Settings.FocusGuard.FavoritePages;
+        if (favorites.Any(x => x.Kind == FocusPageKind.Page && x.Value == key)) { Feedback = "这一页已经在常用网页里"; return; }
+        var label = string.IsNullOrWhiteSpace(target.PageTitle) ? key : target.PageTitle!.Trim();
+        favorites.Add(new FocusPageRule(FocusPageKind.Page, key, label.Length <= 60 ? label : label[..60]));
+        Commit();
+        Feedback = "已存为常用网页";
+        RefreshGuard();
+    }
+
+    public void RemoveGuardFavorite(object? parameter)
+    {
+        if (parameter is not FocusPageRule rule) return;
+        Data.Settings.FocusGuard.FavoritePages.RemoveAll(x => x.Id == rule.Id);
+        Commit();
+        RefreshGuard();
+    }
+
+    /// 设置页改动守护参数后夹取范围，并让守护线程下一拍用上新数值。
+    public void NormalizeGuardSettings()
+    {
+        Data.Settings.FocusGuard.Normalize();
+        guard?.Invalidate();
+        RefreshGuard();
+    }
+    public void Dispose() { guard?.Dispose(); lifetime.Cancel(); lifetime.Dispose(); timer.Stop(); SystemEvents.SessionSwitch -= SessionSwitch; SystemEvents.PowerModeChanged -= PowerModeChanged; if (CanWrite) Save(); }
 }

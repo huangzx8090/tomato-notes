@@ -43,14 +43,16 @@ public sealed class AppSettings : JsonModel
     [JsonPropertyName("showDockIcon")] public bool ShowDockIcon { get; set; }
     [JsonPropertyName("glassControlsEnabled")] public bool GlassControlsEnabled { get; set; } = true;
     [JsonPropertyName("appearance")] public string Appearance { get; set; } = "system";
-    [JsonPropertyName("focusGuard")] public JsonObject FocusGuard { get; set; } = [];
+    // 守护设置会被控制器频繁取用，资料里写成 null 时也要退回默认值。
+    [JsonPropertyName("focusGuard")] public FocusGuardSettings FocusGuard { get => focusGuard ??= new(); set => focusGuard = value; }
+    private FocusGuardSettings? focusGuard = new();
     [JsonPropertyName("review")] public ReviewSettings Review { get; set; } = new();
     [JsonPropertyName("ai")] public AISettings AI { get; set; } = new();
     [JsonPropertyName("activityRecording")] public ActivityRecordingSettings ActivityRecording { get; set; } = new();
     [JsonPropertyName("timerHotkey")] public Hotkey TimerHotkey { get; set; } = new() { Letter = "P" };
     [JsonPropertyName("todoHotkey")] public Hotkey TodoHotkey { get; set; } = new() { Letter = "T" };
     [JsonPropertyName("noteHotkey")] public Hotkey NoteHotkey { get; set; } = new() { Letter = "N" };
-    [OnDeserialized] internal void Repair(StreamingContext _) { Review ??= new(); AI ??= new(); FocusGuard ??= []; ActivityRecording ??= new(); TimerHotkey ??= new() { Letter = "P" }; TodoHotkey ??= new() { Letter = "T" }; NoteHotkey ??= new() { Letter = "N" }; }
+    [OnDeserialized] internal void Repair(StreamingContext _) { Review ??= new(); AI ??= new(); ActivityRecording ??= new(); TimerHotkey ??= new() { Letter = "P" }; TodoHotkey ??= new() { Letter = "T" }; NoteHotkey ??= new() { Letter = "N" }; }
     public double Duration(string stage) => (stage == TimerStage.ShortBreak ? ShortBreakMinutes : stage == TimerStage.LongBreak ? LongBreakMinutes : FocusMinutes) * 60;
 }
 
