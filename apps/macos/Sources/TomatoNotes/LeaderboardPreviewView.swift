@@ -2,26 +2,34 @@ import SwiftUI
 
 struct LeaderboardView: View {
     @ObservedObject var controller: LeaderboardController
-    @ViewState private var username = ""
-    @ViewState private var password = ""
-    @ViewState private var displayMode = "anonymous"
+    var openAccount: () -> Void
+    @ViewState private var requestedMode = "anonymous"
     @ViewState private var confirmingParticipation = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("专注时长排行").font(.system(size: 21, weight: .semibold))
-                    Text("每一份专注，都值得被看见。")
-                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                }
+        VStack(alignment: .leading, spacing: 15) {
+            HStack(alignment: .center) {
+                Text("专注排行榜").font(AppTypography.heading())
                 Spacer()
-                Image(systemName: "trophy.fill")
-                    .font(.system(size: 20)).foregroundStyle(Theme.accent)
-                    .frame(width: 42, height: 42)
-                    .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 13))
+                if controller.loggedIn {
+                    Menu {
+                        if controller.privacy?.participating == true {
+                            Button("匿名展示") { controller.setParticipation(true, mode: "anonymous") }
+                            Button("公开昵称和头像") { controller.setParticipation(true, mode: "public") }
+                            Divider()
+                            Button("停止参加") { controller.setParticipation(false, mode: controller.privacy?.displayMode ?? "anonymous") }
+                        } else if controller.privacy != nil {
+                            Button("匿名参加") { requestParticipation("anonymous") }
+                            Button("公开昵称和头像参加") { requestParticipation("public") }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis").font(.system(size: 14, weight: .semibold))
+                            .frame(width: 30, height: 30).background(Theme.surface, in: Circle())
+                    }.menuStyle(.borderlessButton).fixedSize().disabled(controller.busy || controller.privacy == nil)
+                        .accessibilityLabel("排行榜设置")
+                }
             }
-            if controller.loggedIn { signedIn } else { login }
+            if controller.loggedIn { boardCard } else { signedOutCard }
             if let message = controller.message {
                 Label(message, systemImage: "info.circle")
                     .font(.system(size: 11)).foregroundStyle(Theme.secondary)
@@ -30,150 +38,120 @@ struct LeaderboardView: View {
         }
         .alert("参加排行榜？", isPresented: $confirmingParticipation) {
             Button("取消", role: .cancel) {}
-            Button("同意并参加") { controller.setParticipation(true, mode: displayMode) }
+            Button("同意并参加") { controller.setParticipation(true, mode: requestedMode) }
         } message: {
             Text("开启后将上传授权后的实际专注时间区间和完成状态，用于计算每日排名；不上传待办、便签、专注目标或活动内容。关闭参与后将隐藏排名并停止上传，但已上传的记录不会自动删除。")
         }
     }
 
-    private var login: some View {
+    private func requestParticipation(_ mode: String) {
+        requestedMode = mode; confirmingParticipation = true
+    }
+
+    private var signedOutCard: some View {
         PaperCard {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("登录查看排行榜").font(.system(size: 15, weight: .semibold))
-                Text("账号需通过管理员提供的邀请链接注册。新账号默认不参加；已参加的账号登录后会同步授权后的本机专注时段。")
-                    .font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                TextField("用户名", text: $username).textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("leaderboard.username")
-                SecureField("密码", text: $password).textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("leaderboard.password")
-                Button("登录") {
-                    let secret = password
-                    password = ""
-                    controller.login(username: username, password: secret)
-                }
-                .buttonStyle(SubtleButtonStyle())
-                .disabled(controller.busy || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty)
-                .accessibilityIdentifier("leaderboard.login")
-            }
+            VStack(spacing: 11) {
+                Image(systemName: "trophy")
+                    .font(.system(size: 24)).foregroundStyle(Theme.accent)
+                    .frame(width: 50, height: 50).background(Theme.accentSoft, in: Circle())
+                Text("登录后查看排行榜").font(.system(size: 14, weight: .semibold))
+                Button("前往登录", action: openAccount).buttonStyle(SubtleButtonStyle())
+                    .accessibilityIdentifier("leaderboard.openAccount")
+            }.frame(maxWidth: .infinity).padding(.vertical, 16)
         }
     }
 
-    private var signedIn: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            PaperCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text(controller.nickname.isEmpty ? "已登录" : "你好，\(controller.nickname)")
-                            .font(.system(size: 14, weight: .semibold))
-                        Spacer()
-                        Button("刷新") { controller.refresh() }.disabled(controller.busy)
-                        Button("退出登录") { controller.logout() }.disabled(controller.busy)
-                    }.font(.system(size: 11))
-                    if let privacy = controller.privacy {
-                        if privacy.participating {
-                            Text("已参加 · \(privacy.displayMode == "anonymous" ? "匿名显示" : "公开昵称")")
-                                .font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                            HStack {
-                                Button(privacy.displayMode == "anonymous" ? "改为公开昵称" : "改为匿名") {
-                                    controller.setParticipation(true, mode: privacy.displayMode == "anonymous" ? "public" : "anonymous")
-                                }
-                                Button("停止参加") { controller.setParticipation(false, mode: privacy.displayMode) }
-                            }.font(.system(size: 11)).disabled(controller.busy)
-                        } else {
-                            Text("尚未参加；仍可查看他人公开的榜单。")
-                                .font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                            HStack {
-                                Picker("显示方式", selection: $displayMode) {
-                                    Text("匿名").tag("anonymous")
-                                    Text("公开昵称").tag("public")
-                                }.frame(width: 150)
-                                Button("参加排行榜") { confirmingParticipation = true }.disabled(controller.busy)
-                            }.font(.system(size: 11))
-                        }
-                    } else { Text("正在读取参与设置…").font(.system(size: 11)).foregroundStyle(Theme.secondary) }
-                }
-            }
-            PaperCard {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("每日榜单").font(.system(size: 15, weight: .semibold))
-                            Text("上海时间 · 按有效专注时长排序").font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                        }
-                        Spacer()
-                        if controller.busy { ProgressView().controlSize(.small) }
-                    }
-                    if let board = controller.board {
-                        HStack {
-                            Button { controller.changeDay(-1) } label: { Image(systemName: "chevron.left") }
-                            Spacer()
-                            Text(board.date).font(.system(size: 12, weight: .medium).monospacedDigit())
-                            Spacer()
-                            Button { controller.changeDay(1) } label: { Image(systemName: "chevron.right") }
-                        }.buttonStyle(.plain).disabled(controller.busy)
-                        Text(board.state == "live" ? "今日实时榜" : (board.state == "provisional" ? "暂定榜单" : "已结算"))
-                            .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                        if board.items.isEmpty {
-                            Text("这一天暂时没有可显示的成绩。")
-                                .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                        } else {
+    private var boardCard: some View {
+        PaperCard {
+            VStack(alignment: .leading, spacing: 13) {
+                HStack(spacing: 8) {
+                    Button { controller.changeDay(-1) } label: {
+                        Image(systemName: "chevron.left").frame(width: 26, height: 28).contentShape(Rectangle())
+                    }.accessibilityLabel("前一天")
+                    Text(controller.board?.date ?? "每日榜单")
+                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                        .frame(maxWidth: .infinity)
+                    Button { controller.changeDay(1) } label: {
+                        Image(systemName: "chevron.right").frame(width: 26, height: 28).contentShape(Rectangle())
+                    }.accessibilityLabel("后一天")
+                        .disabled(controller.busy || controller.selectedDay == nil)
+                    Button { controller.refresh() } label: {
+                        Image(systemName: "arrow.clockwise").frame(width: 26, height: 28).contentShape(Rectangle())
+                    }.accessibilityLabel("刷新排行榜").disabled(controller.busy)
+                }.buttonStyle(.plain).foregroundStyle(Theme.secondary)
+
+                if let board = controller.board {
+                    if board.items.isEmpty {
+                        VStack(spacing: 7) {
+                            Image(systemName: "chart.bar.xaxis").font(.system(size: 21)).foregroundStyle(Theme.accent.opacity(0.7))
+                            Text("还没有上榜记录").font(.system(size: 12, weight: .semibold))
+                        }.frame(maxWidth: .infinity).padding(.vertical, 20)
+                    } else {
+                        VStack(spacing: 0) {
                             ForEach(board.items) { entry in
-                                row(entry, maxSeconds: board.items.first?.focusSeconds ?? 1)
+                                row(entry)
+                                if entry.id != board.items.last?.id { Divider().opacity(0.5) }
                             }
                         }
+                    }
+                    if board.total > board.pageSize {
                         HStack {
                             Button("上一页") { controller.showPage(board.page - 1) }.disabled(controller.busy || board.page <= 1)
                             Spacer()
-                            Text("第 \(board.page) 页 · 共 \(board.total) 人")
+                            Text("\(board.page) / \((board.total + board.pageSize - 1) / board.pageSize)")
+                                .monospacedDigit().foregroundStyle(Theme.secondary)
                             Spacer()
-                            Button("下一页") { controller.showPage(board.page + 1) }.disabled(controller.busy || board.page * board.pageSize >= board.total)
-                        }.font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                        if let own = controller.own {
-                            Divider()
-                            Text(ownText(own)).font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                        }
-                    } else if !controller.busy {
-                        Text("榜单尚未加载，请点击刷新。")
-                            .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                            Button("下一页") { controller.showPage(board.page + 1) }
+                                .disabled(controller.busy || board.page * board.pageSize >= board.total)
+                        }.buttonStyle(.plain).font(.system(size: 11))
                     }
+                    if let own = controller.own {
+                        HStack(spacing: 9) {
+                            ProfileAvatar(data: controller.profileAvatar, size: 28)
+                            Text("我的排名").font(.system(size: 11, weight: .semibold))
+                            Spacer(minLength: 0)
+                            Text(ownText(own)).font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                            if controller.privacy?.participating == false {
+                                Button("参加") { requestParticipation("anonymous") }
+                                    .buttonStyle(.plain).font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(Theme.accent).disabled(controller.busy)
+                            }
+                        }
+                        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Theme.background.opacity(0.8), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                } else if controller.busy {
+                    ProgressView("正在加载榜单…").controlSize(.small)
+                        .frame(maxWidth: .infinity).padding(.vertical, 20)
+                } else {
+                    Text("暂时无法加载榜单，点右上角刷新。")
+                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 20)
                 }
             }
         }
     }
 
-    private func row(_ entry: BoardEntry, maxSeconds: Double) -> some View {
-        HStack(spacing: 11) {
-            Text(String(format: "%02d", entry.rank))
-                .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(entry.rank == 1 ? Theme.accent : Theme.secondary).frame(width: 24)
-            Text(String(entry.nickname.prefix(1)))
-                .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.green)
-                .frame(width: 35, height: 35).background(Theme.greenSoft, in: Circle())
-            VStack(alignment: .leading, spacing: 7) {
-                HStack {
-                    Text(entry.nickname + (entry.isMe ? "（我）" : ""))
-                        .font(.system(size: 12, weight: .medium)).lineLimit(1)
-                    Spacer(minLength: 5)
-                    Text(duration(entry.focusSeconds)).font(.system(size: 11, weight: .medium, design: .rounded).monospacedDigit())
-                        .foregroundStyle(Theme.secondary)
-                }
-                GeometryReader { geometry in
-                    Capsule().fill(Theme.border.opacity(0.45))
-                    Capsule().fill(Theme.green.opacity(0.65))
-                        .frame(width: geometry.size.width * CGFloat(min(1, max(0, entry.focusSeconds / max(1, maxSeconds)))))
-                }.frame(height: 4)
-            }
-        }.accessibilityElement(children: .combine)
-            .accessibilityLabel("第 \(entry.rank) 名，\(entry.nickname)，\(duration(entry.focusSeconds))")
+    private func row(_ entry: BoardEntry) -> some View {
+        HStack(spacing: 10) {
+            Text("\(entry.rank)")
+                .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(entry.rank <= 3 ? Theme.accent : Theme.secondary).frame(width: 20)
+            ProfileAvatar(data: controller.boardAvatars[entry.entryKey], size: 34)
+            Text(entry.nickname + (entry.isMe ? " · 我" : ""))
+                .font(.system(size: 12, weight: .semibold)).lineLimit(1)
+            Spacer(minLength: 4)
+            Text(profileDuration(entry.focusSeconds))
+                .font(.system(size: 11, weight: .medium, design: .rounded).monospacedDigit())
+                .foregroundStyle(Theme.secondary).lineLimit(1)
+        }
+        .padding(.vertical, 9)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("第 \(entry.rank) 名，\(entry.nickname)，专注 \(profileDuration(entry.focusSeconds))，完成 \(entry.completedSessions) 轮")
     }
 
-    private func duration(_ seconds: Double) -> String {
-        let minutes = max(0, Int(seconds) / 60)
-        return "\(minutes / 60) 小时 \(minutes % 60) 分"
-    }
     private func ownText(_ own: OwnRank) -> String {
-        if let entry = own.entry { return "我的排名：第 \(entry.rank) 名 · \(duration(entry.focusSeconds))" }
-        return own.status == "not_participating" ? "我尚未参加排行榜。" : "我在这一天暂无成绩。"
+        if let entry = own.entry { return "第 \(entry.rank) 名 · \(profileDuration(entry.focusSeconds))" }
+        return own.status == "not_participating" ? "尚未参加排行榜" : "这一天暂无成绩"
     }
 }

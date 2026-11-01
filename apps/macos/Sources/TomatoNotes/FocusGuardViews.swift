@@ -9,7 +9,7 @@ struct FocusGuardCard: View {
     var body: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 10) {
-                Label("专注范围", systemImage: "checkmark.shield").font(.system(size: 14, weight: .semibold))
+                Label("专注范围", systemImage: "checkmark.shield").font(AppTypography.heading(14))
                 if let plan = controller.plan {
                     Text(plan.goal).font(.system(size: 13, weight: .medium))
                     Text(plan.allowAIClosing ? "已开启 AI 关闭无关页面" : "离开勾选内容过久时提醒")
@@ -195,7 +195,7 @@ struct FocusGuardSetupView: View {
     private var appsCard: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 14) {
-                Text("应用").font(.system(size: 13, weight: .semibold))
+                Text("应用").font(AppTypography.heading(13))
                 FocusWhitelistAppChecklist(apps: selectableApps, selectedIDs: confirmedPlan.appIDs, onSet: setApp)
             }
         }
@@ -205,7 +205,7 @@ struct FocusGuardSetupView: View {
         PaperCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("Chrome 网页").font(.system(size: 13, weight: .semibold))
+                    Text("Chrome 网页").font(AppTypography.heading(13))
                     Spacer()
                     if controller.loadingTabs { ProgressView().controlSize(.small) }
                     Button(controller.availableTabs.isEmpty ? "读取网页" : "刷新") { controller.loadTabs() }
@@ -234,7 +234,7 @@ struct FocusGuardSetupView: View {
     private var manualCard: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 12) {
-                Text("手动添加网址").font(.system(size: 13, weight: .semibold))
+                Text("手动添加网址").font(AppTypography.heading(13))
                 HStack {
                     TextField("页面网址或网站域名", text: $manualPage).textFieldStyle(.roundedBorder)
                     Picker("范围", selection: $manualKind) {
@@ -264,7 +264,7 @@ struct FocusGuardSetupView: View {
     private var favoritesCard: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 12) {
-                Text("常用网页").font(.system(size: 13, weight: .semibold))
+                Text("常用网页").font(AppTypography.heading(13))
                 RuleChipsView(pages: favoritePages, emptyHint: "还没有保存的常用网页") { rule in
                     var settings = state.settings
                     settings.focusGuard.favoritePages.removeAll { $0.id == rule.id }

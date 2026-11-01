@@ -11,7 +11,7 @@ struct FocusGuardSettingsSection: View {
             PaperCard {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("先选白名单，再开始这一轮", systemImage: "list.bullet.clipboard")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(AppTypography.heading(13))
                     SettingsHelpText("在「专注 → 设置并开始专注」中，选择本轮允许使用的 App 和 Chrome 网页。离开后会提醒；结束时，在进展中查看白名单外 App 停留时长。")
                     Button("前往专注设置白名单", action: openFocus).buttonStyle(SettingsButtonStyle())
                     Text("计时和时长统计在本机完成，AI 关闭由你在每轮单独授权。")
@@ -21,7 +21,7 @@ struct FocusGuardSettingsSection: View {
             }
             PaperCard {
                 VStack(alignment: .leading, spacing: 15) {
-                    Text("每轮怎样开始").font(.system(size: 13, weight: .semibold))
+                    Text("每轮怎样开始").font(AppTypography.heading(13))
                     SettingsToggleRow(title: "开始前先选择白名单", detail: "开启后，点击「开始专注」会先让你确认本轮名单。",
                                       value: guardToggle(\.enabled))
                     Divider()
@@ -37,7 +37,7 @@ struct FocusGuardSettingsSection: View {
             }
             PaperCard {
                 VStack(alignment: .leading, spacing: 13) {
-                    Text("离开白名单时").font(.system(size: 13, weight: .semibold))
+                    Text("离开白名单时").font(AppTypography.heading(13))
                     SettingsNumberRow(title: "停留多久后提醒", unit: "秒", bounds: 5...1800,
                                       value: integer(\.remindAfterSeconds, bounds: 5...1800))
                     SettingsHelpText("连续离开 \(state.settings.focusGuard.remindAfterSeconds) 秒时提醒你回来。返回白名单后重新计算；暂停时不检查。")

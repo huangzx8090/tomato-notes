@@ -18,6 +18,7 @@ struct MainPanel: View {
     @ViewState private var tab: PanelTab = .focus
     @ViewState private var todoDraft = ""
     @ViewState private var todayDate = Date()
+    @ViewState private var showsAccount = false
     @ViewState private var highlightedTodoID: UUID?
     @ViewState private var showsNoteHistory = false
     @ViewState private var settingsPage: SettingsPage = .overview
@@ -36,7 +37,7 @@ struct MainPanel: View {
             if let error = state.errorMessage {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("本地数据需要检查", systemImage: "exclamationmark.triangle")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(AppTypography.heading(16))
                     Text(error).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
                     Button("在 Finder 中显示数据文件") {
                         NSWorkspace.shared.activateFileViewerSelecting([state.repository.fileURL])
@@ -58,7 +59,7 @@ struct MainPanel: View {
                                          scheduleCarryover: { _ = state.scheduleTodosForToday($0) },
                                          undoCarryover: state.undoTodoSchedule)
                             case .today:
-                                TodayView(state: state, selectedDate: $todayDate, highlightedTodoID: $highlightedTodoID,
+                                TodayView(state: state, selectedDate: $todayDate, highlightedTodoID: $highlightedTodoID, showsAccount: $showsAccount,
                                           startFocus: { tab = .focus }, openWork: openWork,
                                           openHistorySearch: openHistorySearch, openFocusHeatmap: openFocusHeatmap)
                             case .notes:
@@ -67,7 +68,7 @@ struct MainPanel: View {
                                               openNote: openNote, continueNote: continueNote, deleteNote: deleteNote,
                                               exportNote: exportNote)
                             case .ranking:
-                                LeaderboardView(controller: state.leaderboard)
+                                LeaderboardView(controller: state.leaderboard, openAccount: { tab = .today; showsAccount = true })
                             case .settings:
                                 SettingsView(state: state, page: $settingsPage, hasUnsavedChanges: $settingsHaveUnsavedChanges,
                                              openFocus: { navigate(to: .focus) }, testReminder: testReminder,
@@ -166,8 +167,6 @@ struct MainPanel: View {
                     Text("本组 \(state.timer.completedInSet) / \(state.settings.longBreakEvery) 轮")
                         .font(.system(size: 10)).foregroundStyle(Theme.secondary).padding(.leading, 4)
                 }
-                Text(timerCaption).font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).padding(.top, 5)
                 if (state.timer.phase == .idle && state.timer.stage == .focus) ||
                     (state.timer.phase == .completed && state.timer.nextStage == .focus) {
                     FocusGoalPicker(state: state, reminderTasks: state.reminderTasks).padding(.top, 6)
@@ -204,14 +203,7 @@ struct MainPanel: View {
         }
     }
 
-    private var timerCaption: String {
-        switch state.timer.phase {
-        case .idle: "留一点时间，专心做一件事。"
-        case .running: state.timer.stage == .focus ? "慢慢来，把注意力放在眼前。" : "离开屏幕，给自己一点空白。"
-        case .paused: "刚才已暂停，准备好后继续。"
-        case .completed: state.timer.nextStage == .focus ? "休息结束了，准备好再开始。" : "这一轮完成了，休息一下吧。"
-        }
-    }
+
 }
 
 private struct MetricView: View {
@@ -229,6 +221,7 @@ private struct TodayView: View {
     @ObservedObject var state: AppState
     @Binding var selectedDate: Date
     @Binding var highlightedTodoID: UUID?
+    @Binding var showsAccount: Bool
     var startFocus: () -> Void
     var openWork: (WorkScope) -> Void
     var openHistorySearch: () -> Void
@@ -239,6 +232,7 @@ private struct TodayView: View {
         let day = LocalTime.dayKey(selectedDate)
         let summary = state.summary(for: day)
         VStack(alignment: .leading, spacing: 18) {
+            TodayProfileHeader(state: state, account: state.leaderboard, showsAccount: $showsAccount)
             FocusHeatmapCompactView(
                 state: state,
                 selectedDay: day,
@@ -273,7 +267,7 @@ private struct TodayView: View {
             PaperCard {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Label("AI 每日回顾", systemImage: "sparkles").font(.system(size: 15, weight: .semibold))
+                        Label("AI 每日回顾", systemImage: "sparkles").font(AppTypography.heading(15))
                         Spacer()
                         if state.generatingScopes.contains(WorkScope.day(day).key) { ProgressView().controlSize(.small) }
                     }
@@ -298,7 +292,7 @@ private struct TodayView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
                         Text(Calendar.current.isDateInToday(selectedDate) ? "今天留下的进展" : "这一天留下的进展")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(AppTypography.heading(15))
                         Spacer()
                         Image(systemName: "sun.max").foregroundStyle(Theme.accent)
                     }
@@ -328,7 +322,7 @@ private struct TodayView: View {
             }
             PaperCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("专注时使用的 App").font(.system(size: 14, weight: .semibold))
+                    Text("专注时使用的 App").font(AppTypography.heading(14))
                     Text("仅记录前台停留时长").font(.system(size: 10)).foregroundStyle(Theme.secondary)
                     if !state.settings.recordingEnabled && Calendar.current.isDateInToday(selectedDate) {
                         Label("App 使用记录已关闭", systemImage: "pause.circle")
@@ -352,7 +346,7 @@ private struct TodayView: View {
             if !summary.todos.isEmpty {
                 PaperCard {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("当天待办").font(.system(size: 14, weight: .semibold))
+                        Text("当天待办").font(AppTypography.heading(14))
                         ForEach(summary.todos) { todo in
                             let status = todo.completionDay.map { $0 == day ? "当日完成" : "于 \($0) 完成" }
                                 ?? (todo.effectiveScheduledDay > day ? "后续已结转到 \(todo.effectiveScheduledDay)" : "当日未完成")
@@ -425,7 +419,7 @@ struct QuickTodoView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
             Label("随手记一件小事", systemImage: "checklist")
-                .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.primary)
+                .font(AppTypography.heading(14)).foregroundStyle(Theme.primary)
             TextField("今天想做什么？", text: $text).textFieldStyle(.plain).font(.system(size: 15))
                 .focused($focused).padding(13).background(Theme.surface, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border, lineWidth: 1))

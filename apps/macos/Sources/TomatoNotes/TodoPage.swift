@@ -34,11 +34,7 @@ struct TodoPage: View {
                               schedule: scheduleCarryover,
                               undoSchedule: undoCarryover)
             HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("今日待办").font(.system(size: 21, weight: .semibold, design: .serif))
-                    Text("把想做的事，变成做过的事。")
-                        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                }
+                Text("今日待办").font(AppTypography.heading())
                 Spacer(minLength: 0)
                 TodoProgressRing(completed: completed, total: total)
             }
@@ -73,8 +69,6 @@ struct TodoPage: View {
                     VStack(spacing: 12) {
                         Image(systemName: "leaf").font(.system(size: 30, weight: .ultraLight)).foregroundStyle(Theme.green)
                         Text(total == 0 ? "从一件小事开始" : "本地待办还是空白").font(.system(size: 15, weight: .medium, design: .serif))
-                        Text("不必排满今天，留一点从容。")
-                            .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     }.frame(maxWidth: .infinity).padding(.vertical, 30)
                 } else {
                     ForEach(todos) { todo in
@@ -108,10 +102,8 @@ struct TodoPage: View {
             HStack(spacing: 12) {
                 CompletionSeal().rotationEffect(.degrees(-9))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("清单完成，给自己一个肯定。")
+                    Text("全部完成")
                         .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.green)
-                    Text("这 \(completed) 件小事，都留下了进展。")
-                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
                 }
                 Spacer(minLength: 0)
             }.transition(reduceMotion ? .opacity : .scale(scale: 1.08).combined(with: .opacity))
@@ -119,7 +111,7 @@ struct TodoPage: View {
         } else {
             HStack(spacing: 7) {
                 Image(systemName: lastCompletedID == nil ? "leaf" : "sparkle")
-                Text(lastCompletedID == nil ? (completed == 0 ? "慢慢来，一件一件就很好。" : "已经完成 \(completed) 件，进展看得见。") : "又完成一件小事，真好。")
+                Text("已完成 \(completed) / \(total)")
             }
             .font(.system(size: 11)).foregroundStyle(lastCompletedID == nil ? Theme.secondary : Theme.green)
             .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)

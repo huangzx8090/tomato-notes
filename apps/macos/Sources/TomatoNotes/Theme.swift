@@ -5,6 +5,12 @@ import TomatoCore
 // 显式使用属性包装器，兼容未附带 SwiftUIMacros 的命令行 SDK。
 typealias ViewState<Value> = SwiftUI.State<Value>
 
+enum AppTypography {
+    static func heading(_ size: CGFloat = 21) -> Font {
+        NoteTypography.font(size: size, weight: .semibold)
+    }
+}
+
 enum Theme {
     static let backgroundNS = adaptive("background", light: 0xF6F2EA, dark: 0x211E1B)
     static let background = Color(nsColor: backgroundNS)

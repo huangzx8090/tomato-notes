@@ -10,7 +10,8 @@ private final class RankingProtocol: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         do {
             let (status, data) = try Self.handler!(request)
-            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+            let mime = request.url?.path.hasPrefix("/api/v1/media/") == true ? "image/png" : "application/json"
+            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": mime])!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
@@ -258,5 +259,110 @@ extension LeaderboardTests {
         #expect(controller.message?.contains("重新登录") == true)
         controller.tick(data: AppData())
         #expect(refreshCalls == 1)
+    }
+}
+
+extension LeaderboardTests {
+    @Test func avatarRequestsStayOnServerAndUseAuthenticatedPreview() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RankingProtocol.self]
+        let api = LeaderboardAPI(baseURL: URL(string: "http://127.0.0.1:8080")!, session: URLSession(configuration: config))
+        let id = "9de9e1b3-6f94-46e4-9bbb-bee769052d30"
+        var requests = 0
+        RankingProtocol.handler = { request in
+            requests += 1
+            #expect(request.url?.path == "/api/v1/media/\(id)")
+            #expect(request.url?.query == "preview=1")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer fake-access")
+            return (200, Data([1, 2, 3]))
+        }
+        #expect(try await api.avatar(path: "/api/v1/media/\(id)", token: "fake-access") == Data([1, 2, 3]))
+        for invalid in ["https://other.example/api/v1/media/\(id)", "//other.example/api/v1/media/\(id)",
+                        "/api/v1/media/\(id)?preview=1", "/api/v1/media/../me"] {
+            await #expect(throws: LeaderboardAPIError.self) { _ = try await api.avatar(path: invalid, token: "fake-access") }
+        }
+        #expect(requests == 1)
+        let body = LeaderboardAPI.avatarBody(data: Data([1, 2, 3]), type: "image/png", boundary: "test-boundary")
+        let text = String(decoding: body, as: UTF8.self)
+        #expect(text.contains("name=\"avatar\"; filename=\"avatar\""))
+        #expect(text.contains("Content-Type: image/png"))
+        #expect(text.hasSuffix("--test-boundary--\r\n"))
+    }
+
+    @Test @MainActor func profileEditsAndBoardLoadUseBackendAvatars() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RankingProtocol.self]
+        let api = LeaderboardAPI(baseURL: URL(string: "http://127.0.0.1:8080")!, session: URLSession(configuration: config))
+        let controller = LeaderboardController(repository: LocalRepository(fileURL: root.appendingPathComponent("data.json")), api: api, credentials: TestCredentials())
+        let avatarID = "9de9e1b3-6f94-46e4-9bbb-bee769052d30"
+        let avatarPath = "/api/v1/media/\(avatarID)"
+        let picture = Data([137, 80, 78, 71])
+        let lock = NSLock()
+        var currentNickname = "初始昵称"
+        var hasAvatar = true
+        var uploadCount = 0
+        RankingProtocol.handler = { request in
+            lock.lock(); defer { lock.unlock() }
+            let path = request.url!.path
+            func reply(_ object: Any) throws -> (Int, Data) {
+                (200, try JSONSerialization.data(withJSONObject: ["code":"OK", "message":"成功", "data":object]))
+            }
+            func profile() -> [String: Any] {
+                ["nickname":currentNickname, "username":"alice", "avatar_url":hasAvatar ? avatarPath : NSNull(), "avatar_preview_url":NSNull()]
+            }
+            switch (request.httpMethod!, path) {
+            case ("POST", "/api/v1/auth/login"):
+                return try reply(["user_id":"u", "session_id":"s", "access_token":"a", "refresh_token":"r", "expires_in":900, "refresh_expires_at":"2026-12-01T00:00:00Z"])
+            case ("GET", "/api/v1/me"):
+                return try reply(profile())
+            case ("PATCH", "/api/v1/me"):
+                currentNickname = "新昵称"
+                return try reply(profile())
+            case ("GET", "/api/v1/me/privacy"):
+                return try reply(["participating":false, "display_mode":"anonymous", "consent_version":0, "participation_since":"2026-11-01T00:00:00Z"])
+            case ("GET", "/api/v1/leaderboards/daily"):
+                let entry: [String: Any] = ["entry_key":"entry", "rank":1, "nickname":currentNickname, "avatar_url":hasAvatar ? avatarPath : NSNull(), "focus_seconds":60, "completed_sessions":1, "is_me":true]
+                return try reply(["date":"2026-11-01", "state":"live", "total":1, "page":1, "page_size":20, "items":[entry]])
+            case ("GET", "/api/v1/leaderboards/daily/me"):
+                return try reply(["status":"no_score", "entry":NSNull()])
+            case ("GET", avatarPath):
+                #expect(request.url?.query == "preview=1")
+                #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer a")
+                return (200, picture)
+            case ("PUT", "/api/v1/me/avatar"):
+                #expect(request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("multipart/form-data; boundary=") == true)
+                uploadCount += 1; hasAvatar = true
+                return try reply(["avatar_url":avatarPath, "preview_url":avatarPath + "?preview=1"])
+            case ("DELETE", "/api/v1/me/avatar"):
+                hasAvatar = false
+                return try reply(["removed":true])
+            default:
+                Issue.record("意外请求 \(path)"); throw URLError(.badURL)
+            }
+        }
+        func wait() async throws {
+            for _ in 0..<300 {
+                if !controller.busy { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            Issue.record("账号操作未结束")
+        }
+        controller.login(username: "alice", password: "fake-password")
+        try await wait()
+        #expect(controller.profile?.username == "alice")
+        #expect(controller.profileAvatar == picture)
+        #expect(controller.boardAvatars["entry"] == picture)
+        controller.updateNickname("新昵称")
+        try await wait()
+        #expect(controller.nickname == "新昵称")
+        controller.uploadAvatar(picture, mime: "image/png")
+        try await wait()
+        #expect(uploadCount == 1 && controller.profileAvatar == picture)
+        controller.removeAvatar()
+        try await wait()
+        #expect(controller.profileAvatar == nil && controller.profile?.avatarUrl == nil)
+        #expect(controller.boardAvatars.isEmpty)
     }
 }

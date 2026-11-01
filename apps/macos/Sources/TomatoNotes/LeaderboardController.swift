@@ -15,6 +15,9 @@ final class LeaderboardController: ObservableObject {
     @Published private(set) var loggedIn = false
     @Published private(set) var busy = false
     @Published private(set) var nickname = ""
+    @Published private(set) var profile: BoardUser?
+    @Published private(set) var profileAvatar: Data?
+    @Published private(set) var boardAvatars: [String: Data] = [:]
     @Published private(set) var privacy: BoardPrivacy?
     @Published private(set) var board: DailyBoard?
     @Published private(set) var own: OwnRank?
@@ -65,18 +68,18 @@ final class LeaderboardController: ObservableObject {
         } catch {
             auth = nil
             loggedIn = false
-            privacy = nil; board = nil; own = nil
+            clearAccountState()
             try? credentials.remove()
             throw LeaderboardAPIError(code: "REFRESH", detail: "登录刷新未完成，请重新登录。")
         }
     }
 
     private func authenticated<T: Decodable & Sendable>(_ method: String, _ path: String, body: Data? = nil,
-                                              query: [URLQueryItem] = []) async throws -> T {
+                                              query: [URLQueryItem] = [], contentType: String = "application/json") async throws -> T {
         let token = try await accessToken()
-        do { return try await api.request(method, path, token: token, body: body, query: query) }
+        do { return try await api.request(method, path, token: token, body: body, query: query, contentType: contentType) }
         catch let error as LeaderboardAPIError where error.code == "UNAUTHENTICATED" {
-            auth = nil; loggedIn = false; privacy = nil; board = nil; own = nil
+            auth = nil; loggedIn = false; clearAccountState()
             try? credentials.remove()
             throw LeaderboardAPIError(code: error.code, detail: "登录已失效，请重新登录。")
         }
@@ -108,8 +111,76 @@ final class LeaderboardController: ObservableObject {
             catch { remoteFailed = true }
             do { try credentials.remove() }
             catch { message = error.localizedDescription; return }
-            auth = nil; loggedIn = false; privacy = nil; board = nil; own = nil; nickname = ""
+            auth = nil; loggedIn = false; clearAccountState()
             message = remoteFailed ? "已清除本机登录；服务器会话未能撤销。" : "已退出登录。"
+        }
+    }
+
+    private func clearAccountState() {
+        privacy = nil; board = nil; own = nil; nickname = ""
+        profile = nil; profileAvatar = nil; boardAvatars = [:]
+    }
+
+    func updateNickname(_ name: String) {
+        guard !busy, loggedIn else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.unicodeScalars.count <= 40, !trimmed.contains("\n"), !trimmed.contains("\r"), !trimmed.contains("\0") else {
+            message = "昵称需为 1 至 40 个字符，不能包含换行。"; return
+        }
+        busy = true; message = nil
+        Task {
+            defer { busy = false }
+            do {
+                let body = try LeaderboardAPI.json(["nickname": trimmed])
+                let updated: BoardUser = try await authenticated("PATCH", "/me", body: body)
+                profile = updated; nickname = updated.nickname
+                message = "昵称已更新。"
+                try? await loadBoard()
+            } catch { message = error.localizedDescription }
+        }
+    }
+
+    func uploadAvatar(_ data: Data, mime: String) {
+        guard !busy, loggedIn else { return }
+        guard !data.isEmpty, data.count <= 5 * 1024 * 1024,
+              ["image/png", "image/jpeg", "image/gif"].contains(mime) else {
+            message = "请选择不超过 5 MiB 的 PNG、JPG 或 GIF 图片。"; return
+        }
+        busy = true; message = nil
+        Task {
+            defer { busy = false }
+            do {
+                let boundary = "TomatoNotes-" + UUID().uuidString
+                let body = LeaderboardAPI.avatarBody(data: data, type: mime, boundary: boundary)
+                let uploaded: AvatarUpload = try await authenticated("PUT", "/me/avatar", body: body,
+                    contentType: "multipart/form-data; boundary=\(boundary)")
+                let token = try await accessToken()
+                profileAvatar = try? await api.avatar(path: uploaded.avatarUrl, token: token)
+                if let previous = profile {
+                    profile = BoardUser(nickname: previous.nickname, username: previous.username,
+                                        avatarUrl: uploaded.avatarUrl, avatarPreviewUrl: uploaded.previewUrl)
+                }
+                message = profileAvatar == nil ? "头像已更新，预览暂时无法加载。" : "头像已更新。"
+                try? await loadBoard()
+            } catch { message = error.localizedDescription }
+        }
+    }
+
+    func removeAvatar() {
+        guard !busy, loggedIn else { return }
+        busy = true; message = nil
+        Task {
+            defer { busy = false }
+            do {
+                let _: EmptyResponse = try await authenticated("DELETE", "/me/avatar")
+                profileAvatar = nil
+                if let previous = profile {
+                    profile = BoardUser(nickname: previous.nickname, username: previous.username,
+                                        avatarUrl: nil, avatarPreviewUrl: nil)
+                }
+                message = "头像已移除。"
+                try? await loadBoard()
+            } catch { message = error.localizedDescription }
         }
     }
 
@@ -186,7 +257,12 @@ final class LeaderboardController: ObservableObject {
 
     private func reload() async throws {
         let user: BoardUser = try await authenticated("GET", "/me")
-        nickname = user.nickname
+        profile = user; nickname = user.nickname
+        profileAvatar = nil
+        if let path = user.avatarUrl {
+            let token = try await accessToken()
+            profileAvatar = try? await api.avatar(path: path, token: token)
+        }
         let current: BoardPrivacy = try await authenticated("GET", "/me/privacy")
         privacy = current
         try await loadBoard()
@@ -200,6 +276,20 @@ final class LeaderboardController: ObservableObject {
         if let selectedDay { ownQuery.append(URLQueryItem(name: "date", value: selectedDay)) }
         let rank: OwnRank = try await authenticated("GET", "/leaderboards/daily/me", query: ownQuery)
         board = loaded; own = rank
+        boardAvatars = [:]
+        let paths = loaded.items.compactMap { entry in entry.avatarUrl.map { (entry.entryKey, $0) } }
+        guard !paths.isEmpty else { return }
+        let token = try await accessToken()
+        let client = api
+        let images = await withTaskGroup(of: (String, Data?).self, returning: [String: Data].self) { group in
+            for (key, path) in paths {
+                group.addTask { (key, try? await client.avatar(path: path, token: token)) }
+            }
+            var result: [String: Data] = [:]
+            for await (key, data) in group { if let data { result[key] = data } }
+            return result
+        }
+        boardAvatars = images
     }
 
     private func sync() async throws {

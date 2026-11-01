@@ -7,7 +7,7 @@ struct FocusWhitelistPickerHeader: View {
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 7) {
-                Text("这轮允许用什么").font(.system(size: 20, weight: .semibold))
+                Text("这轮允许用什么").font(AppTypography.heading())
                 Text("勾选这轮需要的应用和网页，离开它们太久时提醒你。")
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -35,7 +35,7 @@ struct FocusWhitelistGoalCard: View {
         PaperCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("这轮做什么").font(.system(size: 13, weight: .semibold))
+                    Text("这轮做什么").font(AppTypography.heading(13))
                     Spacer()
                     if isGenerating {
                         ProgressView().controlSize(.small)

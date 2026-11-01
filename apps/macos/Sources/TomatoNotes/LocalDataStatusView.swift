@@ -22,7 +22,7 @@ struct LocalDataStatusView: View {
             .sheet(isPresented: $showingDetails) {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(shared ? "本机共用资料库" : "当前使用独立测试资料")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(AppTypography.heading(17))
                     Text(shared ? "所有日常打开的版本使用这里的计时、历史、待办和便签。重复打开会唤出正在运行的番茄小记。" : "这里的记录独立保存，不会出现在日常资料库。日常使用请打开本机共用资料库。")
                         .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
                     Text(state.repository.fileURL.path)

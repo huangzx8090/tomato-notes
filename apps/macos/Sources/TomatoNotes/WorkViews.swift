@@ -22,7 +22,7 @@ struct WorkReportView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 7) {
-                    Text(title).font(.system(size: 24, weight: .semibold))
+                    Text(title).font(AppTypography.heading(24))
                     Text(subtitle).font(.system(size: 12)).foregroundStyle(Theme.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -47,7 +47,7 @@ struct WorkReportView: View {
                 DisclosureGroup(isExpanded: $supplementExpanded) {
                 PaperCard {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("补充工作和成果", systemImage: "square.and.pencil").font(.system(size: 14, weight: .semibold))
+                        Label("补充工作和成果", systemImage: "square.and.pencil").font(AppTypography.heading(14))
                         Text("可以写几句，也可以直接添加成果截图、作业或文档图片。")
                             .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                         TextEditor(text: Binding(get: { record?.userText ?? "" }, set: { state.updateWorkText($0, for: scope) }))
@@ -110,7 +110,7 @@ struct WorkReportView: View {
                     PaperCard {
                         VStack(alignment: .leading, spacing: 17) {
                             HStack {
-                                Label("AI 成果总结", systemImage: "sparkles").font(.system(size: 15, weight: .semibold))
+                                Label("AI 成果总结", systemImage: "sparkles").font(AppTypography.heading(15))
                                 Spacer()
                                 Button("复制") {
                                     NSPasteboard.general.clearContents()
@@ -189,7 +189,7 @@ struct SummarySections: View {
     @ViewBuilder private func section(_ title: String, lines: [String], symbol: String) -> some View {
         if !lines.isEmpty {
             VStack(alignment: .leading, spacing: 9) {
-                Label(title, systemImage: symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.green)
+                Label(title, systemImage: symbol).font(AppTypography.heading(13)).foregroundStyle(Theme.green)
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                     HStack(alignment: .top, spacing: 7) {
                         Text("•").foregroundStyle(Theme.secondary)

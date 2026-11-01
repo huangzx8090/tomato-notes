@@ -34,11 +34,21 @@ struct BoardPrivacy: Codable, Sendable {
     let consentVersion: Int
     let participationSince: String
 }
-struct BoardUser: Decodable, Sendable { let nickname: String }
+struct BoardUser: Decodable, Sendable {
+    let nickname: String
+    let username: String?
+    let avatarUrl: String?
+    let avatarPreviewUrl: String?
+}
+struct AvatarUpload: Decodable, Sendable {
+    let avatarUrl: String
+    let previewUrl: String
+}
 struct BoardEntry: Decodable, Identifiable, Sendable {
     let entryKey: String
     let rank: Int
     let nickname: String
+    let avatarUrl: String?
     let focusSeconds: Double
     let completedSessions: Int
     let isMe: Bool
@@ -87,7 +97,7 @@ struct LeaderboardAPI {
     }
 
     func request<T: Decodable & Sendable>(_ method: String, _ path: String, token: String? = nil,
-                               body: Data? = nil, query: [URLQueryItem] = []) async throws -> T {
+                               body: Data? = nil, query: [URLQueryItem] = [], contentType: String = "application/json") async throws -> T {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw LeaderboardAPIError(code: "URL", detail: "服务地址无效。")
         }
@@ -97,7 +107,7 @@ struct LeaderboardAPI {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
-        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        if body != nil { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else {
@@ -111,6 +121,33 @@ struct LeaderboardAPI {
         guard (200..<300).contains(response.statusCode), let result = envelope.data else {
             throw LeaderboardAPIError(code: envelope.code, detail: envelope.message)
         }
+        return result
+    }
+
+    /// 头像只接受服务端的相对资源路径，避免把认证头发送到其他地址。
+    func avatar(path: String, token: String) async throws -> Data {
+        let prefix = "/api/v1/media/"
+        guard path.hasPrefix(prefix), UUID(uuidString: String(path.dropFirst(prefix.count))) != nil,
+              var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw LeaderboardAPIError(code: "AVATAR_PATH", detail: "头像地址无效。")
+        }
+        components.path = path
+        components.queryItems = [URLQueryItem(name: "preview", value: "1")]
+        guard let url = components.url else { throw LeaderboardAPIError(code: "AVATAR_PATH", detail: "头像地址无效。") }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse, response.statusCode == 200,
+              response.mimeType == "image/png", !data.isEmpty, data.count <= 5 * 1024 * 1024 else {
+            throw LeaderboardAPIError(code: "AVATAR", detail: "头像加载失败。")
+        }
+        return data
+    }
+
+    static func avatarBody(data: Data, type: String, boundary: String) -> Data {
+        var result = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"avatar\"\r\nContent-Type: \(type)\r\n\r\n".utf8)
+        result.append(data)
+        result.append(Data("\r\n--\(boundary)--\r\n".utf8))
         return result
     }
 

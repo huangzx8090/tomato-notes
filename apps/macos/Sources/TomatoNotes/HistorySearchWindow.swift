@@ -168,7 +168,7 @@ private struct HistorySearchWindow: View {
                     Image(systemName: "arrow.up.right").font(.system(size: 9, weight: .medium))
                         .foregroundStyle(Theme.secondary)
                 }
-                Text(result.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text(result.title).font(AppTypography.heading(13)).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(result.excerpt).font(.system(size: 11)).foregroundStyle(Theme.secondary)
                     .lineLimit(3).multilineTextAlignment(.leading)

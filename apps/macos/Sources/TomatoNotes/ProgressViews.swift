@@ -60,7 +60,7 @@ struct SessionProgressCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Label(progress.session.endedAt == nil ? "正在留下进展" : "这一轮，留下了进展", systemImage: "leaf")
-                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.green)
+                        .font(AppTypography.heading(13)).foregroundStyle(Theme.green)
                     Spacer()
                     Text(progress.session.startedAt, style: .time)
                         .font(.system(size: 10).monospacedDigit()).foregroundStyle(Theme.secondary)
@@ -131,11 +131,11 @@ struct ProgressTimeline: View {
     var body: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 15) {
-                Label("时间都变成了什么", systemImage: "leaf").font(.system(size: 14, weight: .semibold))
+                Label("时间都变成了什么", systemImage: "leaf").font(AppTypography.heading(14))
                 ForEach(ActivityTopicGroup.build(day: day, sessions: sessions, from: state.data)) { group in
                     if group.sessions.count > 1 {
                         HStack {
-                            Text(group.title).font(.system(size: 13, weight: .semibold))
+                            Text(group.title).font(AppTypography.heading(13))
                             Spacer()
                             Text("\(group.sessions.count) 轮 · \(durationLabel(group.seconds))")
                                 .font(.system(size: 10)).foregroundStyle(Theme.secondary)
@@ -172,7 +172,7 @@ struct ProgressTimeline: View {
                         }
                     }
                 }
-                Text("每一段投入都自动留下；点击可看详情或补充图片。")
+                Text("点击查看详情或补充图片。")
                     .font(.system(size: 10)).foregroundStyle(Theme.secondary)
             }
         }

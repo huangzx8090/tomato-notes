@@ -57,7 +57,7 @@ struct TaskProgressCard: View {
         PaperCard {
             VStack(alignment: .leading, spacing: 12) {
                 Label("推进关联待办", systemImage: "checklist")
-                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.green)
+                    .font(AppTypography.heading(14)).foregroundStyle(Theme.green)
                 if let title {
                     Text(title).font(.system(size: 13, weight: .medium)).fixedSize(horizontal: false, vertical: true)
                     if ended {

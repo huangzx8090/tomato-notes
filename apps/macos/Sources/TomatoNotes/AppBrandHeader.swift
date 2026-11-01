@@ -19,7 +19,7 @@ struct AppBrandHeader: View {
                         .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 12))
                 }
             }.frame(width: 40, height: 40).accessibilityHidden(true)
-            Text("番茄小记").font(.system(size: 17, weight: .semibold))
+            Text("番茄小记").font(AppTypography.heading(17))
             Spacer()
             HStack(spacing: 8) {
                 Capsule().fill(Theme.accent.opacity(0.55)).frame(width: 2, height: 25)
