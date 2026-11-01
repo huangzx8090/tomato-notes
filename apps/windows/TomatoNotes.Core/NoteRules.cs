@@ -8,7 +8,7 @@ public static class NoteRules
     public static StickyNote? RecentToday(IEnumerable<StickyNote> notes, string today)
         => notes.Where(x => x.DayKey == today)
             .OrderByDescending(x => x.UpdatedAt)
-            .ThenByDescending(x => x.CreatedAt)
-            .ThenBy(x => x.ID)
+            // 与 macOS NoteLibrary.sorted 一致：更新时间相同时按 UUID 字符串排序。
+            .ThenBy(x => x.ID.ToString())
             .FirstOrDefault();
 }
