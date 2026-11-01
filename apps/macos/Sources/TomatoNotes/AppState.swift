@@ -45,6 +45,7 @@ final class AppState: ObservableObject {
     @Published private(set) var focusModeEnabled = false
 
     let repository: LocalRepository
+    let leaderboard: LeaderboardController
     var onOpenSharedLibrary: (() -> Void)?
     let workImages: WorkImageStore
     let guardController = FocusGuardController()
@@ -99,6 +100,7 @@ final class AppState: ObservableObject {
          keyReader: ((String) throws -> String?)? = nil,
          reminderStore: (any ReminderStore)? = nil) {
         self.repository = repository
+        self.leaderboard = LeaderboardController(repository: repository)
         self.aiClientFactory = aiClientFactory
         self.injectedKeyReader = keyReader
         self.injectedReminderStore = reminderStore
@@ -304,6 +306,7 @@ final class AppState: ObservableObject {
         if timerOnlySessionID != timer.sessionID || timer.phase == .completed || timer.phase == .idle {
             timerOnlySessionID = nil
         }
+        leaderboard.tick(data: data)
         guardController.tick(timer: timer, locked: deviceLocked, settings: settings.focusGuard)
         pollActivityPage()
         checkAutomaticSessionReviews()

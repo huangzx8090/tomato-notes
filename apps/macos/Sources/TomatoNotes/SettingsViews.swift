@@ -94,7 +94,7 @@ struct SettingsView: View {
     private var overview: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("设置").font(.system(size: 19, weight: .semibold))
+                Text("设置").font(AppTypography.heading())
                 Spacer()
                 Button { navigate(to: .guide) } label: {
                     Label("使用指南", systemImage: "questionmark.circle")
@@ -131,7 +131,7 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.accent).frame(width: 39, height: 39)
                     .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(page.title).font(.system(size: 18, weight: .semibold))
+                    Text(page.title).font(AppTypography.heading(19))
                     SettingsHelpText(page.subtitle)
                 }
             }
@@ -221,7 +221,7 @@ struct SettingsStepTitle: View {
             Text("\(number)").font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(Theme.accent).frame(width: 23, height: 23)
                 .background(Theme.accentSoft, in: Circle())
-            Text(title).font(.system(size: 13, weight: .semibold))
+            Text(title).font(AppTypography.heading(13))
         }
     }
 }
@@ -275,7 +275,7 @@ private struct TimerSettingsPane: View {
     var body: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 15) {
-                Text("专注的节奏").font(.system(size: 13, weight: .semibold))
+                Text("专注的节奏").font(AppTypography.heading(13))
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 18) {
                     RotaryDial(title: "专注", unit: "分钟", bounds: 1...180, tint: Theme.accent, value: $focus)
                     RotaryDial(title: "短休息", unit: "分钟", bounds: 1...60, tint: Theme.green, value: $shortBreak)
@@ -348,7 +348,7 @@ private struct ReminderSettingsPane: View {
         VStack(spacing: 14) {
             PaperCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("阶段结束时提醒").font(.system(size: 13, weight: .semibold))
+                    Text("阶段结束时提醒").font(AppTypography.heading(13))
                     SettingsToggleRow(title: "播放提示音", detail: "完成专注或休息时，播放一次声音。",
                                       value: state.settingBinding(\.soundEnabled))
                     Divider()
@@ -369,7 +369,7 @@ private struct ReminderSettingsPane: View {
             PaperCard {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("专注时启用系统专注模式", systemImage: "moon.zzz")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(AppTypography.heading(13))
                     SettingsHelpText("安装并添加后，点“配置所选专注模式”，在快捷指令中为开启和关闭两个动作选择同一个模式，例如勿扰、工作、睡眠或自定义模式。然后再选择是否启用。")
                     Button(state.focusModeShortcutInstalled ? "配置所选专注模式" : installButtonTitle) {
                         if state.focusModeShortcutInstalled {
@@ -391,7 +391,7 @@ private struct ReminderSettingsPane: View {
             }
             PaperCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("全局快捷键").font(.system(size: 13, weight: .semibold))
+                    Text("全局快捷键").font(AppTypography.heading(13))
                     SettingsHelpText("在其他 App 中也能使用。修改后，点击下方按钮保存。")
                     HotkeySettingsRow(title: "开始 / 暂停专注", value: $timerKey)
                     Divider()
@@ -464,7 +464,7 @@ private struct AppearanceSettingsPane: View {
         VStack(spacing: 14) {
             PaperCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("界面外观").font(.system(size: 13, weight: .semibold))
+                    Text("界面外观").font(AppTypography.heading(13))
                     Picker("配色", selection: Binding(get: { state.settings.appearance }, set: { value in
                         var next = state.settings; next.appearance = value; _ = state.updateSettings(next)
                     })) {
@@ -478,7 +478,7 @@ private struct AppearanceSettingsPane: View {
             }
             PaperCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("打开与运行").font(.system(size: 13, weight: .semibold))
+                    Text("打开与运行").font(AppTypography.heading(13))
                     SettingsToggleRow(title: "在 Dock 中显示图标", detail: "也可点击 Dock 图标打开；菜单栏入口始终可用。",
                                       value: state.settingBinding(\.showDockIcon))
                     Divider()
@@ -498,7 +498,7 @@ private struct DataSettingsPane: View {
         VStack(spacing: 14) {
             PaperCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("本地记录").font(.system(size: 13, weight: .semibold))
+                    Text("本地记录").font(AppTypography.heading(13))
                     SettingsToggleRow(title: "记录前台 App 使用明细", detail: "只在专注运行时保存 App 名称和停留时长；暂停和休息时不记录。关闭后，对应时段显示为“未记录”。",
                                       value: state.settingBinding(\.recordingEnabled))
                     Divider()
@@ -509,7 +509,7 @@ private struct DataSettingsPane: View {
             }
             PaperCard {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("备份与存放位置").font(.system(size: 13, weight: .semibold))
+                    Text("备份与存放位置").font(AppTypography.heading(13))
                     SettingsHelpText("计时、待办和便签保存在这台 Mac。备份会同时保留记录中引用的图片。")
                     HStack(spacing: 8) {
                         Button("备份数据") {

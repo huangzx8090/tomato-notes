@@ -48,7 +48,7 @@ struct ReminderDetailEditor: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("提醒详情").font(.system(size: 19, weight: .semibold, design: .serif))
+                    Text("提醒详情").font(AppTypography.heading(19))
                     Text(original.writable ? "修改后需确认同步到 Apple 提醒事项" : "此清单为只读")
                         .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                 }

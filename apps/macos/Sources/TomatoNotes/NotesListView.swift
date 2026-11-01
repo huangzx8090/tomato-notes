@@ -20,7 +20,7 @@ struct NotesListView: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 10) {
                 Text(showsHistory ? "翻翻旧便签" : "今天的便签")
-                    .font(NoteTypography.font(size: 21, weight: .semibold))
+                    .font(AppTypography.heading())
                 Spacer(minLength: 0)
                 Button(action: createNote) { Image(systemName: "plus").frame(width: 26, height: 26) }
                     .buttonStyle(SubtleButtonStyle()).accessibilityLabel("新建今天的便签")
