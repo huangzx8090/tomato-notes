@@ -86,6 +86,12 @@ public partial class SettingsWindow : Wpf.Ui.Controls.FluentWindow
     {
         if (loaded && ProviderBox.SelectedValue is string id && id != state.CurrentProviderID) state.ChangeProvider(id);
     }
+
+    // 开关直接写模型属性（无变更通知），改完手动刷新依赖它的提示。
+    private void ActivityRecording_Changed(object sender, RoutedEventArgs e)
+    {
+        if (loaded) state.RefreshActivityRecording();
+    }
     private void Model_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (loaded && e.AddedItems.Count > 0 && e.AddedItems[0] is string model) state.SetModel(model);

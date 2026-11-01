@@ -31,6 +31,17 @@ public sealed class AppState : ObservableObject, IDisposable
     private readonly List<CarryoverRow> carryoverRows = [];
     private FocusHeatmapRange heatmapRange = FocusHeatmapRange.Build(Array.Empty<FocusInterval>(), 13);
     private readonly HashSet<string> generating = [];
+    // 便签基线按天保留：同一天内的多次修改都跟当天第一次看到的文字比，避免只记下最后一次按键。
+    private readonly Dictionary<Guid, string> noteBaselines = [];
+    private string noteBaselineDay = LocalTime.DayKey(DateTimeOffset.Now);
+    private Guid noteRecordingBlockID = Guid.NewGuid();
+    private Guid? identifyingTopic;
+    private DateTime lastTopicCheck = DateTime.MinValue;
+    // 用户改名或删材料后作废在途的主题请求，防止旧结果覆盖用户的选择。
+    private Guid activityGeneration = Guid.NewGuid();
+    private readonly HashSet<Guid> pendingSessionReviews = [];
+    private readonly Queue<Guid> reviewQueue = [];
+    private bool reviewQueueRunning;
     private CancellationTokenSource lifetime = new();
     public event Action<string, string, bool, bool>? NotificationRequested;
     public ObservableCollection<string> Models { get; } = [];
@@ -177,8 +188,11 @@ public sealed class AppState : ObservableObject, IDisposable
     public string TimerSummaryLabel => $"{Data.Settings.FocusMinutes} 分钟 · 长休息每 {Data.Settings.LongBreakEvery} 轮";
     public string ReviewLabel => Data.Settings.Review.ScheduleEnabled
         ? $"每天 {Data.Settings.Review.Hour:00}:{Data.Settings.Review.Minute:00} 自动生成"
-        : Data.Settings.Review.AutoSummarizeSessions ? "每轮结束后自动整理" : "按需手动生成";
+        : Data.Settings.Review.AutoSummarizeSessions || Data.Settings.ActivityRecording.Enabled ? "每轮结束后自动整理" : "按需手动生成";
     public string RecordingLabel => Data.Settings.RecordingEnabled ? "已记录前台 App 时长" : "App 记录已关闭";
+    /// 开了自动记录但还没配密钥：活动照样在本机留着，只是暂时没法识别主题。
+    public bool ActivityNeedsKey => Data.Settings.ActivityRecording.Enabled && !HasAPIKey;
+    public void RefreshActivityRecording() => Changed(nameof(ActivityNeedsKey));
     public string DataStatusLabel => CanWrite ? $"可写入 · {StorageLabel}" : "只读 · 已停止写入";
     public string Goal { get => goal; set => Set(ref goal, value); }
     public string NewTodo { get => newTodo; set => Set(ref newTodo, value); }
@@ -236,7 +250,19 @@ public sealed class AppState : ObservableObject, IDisposable
         if (!CanWrite || MessageBox.Show("删除后无法在应用内撤销。确定删除这张便签吗？", "删除便签", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         Data.Notes.RemoveAll(x => x.ID == id); if (notes.Remove(id, out var window)) window.Close(); Commit(); Feedback = "便签已删除";
     }
-    public void UpdateNote(Guid id, string text) { var note = Data.Notes.FirstOrDefault(x => x.ID == id); if (note is null || !CanWrite) return; note.Text = text; note.UpdatedAt = DateTimeOffset.UtcNow; Commit(false); }
+    public void UpdateNote(Guid id, string text)
+    {
+        var note = Data.Notes.FirstOrDefault(x => x.ID == id); if (note is null || !CanWrite) return;
+        AdvanceToNow();
+        var previous = note.Text; note.Text = text; note.UpdatedAt = DateTimeOffset.UtcNow;
+        if (ActivityRecorder.IsRecording(Data) && !locked)
+        {
+            if (TodayKey != noteBaselineDay) { noteBaselines.Clear(); noteRecordingBlockID = Guid.NewGuid(); noteBaselineDay = TodayKey; }
+            if (!noteBaselines.ContainsKey(id)) noteBaselines[id] = previous;
+            ActivityRecorder.RecordNote(note, noteBaselines[id], DateTimeOffset.UtcNow, noteRecordingBlockID, Data);
+        }
+        Commit(false);
+    }
     public void UpdateNoteFrame(Guid id, Window window) { var note = Data.Notes.FirstOrDefault(x => x.ID == id); if (note is null || !CanWrite) return; note.X = window.Left; note.Y = window.Top; note.Width = window.Width; note.Height = window.Height; Commit(false); }
     public void SetNoteOpen(Guid id, bool open) { var note = Data.Notes.FirstOrDefault(x => x.ID == id); if (note is not null && CanWrite) { note.IsOpen = open; Commit(false); } }
     public int ConvertNoteToTodos(string text)
@@ -258,7 +284,7 @@ public sealed class AppState : ObservableObject, IDisposable
     private void EndEarly()
     {
         AdvanceToNow(); var ended = Data.Timer.Stage == TimerStage.Focus ? Data.Timer.SessionID : null; engine.EndEarlyOrSkip(DateTimeOffset.UtcNow); lastTick = null; Commit();
-        if (ended is Guid id) { var interval = Data.Intervals.Where(x => x.SessionID == id).Sum(x => x.Seconds); if (Data.Settings.Review.AutoSummarizeSessions && interval >= 60) _ = GenerateReview(WorkScope.ForSession(id)); }
+        if (ended is Guid id) QueueAutomaticSessionReview(id);
     }
     private void Tick(object? sender, EventArgs e)
     {
@@ -271,17 +297,104 @@ public sealed class AppState : ObservableObject, IDisposable
         // 计时进行中每秒重算一次进展卡片，让「本日投入」跟着走。
         if (Data.Timer.Phase == TimerPhase.Running || Data.Timer.Phase == TimerPhase.Paused) RefreshProgressCard();
         if (dayBefore != TodayKey) RefreshAll();
+        CheckReviewSchedule();
+        MarkAutomaticRecording(); CheckActivityTopic();
+    }
+    /// 每 15 秒最多判断一次主题，避免逐秒重建上下文；是否真的发请求由 ActivityTopicPolicy 决定。
+    private void CheckActivityTopic()
+    {
+        if (!CanWrite || locked || !HasAPIKey || identifyingTopic is not null || generating.Count > 0) return;
+        if (!Data.Settings.ActivityRecording.Enabled || !ActivityRecorder.IsRecording(Data) || Data.Timer.SessionID is not Guid sessionID) return;
+        if (DateTime.UtcNow - lastTopicCheck < TimeSpan.FromSeconds(15)) return;
+        lastTopicCheck = DateTime.UtcNow;
+        if (ActivityTopicPolicy.ShouldIdentify(sessionID, Data)) _ = IdentifyActivity(sessionID);
+    }
+    /// 标记这一轮用过自动记录；回顾据此决定是否附带 App 时长与完成待办等事实。
+    private void MarkAutomaticRecording()
+    {
+        if (!CanWrite || locked || !ActivityRecorder.IsRecording(Data) || Data.Timer.SessionID is not Guid id) return;
+        var record = EnsureWorkRecord(WorkScope.ForSession(id));
+        if (record.AutomaticRecordingUsed == true) return;
+        record.AutomaticRecordingUsed = true; Save();
+    }
+    private void CheckReviewSchedule()
+    {
+        if (locked || generating.Count > 0 || reviewQueue.Count > 0 || identifyingTopic is not null) return;
         if (Data.Settings.Review.ScheduleEnabled && Data.LastReviewAttemptDay != TodayKey && DateTime.Now.TimeOfDay >= new TimeSpan(Data.Settings.Review.Hour, Data.Settings.Review.Minute, 0)) _ = GenerateReview(WorkScope.ForDay(TodayKey), scheduled: true);
+    }
+    /// 识别本轮主题。守卫与 macOS 的 identifyActivityTopic 一致：只读、锁屏、无密钥时不发请求。
+    public async Task IdentifyActivity(Guid sessionID, bool final = false)
+    {
+        if (!CanWrite || locked || !HasAPIKey || !Data.Settings.ActivityRecording.Enabled) return;
+        if (identifyingTopic is not null || !ActivityTopicPolicy.ShouldIdentify(sessionID, Data, final)) return;
+        var progress = SessionProgress.Build(sessionID, Data); if (progress is null) return;
+        var scope = WorkScope.ForSession(sessionID); var context = ActivityTopicContext.Build(sessionID, Data);
+        var generation = activityGeneration; var provider = Provider;
+        var record = EnsureWorkRecord(scope);
+        record.TopicAttemptCount = (record.TopicAttemptCount ?? 0) + 1; record.TopicAttemptDigest = context.Digest; record.TopicAttemptFocusSeconds = progress.FocusSeconds;
+        if (final) record.FinalTopicAttempted = true; Save(); identifyingTopic = sessionID;
+        try
+        {
+            using var client = new AIClient(provider);
+            var key = CredentialStore.Read(provider.ID) ?? throw new InvalidOperationException("请先保存 API Key。");
+            var result = await client.IdentifyActivity(context, key, lifetime.Token);
+            if (locked || !CanWrite || generation != activityGeneration || provider != Provider || !Data.Settings.ActivityRecording.Enabled) return;
+            // 低置信度或空标题不落库：宁可留白，也不用猜测的名称覆盖用户的记录。
+            if (result.Confidence < .75 || result.Title.Length == 0) return;
+            record = WorkRecord(scope) ?? record; if (record.TitleOverride is not null) return;
+            var title = ActivityPrivacy.Clean(result.Title, 60); if (title.Length == 0) return;
+            var previous = record.ActivityTopic;
+            record.ActivityTopic = new()
+            {
+                GroupID = result.MatchingTopicID ?? (previous?.Title == title ? previous.GroupID : Guid.NewGuid()),
+                Title = title, Confidence = result.Confidence, EvidenceIDs = result.EvidenceIDs, Model = provider.DefaultModel,
+            };
+            record.UpdatedAt = DateTimeOffset.UtcNow; Commit();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { if (generation == activityGeneration) Feedback = "主题暂未识别：" + ex.Message; }
+        finally { if (identifyingTopic == sessionID) identifyingTopic = null; }
+    }
+    /// 用户改名：名称独立成组且不再被 AI 覆盖，后续轮次可以在有新证据时复用这项纠正。
+    public void RenameActivity(Guid sessionID, string title)
+    {
+        if (!CanWrite) return;
+        var cleaned = ActivityPrivacy.Clean(title, 60); if (cleaned.Length == 0) return;
+        activityGeneration = Guid.NewGuid(); StopActivitySampling();
+        var record = EnsureWorkRecord(WorkScope.ForSession(sessionID));
+        record.TitleOverride = cleaned;
+        record.ActivityTopic = new() { Title = cleaned, Confidence = 1, EvidenceIDs = record.ActivityTopic?.EvidenceIDs ?? [], Model = "用户命名" };
+        record.UpdatedAt = DateTimeOffset.UtcNow; Commit();
+    }
+    public void RemoveActivity(Guid id)
+    {
+        var activity = Data.FocusActivities.FirstOrDefault(x => x.ID == id); if (activity is null || !CanWrite) return;
+        activityGeneration = Guid.NewGuid(); StopActivitySampling();
+        var record = EnsureWorkRecord(WorkScope.ForSession(activity.SessionID));
+        var removed = Data.FocusActivities.Where(x => x.SessionID == activity.SessionID && x.SourceKey == activity.SourceKey).Select(x => x.ID).ToHashSet();
+        var affectedDays = Data.FocusActivities.Where(x => removed.Contains(x.ID)).Select(x => x.LocalDay).ToHashSet();
+        Data.FocusActivities.RemoveAll(x => removed.Contains(x.ID));
+        // 天级回顾引用了这些材料，一并作废，否则删掉的文字还会出现在总结里。
+        foreach (var day in affectedDays) { var daily = WorkRecord(WorkScope.ForDay(day)); if (daily is not null) daily.Summary = null; }
+        record.ExcludedActivityKeys = (record.ExcludedActivityKeys ?? []).Union([activity.SourceKey]).ToList();
+        record.Summary = null;
+        if (record.TitleOverride is null && record.ActivityTopic is { } topic && topic.EvidenceIDs.Any(removed.Contains)) record.ActivityTopic = null;
+        record.UpdatedAt = DateTimeOffset.UtcNow; Commit();
+    }
+    /// 作废在途采样与主题请求。主动中止与接口失败不同：清掉摘要，允许本轮结束时用同一批材料再判断一次。
+    private void StopActivitySampling()
+    {
+        if (identifyingTopic is Guid id && WorkRecord(WorkScope.ForSession(id)) is { TitleOverride: null } record) record.TopicAttemptDigest = null;
+        identifyingTopic = null; noteBaselines.Clear(); noteRecordingBlockID = Guid.NewGuid(); lastTopicCheck = DateTime.MinValue;
     }
     private void AdvanceToNow()
     {
         var nowTick = clock.Elapsed; if (lastTick is not TimeSpan previous) { lastTick = nowTick; return; }
         var elapsed = (nowTick - previous).TotalSeconds; lastTick = nowTick;
         if (elapsed <= 0) return; var session = Data.Timer.SessionID; var completed = engine.Advance(elapsed, DateTimeOffset.UtcNow, new ForegroundAppService().Current(), Data.Settings.RecordingEnabled);
-        if (completed) { Notify(TimerStage.Label(Data.Timer.Stage) + "完成", Data.Timer.NextStage == TimerStage.Focus ? "休息结束了，准备好再开始。" : "这一轮完成了，休息一下吧。"); Commit(); if (session is Guid id && Data.Settings.Review.AutoSummarizeSessions) _ = GenerateReview(WorkScope.ForSession(id)); }
+        if (completed) { Notify(TimerStage.Label(Data.Timer.Stage) + "完成", Data.Timer.NextStage == TimerStage.Focus ? "休息结束了，准备好再开始。" : "这一轮完成了，休息一下吧。"); Commit(); if (session is Guid id) QueueAutomaticSessionReview(id); }
     }
     public void PauseForSystem(string reason) { if (Data.Timer.Phase != TimerPhase.Running) return; AdvanceToNow(); engine.Pause(reason, DateTimeOffset.UtcNow); lastTick = null; Commit(); }
-    private void SessionSwitch(object sender, SessionSwitchEventArgs e) { locked = e.Reason == SessionSwitchReason.SessionLock; Dispatcher.CurrentDispatcher.Invoke(() => { if (locked) PauseForSystem("锁屏已暂停"); }); }
+    private void SessionSwitch(object sender, SessionSwitchEventArgs e) { locked = e.Reason == SessionSwitchReason.SessionLock; Dispatcher.CurrentDispatcher.Invoke(() => { if (locked) PauseForSystem("锁屏已暂停"); else { ProcessReviewQueue(); CheckReviewSchedule(); } }); }
     private void PowerModeChanged(object sender, PowerModeChangedEventArgs e)
     {
         if (e.Mode == PowerModes.Suspend) Dispatcher.CurrentDispatcher.Invoke(() => PauseForSystem("系统睡眠已暂停"));
@@ -292,7 +405,11 @@ public sealed class AppState : ObservableObject, IDisposable
     {
         if (!CanWrite || string.IsNullOrWhiteSpace(text)) return; Data.Todos.Add(new() { Text = text.Trim(), LocalDay = TodayKey, ScheduledDays = [TodayKey] }); NewTodo = ""; Commit();
     }
-    public void ToggleTodo(Guid id) { AdvanceToNow(); var item = Data.Todos.FirstOrDefault(x => x.ID == id && x.IsScheduledOn(TodayKey)); if (item is null || !CanWrite) return; item.CompletedAt = item.CompletedAt.HasValue ? null : DateTimeOffset.UtcNow; item.CompletedLocalDay = item.CompletedAt.HasValue ? TodayKey : null; Commit(); }
+    private void QueueAutomaticSessionReview(Guid id)
+    {
+        if (Data.Settings.Review.AutoSummarizeSessions || Data.Settings.ActivityRecording.Enabled) QueueSessionReview(id);
+    }
+    public void ToggleTodo(Guid id) { AdvanceToNow(); var item = Data.Todos.FirstOrDefault(x => x.ID == id && x.IsScheduledOn(TodayKey)); if (item is null || !CanWrite) return; item.CompletedAt = item.CompletedAt.HasValue ? null : DateTimeOffset.UtcNow; item.CompletedLocalDay = item.CompletedAt.HasValue ? TodayKey : null; ActivityRecorder.RecordTodo(item, DateTimeOffset.UtcNow, Data); Commit(); }
     public void UpdateTodo(Guid id, string text) { var item = Data.Todos.FirstOrDefault(x => x.ID == id && x.IsScheduledOn(TodayKey)); if (item is not null && CanWrite && !string.IsNullOrWhiteSpace(text)) { item.Text = text.Trim(); Commit(); } }
     public void DeleteTodo(Guid id) { if (!CanWrite || !deletedTodos.Remove(id, TodayKey, Data.Todos)) return; Commit(); Changed(nameof(LastDeleted)); }
     public void UndoTodo() { if (!CanWrite || deletedTodos.RestoreLast(Data.Todos) is null) return; Commit(); Changed(nameof(LastDeleted)); }
@@ -367,21 +484,43 @@ public sealed class AppState : ObservableObject, IDisposable
     }
     public void RemoveWorkImage(WorkScope scope, Guid id) { if (!CanWrite || generating.Contains(scope.Key)) return; var record = EnsureWorkRecord(scope); record.Images.RemoveAll(x => x.ID == id); Commit(); }
     public string WorkImagePath(WorkImage image) => Path.Combine(Repository.AttachmentsPath, image.FileName);
-    public async Task GenerateReview(WorkScope scope, bool scheduled = false)
+    public async Task GenerateReview(WorkScope scope, bool scheduled = false, bool automatic = false)
     {
-        if (!CanWrite || generating.Contains(scope.Key)) return; if (scheduled) { Data.LastReviewAttemptDay = TodayKey; Save(); }
+        if (!CanWrite || generating.Contains(scope.Key)) return;
+        if (scheduled) { Data.LastReviewAttemptDay = TodayKey; Save(); }
         generating.Add(scope.Key); NotifyWork(scope);
+        var generation = activityGeneration;
         try
         {
             var provider = Provider; var client = ai; var key = CredentialStore.Read(provider.ID) ?? throw new InvalidOperationException("请先在设置中保存 API Key。"); EnsureWorkRecord(scope);
+            if (automatic && scope.SessionID is Guid sessionID)
+            {
+                // 自动整理前先定主题，让这一轮的回顾能引用刚识别出的方向。
+                await IdentifyActivity(sessionID, final: true);
+                if (!Data.Settings.Review.AutoSummarizeSessions && !Data.Settings.ActivityRecording.Enabled) return;
+                if (locked) { QueueSessionReview(sessionID); return; }
+                if (generation != activityGeneration || provider != Provider || client != ai) return;
+                if (!AutomaticSessionReview.ShouldGenerate(sessionID, Data)) return;
+                // 真正发送前落盘：主题判断期间锁屏只是等待解锁，不消耗这次回顾机会。
+                EnsureWorkRecord(scope).AutoReviewAttemptedAt = DateTimeOffset.UtcNow; Save();
+                if (!CanWrite) return;
+            }
             var context = ReviewContextBuilder.Build(scope, Data); var images = context.Images.Select(x => (x, File.Exists(WorkImagePath(x)) ? File.ReadAllBytes(WorkImagePath(x)) : throw new InvalidDataException("有图片未能读取，请重新添加。"))).ToList();
             var content = await client.Summarize(context.Text, images, key, lifetime.Token);
-            if (client != ai || provider != Provider || !CanWrite) return;
+            if (client != ai || provider != Provider || !CanWrite || generation != activityGeneration) return;
             var record = EnsureWorkRecord(scope); record.Summary = new() { Content = content, Model = provider.DefaultModel, ContextDigest = context.Digest, ImageIDs = context.Images.Select(x => x.ID).ToList() }; record.UpdatedAt = DateTimeOffset.UtcNow; Commit();
-            if (scheduled) Data.LastReviewError = null; Feedback = "AI 总结已保存"; if (scheduled) Notify("每日回顾已生成", "打开番茄小记，查看今天留下的进展。");
+            if (!automatic) Feedback = "AI 总结已保存";
+            if (scheduled) { Data.LastReviewError = null; Notify("每日回顾已生成", "打开番茄小记，查看今天留下的进展。"); }
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { if (scheduled) Data.LastReviewError = ex.Message; Feedback = "AI 回顾失败：" + ex.Message; }
         finally { generating.Remove(scope.Key); if (scheduled && CanWrite) Save(); NotifyWork(scope); }
+    }
+    public void QueueSessionReview(Guid id) { if (pendingSessionReviews.Add(id)) reviewQueue.Enqueue(id); ProcessReviewQueue(); }
+    private async void ProcessReviewQueue()
+    {
+        if (reviewQueueRunning || locked) return; reviewQueueRunning = true;
+        try { while (reviewQueue.Count > 0 && !locked) { var id = reviewQueue.Dequeue(); pendingSessionReviews.Remove(id); await GenerateReview(WorkScope.ForSession(id), automatic: true); } }
+        finally { reviewQueueRunning = false; }
     }
     public bool IsGenerating(WorkScope scope) => generating.Contains(scope.Key);
     private void NotifyWork(WorkScope scope) { if (workWindows.TryGetValue(scope.Key, out var window)) window.Refresh(); }
@@ -424,7 +563,7 @@ public sealed class AppState : ObservableObject, IDisposable
             nameof(HeaderDate), nameof(HasTodos), nameof(TodoProgressLabel), nameof(HasTodayNotes), nameof(HasHistoryNotes),
             nameof(AppearanceLabel), nameof(TimerSummaryLabel), nameof(ReviewLabel), nameof(RecordingLabel), nameof(DataStatusLabel), nameof(StorageLabel),
             nameof(HasTodos), nameof(AllTodosDone), nameof(TodoCompletionPercent), nameof(TodoProgressLabel), nameof(TodoDateLabel),
-            nameof(TodoShortLabel), nameof(TodoFooterLabel), nameof(AIStatusLabel),
+            nameof(TodoShortLabel), nameof(TodoFooterLabel), nameof(AIStatusLabel), nameof(ActivityNeedsKey),
             nameof(HasTodayNotes), nameof(HasHistoryNotes), nameof(TodayNoteCount), nameof(HistoryNoteCount), nameof(NotesCountLabel),
             nameof(TodayNoteRows), nameof(HistoryNoteGroups) }) Changed(name);
         RefreshCarryoverRows();

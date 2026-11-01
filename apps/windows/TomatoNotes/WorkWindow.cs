@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Globalization;
 using TomatoNotes.Core;
 using Ui = Wpf.Ui.Controls;
 
@@ -16,6 +17,9 @@ public sealed class WorkWindow : Ui.FluentWindow
     private readonly WrapPanel images;
     private readonly StackPanel result;
     private readonly TextBlock status;
+    private readonly StackPanel activity;
+    private bool activityExpanded;
+    private bool editingTitle;
 
     public WorkWindow(AppState state, WorkScope scope)
     {
@@ -60,6 +64,10 @@ public sealed class WorkWindow : Ui.FluentWindow
         root.Children.Add(new TextBlock { Text = Title, Style = title });
         root.Children.Add(new TextBlock { Text = "已有记录会自动归集。想补充时，再留一句话或一张图。", Style = hint, Margin = new Thickness(0, 7, 0, 15) });
 
+        // 主题与活动依据放在补充材料之前，与 macOS 的 ActivitySessionDetails 位置一致。
+        activity = new StackPanel();
+        root.Children.Add(activity);
+
         input = new TextBox
         {
             Text = state.WorkRecord(scope)?.UserText ?? "",
@@ -97,6 +105,7 @@ public sealed class WorkWindow : Ui.FluentWindow
     public void Refresh()
     {
         var record = state.WorkRecord(scope);
+        RefreshActivity();
         if (record is null) return;
         input.Text = record.UserText;
         images.Children.Clear();
@@ -159,6 +168,122 @@ public sealed class WorkWindow : Ui.FluentWindow
         AddSection(stack, "待继续", summary.Content.NextSteps);
         AddSection(stack, "待确认", summary.Content.Uncertainties);
         result.Children.Add(card);
+    }
+
+    /// 本轮的主题与活动依据，对应 macOS 的 ActivitySessionDetails。天级回顾没有单一轮次，不展示。
+    private void RefreshActivity()
+    {
+        activity.Children.Clear();
+        if (scope.SessionID is not Guid sessionID) return;
+        var record = state.WorkRecord(scope);
+        var items = ActivityRecorder.Activities(sessionID, state.Data);
+        var subtle = (Style)Application.Current.FindResource("SubtleButton");
+        var caption = (Style)Application.Current.FindResource("CaptionText");
+
+        var card = new Border { Style = (Style)Application.Current.FindResource("PaperCard"), Margin = new Thickness(0, 0, 0, 16) };
+        var stack = new StackPanel();
+        card.Child = stack;
+        activity.Children.Add(card);
+
+        var header = new DockPanel();
+        var headerLeft = new StackPanel { Orientation = Orientation.Horizontal };
+        headerLeft.Children.Add(new Ui.SymbolIcon { Symbol = Ui.SymbolRegular.TaskListSquareLtr24, FontSize = 14, Foreground = ThemeService.Token("Accent"), Margin = new Thickness(0, 1, 7, 0) });
+        headerLeft.Children.Add(new TextBlock { Text = "主题与活动依据", Style = (Style)Application.Current.FindResource("CardTitle"), VerticalAlignment = VerticalAlignment.Center });
+        header.Children.Add(headerLeft);
+        var edit = new Ui.Button { Content = "修改主题", Style = subtle, Margin = new Thickness(8, 0, 0, 0) };
+        DockPanel.SetDock(edit, Dock.Right);
+        edit.Click += (_, _) => { editingTitle = !editingTitle; RefreshActivity(); };
+        header.Children.Add(edit);
+        stack.Children.Add(header);
+
+        if (editingTitle)
+        {
+            var row = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var draft = new TextBox
+            {
+                Text = SessionProgress.Build(sessionID, state.Data)?.Title ?? "",
+                Style = (Style)Application.Current.FindResource("BrandTextBox"),
+                FontSize = 12,
+                MaxLength = 60,
+            };
+            draft.Loaded += (_, _) => { draft.Focus(); draft.SelectAll(); };
+            Grid.SetColumn(draft, 0);
+            row.Children.Add(draft);
+            var save = new Ui.Button { Content = "保存", Style = subtle, Margin = new Thickness(8, 0, 0, 0) };
+            Grid.SetColumn(save, 1);
+            row.Children.Add(save);
+            save.Click += (_, _) => { state.RenameActivity(sessionID, draft.Text); editingTitle = false; Refresh(); };
+            stack.Children.Add(row);
+        }
+
+        if (record?.TitleOverride is not null)
+            stack.Children.Add(new TextBlock { Text = "使用你修改的名称；AI 后续会参考，当前名称不会被覆盖。", Style = caption, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) });
+        else if (record?.ActivityTopic is { } topic)
+            stack.Children.Add(new TextBlock { Text = $"AI 初步识别 · {topic.Model} · 可随时修改", Style = caption, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) });
+
+        if (items.Count == 0)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = "还没有活动材料。在设置的「AI 助手」里开启自动记录并允许相应来源后，新活动会出现在这里。",
+                Style = (Style)Application.Current.FindResource("HintText"),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 10, 0, 0),
+            });
+            return;
+        }
+
+        var toggle = new Ui.Button
+        {
+            Content = activityExpanded ? $"收起 {items.Count} 条原始活动" : $"查看 {items.Count} 条原始活动",
+            Style = subtle,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 10, 0, 0),
+        };
+        toggle.Click += (_, _) => { activityExpanded = !activityExpanded; RefreshActivity(); };
+        stack.Children.Add(toggle);
+        if (!activityExpanded) return;
+
+        var list = new StackPanel { Margin = new Thickness(0, 12, 0, 2) };
+        foreach (var item in items)
+        {
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var body = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
+            body.Children.Add(new TextBlock { Text = item.Label, FontSize = 12, FontWeight = FontWeights.Medium, TextWrapping = TextWrapping.Wrap, Foreground = ThemeService.Token("Ink") });
+            body.Children.Add(new TextBlock { Text = TimeLabel(item), FontSize = 10, Foreground = ThemeService.Token("Secondary"), Margin = new Thickness(0, 4, 0, 0) });
+            if (!string.IsNullOrEmpty(item.Detail))
+                body.Children.Add(new TextBlock { Text = item.Detail, FontSize = 11, TextWrapping = TextWrapping.Wrap, Foreground = ThemeService.Token("Secondary"), Margin = new Thickness(0, 4, 0, 0) });
+            Grid.SetColumn(body, 0);
+            row.Children.Add(body);
+            var remove = new Ui.Button { Content = "删除", Style = subtle, VerticalAlignment = VerticalAlignment.Top };
+            System.Windows.Automation.AutomationProperties.SetName(remove, "删除活动：" + item.Title);
+            remove.Click += (_, _) => { state.UpdateWorkText(scope, input.Text); state.RemoveActivity(item.ID); Refresh(); };
+            Grid.SetColumn(remove, 1);
+            row.Children.Add(remove);
+            list.Children.Add(row);
+        }
+        stack.Children.Add(list);
+        stack.Children.Add(new TextBlock
+        {
+            Text = items.Any(x => x.Kind == ActivityKind.ChromePage)
+                ? "删除会移除本轮相同材料的记录及依赖的 AI 总结，并在这一轮停止记录该材料。浏览时间是采样估计，不代表读完或学会。"
+                : "删除会移除本轮相同材料的记录及依赖的 AI 总结，并在这一轮停止记录该材料。",
+            Style = caption,
+            TextWrapping = TextWrapping.Wrap,
+        });
+    }
+
+    /// macOS 的 timeLabel：浏览类材料带起止时间与采样停留，其余只标一个时间点。
+    private static string TimeLabel(FocusActivity item)
+    {
+        var start = item.StartedAt.LocalDateTime.ToString("HH:mm", CultureInfo.InvariantCulture);
+        if (item.Kind != ActivityKind.ChromePage) return start;
+        var end = item.EndedAt.LocalDateTime.ToString("HH:mm", CultureInfo.InvariantCulture);
+        return $"{start}–{end} · {item.Site} · 约 {DisplayFormat.Duration(item.Seconds)}";
     }
 
     private static void AddSection(Panel root, string title, IEnumerable<string> lines)

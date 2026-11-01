@@ -24,7 +24,7 @@ public sealed class AppData : JsonModel
     [JsonPropertyName("todos")] public List<TodoItem> Todos { get; set; } = [];
     [JsonPropertyName("notes")] public List<StickyNote> Notes { get; set; } = [];
     [JsonPropertyName("workRecords")] public List<WorkRecord> WorkRecords { get; set; } = [];
-    [JsonPropertyName("focusActivities")] public List<JsonObject> FocusActivities { get; set; } = [];
+    [JsonPropertyName("focusActivities")] public List<FocusActivity> FocusActivities { get; set; } = [];
     [JsonPropertyName("lastReviewAttemptDay")] public string? LastReviewAttemptDay { get; set; }
     [JsonPropertyName("lastReviewError")] public string? LastReviewError { get; set; }
     [OnDeserialized] internal void Repair(StreamingContext _) { Settings ??= new(); Timer ??= new(); Sessions ??= []; Intervals ??= []; Usage ??= []; Todos ??= []; Notes ??= []; WorkRecords ??= []; FocusActivities ??= []; }
@@ -46,11 +46,11 @@ public sealed class AppSettings : JsonModel
     [JsonPropertyName("focusGuard")] public JsonObject FocusGuard { get; set; } = [];
     [JsonPropertyName("review")] public ReviewSettings Review { get; set; } = new();
     [JsonPropertyName("ai")] public AISettings AI { get; set; } = new();
-    [JsonPropertyName("activityRecording")] public JsonObject ActivityRecording { get; set; } = [];
+    [JsonPropertyName("activityRecording")] public ActivityRecordingSettings ActivityRecording { get; set; } = new();
     [JsonPropertyName("timerHotkey")] public Hotkey TimerHotkey { get; set; } = new() { Letter = "P" };
     [JsonPropertyName("todoHotkey")] public Hotkey TodoHotkey { get; set; } = new() { Letter = "T" };
     [JsonPropertyName("noteHotkey")] public Hotkey NoteHotkey { get; set; } = new() { Letter = "N" };
-    [OnDeserialized] internal void Repair(StreamingContext _) { Review ??= new(); AI ??= new(); FocusGuard ??= []; ActivityRecording ??= []; TimerHotkey ??= new() { Letter = "P" }; TodoHotkey ??= new() { Letter = "T" }; NoteHotkey ??= new() { Letter = "N" }; }
+    [OnDeserialized] internal void Repair(StreamingContext _) { Review ??= new(); AI ??= new(); FocusGuard ??= []; ActivityRecording ??= new(); TimerHotkey ??= new() { Letter = "P" }; TodoHotkey ??= new() { Letter = "T" }; NoteHotkey ??= new() { Letter = "N" }; }
     public double Duration(string stage) => (stage == TimerStage.ShortBreak ? ShortBreakMinutes : stage == TimerStage.LongBreak ? LongBreakMinutes : FocusMinutes) * 60;
 }
 
@@ -170,6 +170,14 @@ public sealed class WorkRecord : JsonModel
     [JsonPropertyName("images")] public List<WorkImage> Images { get; set; } = [];
     [JsonPropertyName("summary")] public AISummary? Summary { get; set; }
     [JsonPropertyName("autoReviewAttemptedAt")] public DateTimeOffset? AutoReviewAttemptedAt { get; set; }
+    [JsonPropertyName("activityTopic")] public ActivityTopic? ActivityTopic { get; set; }
+    [JsonPropertyName("titleOverride")] public string? TitleOverride { get; set; }
+    [JsonPropertyName("topicAttemptCount")] public int? TopicAttemptCount { get; set; }
+    [JsonPropertyName("topicAttemptDigest")] public string? TopicAttemptDigest { get; set; }
+    [JsonPropertyName("topicAttemptFocusSeconds")] public double? TopicAttemptFocusSeconds { get; set; }
+    [JsonPropertyName("finalTopicAttempted")] public bool? FinalTopicAttempted { get; set; }
+    [JsonPropertyName("automaticRecordingUsed")] public bool? AutomaticRecordingUsed { get; set; }
+    [JsonPropertyName("excludedActivityKeys")] public List<string>? ExcludedActivityKeys { get; set; }
     [JsonPropertyName("updatedAt")] public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     [OnDeserialized] internal void Repair(StreamingContext _) { Images ??= []; }
 }
@@ -180,6 +188,16 @@ public sealed class WorkImage : JsonModel
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("createdAt")] public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     [JsonIgnore] public string FileName => $"{ID.ToString().ToUpperInvariant()}.jpg";
+}
+
+public sealed class ActivityTopic : JsonModel
+{
+    [JsonPropertyName("groupID")] public Guid GroupID { get; set; } = Guid.NewGuid();
+    [JsonPropertyName("title")] public string Title { get; set; } = "";
+    [JsonPropertyName("confidence")] public double Confidence { get; set; }
+    [JsonPropertyName("evidenceIDs")] public List<Guid> EvidenceIDs { get; set; } = [];
+    [JsonPropertyName("model")] public string Model { get; set; } = "";
+    [JsonPropertyName("generatedAt")] public DateTimeOffset GeneratedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 public sealed class AISummary : JsonModel
