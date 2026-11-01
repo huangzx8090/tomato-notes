@@ -110,6 +110,7 @@ public struct FocusGuardPlan: Sendable {
     public var appIDs: Set<String>
     public var pages: [FocusPageRule]
     public var allowAIClosing: Bool
+    public var titleKeywords: [String] = []
     public init(goal: String, appIDs: Set<String>, pages: [FocusPageRule], allowAIClosing: Bool) {
         self.goal = goal
         self.appIDs = appIDs.subtracting(["com.google.Chrome"])
@@ -119,12 +120,18 @@ public struct FocusGuardPlan: Sendable {
     public var applicationWhitelistBundleIDs: [String] {
         var ids = appIDs
         // 统计粒度是应用；存在 Chrome 页面白名单时，Chrome 整体算白名单应用。
-        if !pages.isEmpty { ids.insert("com.google.Chrome") }
+        if !pages.isEmpty || !titleKeywords.isEmpty { ids.insert("com.google.Chrome") }
         return ids.sorted()
     }
-    public func allows(appID: String, url: String? = nil) -> Bool {
+    public func allows(appID: String, url: String? = nil, title: String = "") -> Bool {
         if appID.hasPrefix("com.zixuan.TomatoNotes") { return true }
-        if appID == "com.google.Chrome" { return url.map { address in pages.contains { $0.matches(address) } } ?? false }
+        if appID == "com.google.Chrome" {
+            guard let url, FocusPageRule.pageKey(url) != nil else { return false }
+            return pages.contains { $0.matches(url) } || titleKeywords.contains { keyword in
+                let text = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+                return !text.isEmpty && title.localizedStandardContains(text)
+            }
+        }
         return appIDs.contains(appID)
     }
 }
