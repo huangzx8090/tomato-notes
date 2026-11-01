@@ -178,7 +178,7 @@ final class FocusGuardController: ObservableObject {
             if let checkURL = self.checkURL, page.flatMap({ FocusPageRule.pageKey($0.url) }) != checkURL {
                 self.monitor.reset(); self.status = "受控验收中：只处理指定的本地测试页面"; return
             }
-            let explicitlyAllowed = plan.allows(appID: app.bundleID, url: page?.url)
+            let explicitlyAllowed = plan.allows(appID: app.bundleID, url: page?.url, title: page?.title ?? "")
             let reviewed = page.map { self.ignoredPages.contains($0.id) } == true
             let allowed = explicitlyAllowed || reviewed
             let identity = allowed ? nil : (page?.id ?? app.bundleID)
@@ -264,7 +264,7 @@ final class FocusGuardController: ObservableObject {
                 self.trace("decision-" + result.relevance.verdict.rawValue)
                 if result.relevance.verdict == .related {
                     // AI 认定与本轮目标相关时顺手放行本轮，省掉同一页反复判定消耗 maxChecks 配额；与授权关闭无关。
-                    if settings.aiRelevance && self.plan?.allows(appID: "com.google.Chrome", url: page.url) == false,
+                    if settings.aiRelevance && self.plan?.allows(appID: "com.google.Chrome", url: page.url, title: page.title) == false,
                        let key = FocusPageRule.pageKey(page.url) {
                         self.plan?.pages.append(.init(kind: .page, value: key, title: page.title))
                     }
@@ -272,7 +272,7 @@ final class FocusGuardController: ObservableObject {
                     self.decisionStatus[page.id] = self.status
                     self.onNotice?("这个页面可以继续学习", result.relevance.reason, nil)
                 } else if result.relevance.permitsClosing, self.plan?.allowAIClosing == true {
-                    guard self.plan?.allows(appID: "com.google.Chrome", url: page.url) == false else { return }
+                    guard self.plan?.allows(appID: "com.google.Chrome", url: page.url, title: page.title) == false else { return }
                     _ = try await self.closePage(page)
                     guard self.isCurrentAssessment(round, token: token, provider: provider) else { return }
                     self.trace("closed")

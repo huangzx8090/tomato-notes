@@ -14,7 +14,7 @@ struct FocusWhitelistRecommendationView: View {
     var body: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 12) {
-                Label("AI 帮我勾选", systemImage: "sparkles").font(.system(size: 13, weight: .semibold))
+                Label("AI 帮我勾选", systemImage: "sparkles").font(AppTypography.heading(13))
                 Text("读取当前运行的 App 和 Chrome 所有普通窗口的网页，按本轮目标逐项推荐，由你确认。")
                     .font(.system(size: 11)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
                 if model.loading {

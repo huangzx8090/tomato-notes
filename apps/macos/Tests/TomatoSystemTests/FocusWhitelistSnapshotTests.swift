@@ -4,6 +4,17 @@ import TomatoCore
 import TomatoSystem
 
 struct FocusWhitelistSnapshotTests {
+    @Test func newRecommendationReplacesOldAllowancesButKeepsExplicitKeywords() {
+        let snapshot = FocusWhitelistSnapshot(apps: [.init(name: "编辑器", bundleID: "editor")], pages: [])
+        var old = FocusGuardPlan(goal: "学习", appIDs: ["game"], pages: [.init(kind: .site, value: "video.test", title: "视频")], allowAIClosing: false)
+        old.titleKeywords = ["课程"]
+        let result = snapshot.adding(Set(snapshot.items.map(\.id)), to: old, replacingSelection: true)
+        #expect(result.appIDs == ["editor"])
+        #expect(result.pages.isEmpty)
+        #expect(result.titleKeywords == ["课程"])
+        #expect(!result.allowAIClosing)
+    }
+
     @Test func networkSupportUsesLocalIdentityWithoutSendingItOrTrustingTheDisplayName() throws {
         let networkID = "io.github.clash-verge-rev.clash-verge-rev"
         let snapshot = FocusWhitelistSnapshot(apps: [.init(name: "Clash Verge", bundleID: networkID),

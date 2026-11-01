@@ -46,7 +46,7 @@ struct ReminderTasksSection: View {
                     .foregroundStyle(Theme.accent).frame(width: 31, height: 31)
                     .background(Theme.accentSoft.opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("提醒事项").font(.system(size: 14, weight: .semibold))
+                    Text("提醒事项").font(AppTypography.heading(14))
                     Text(controller.enabled ? "Apple · 已选 \(controller.selectedListIDs.count) 个清单" : "把想做的事安排到今天")
                         .font(.system(size: 10)).foregroundStyle(Theme.secondary)
                 }
@@ -134,7 +134,7 @@ struct ReminderTasksSection: View {
 
     private var listSettings: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("同步清单").font(.system(size: 14, weight: .semibold))
+            Text("同步清单").font(AppTypography.heading(14))
             Text("只读取选中清单的提醒。安排到今天不会改变原截止日期。")
                 .font(.system(size: 10)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
             if controller.lists.isEmpty { Text("暂无可用清单").font(.system(size: 11)).foregroundStyle(Theme.secondary) }

@@ -15,6 +15,7 @@ public sealed class FocusGuardController : IDisposable
 
     private readonly Func<GuardTarget, string, CancellationToken, Task<FocusAssessment>> assess;
     private readonly Action<string, string> notify;
+    private readonly Action<GuardTarget> allow;
     private readonly Action publish;
 
     private readonly GuardForegroundService foreground = new();
@@ -40,9 +41,10 @@ public sealed class FocusGuardController : IDisposable
     public FocusGuardController(
         Func<GuardTarget, string, CancellationToken, Task<FocusAssessment>> assess,
         Action<string, string> notify,
+        Action<GuardTarget> allow,
         Action publish)
     {
-        this.assess = assess; this.notify = notify; this.publish = publish;
+        this.assess = assess; this.notify = notify; this.allow = allow; this.publish = publish;
         loop = new Thread(Run) { IsBackground = true, Name = "FocusGuard" };
         loop.SetApartmentState(ApartmentState.STA);
         loop.Start();
@@ -109,8 +111,8 @@ public sealed class FocusGuardController : IDisposable
         }
         var target = Sample(front);
         var settings = snap.Settings;
-        var limit = Math.Clamp(settings.MaxChecks, 1, 5);
-        lock (gate) current = target;
+        int used;
+        lock (gate) { current = target; used = checks; }
         var identity = target.Identity(snap.Plan.Allows(target.AppID, target.Url));
         if (identity is null)
         {
@@ -126,17 +128,19 @@ public sealed class FocusGuardController : IDisposable
             Publish();
             return;
         }
-        var mayAssess = snap.Plan.AllowAIClosing && snap.HasAPIKey && target.MayAssess && Checks < limit;
-        if (!snap.Plan.AllowAIClosing) SetStatus("当前不在白名单内，停留超时后提醒");
-        else if (!snap.HasAPIKey) SetStatus("未配置密钥：只提醒，不做 AI 判定");
-        else if (Checks >= limit) SetStatus("本轮已达到 AI 判断上限，之后仅提醒");
-        else if (target.IsBrowser && !target.MayAssess) SetStatus("读不到当前网址或处于隐私模式：只提醒，不判定");
-        else SetStatus("当前不在白名单内，停留超时后提醒");
+        var mayAssess = GuardAssessmentPolicy.MayAssess(settings, snap.Plan, snap.HasAPIKey, target, used);
+        if (!snap.HasAPIKey) SetStatus("未配置密钥：只提醒，不做 AI 判定");
+        else if (!snap.Plan.AllowAIClosing && !settings.AIRelevance) SetStatus("当前不在白名单内，停留超时后提醒");
+        else if (used >= GuardAssessmentPolicy.CheckLimit(settings)) SetStatus("本轮已达到 AI 判断上限，之后仅提醒");
+        else if (!target.MayAssess) SetStatus(target.IsBrowser ? "读不到当前网址或处于隐私模式：只提醒，不判定" : "读不到窗口标题：只提醒，不判定");
+        else SetStatus(snap.Plan.AllowAIClosing ? "当前不在白名单内，停留超时后提醒并交给 AI 核对" : "当前不在白名单内，停留超时后由 AI 判断是否相关");
 
         var action = monitor.Update(identity, Environment.TickCount64 / 1000.0, settings, mayAssess);
         if (action == GuardAction.Remind)
         {
-            SetStatus(mayAssess ? $"已提醒，{Math.Max(5, settings.GraceSeconds)} 秒后仍未离开将交由 AI 核对" : "已提醒，本轮对当前内容仅提醒");
+            SetStatus(mayAssess
+                ? $"已提醒，{Math.Max(5, settings.GraceSeconds)} 秒后仍未离开将交由 AI 判断" + (snap.Plan.AllowAIClosing ? "" : "（不关闭）")
+                : "已提醒，本轮对当前内容仅提醒");
             notify("回到这一轮的学习吧", $"目标：{snap.Plan.Goal}\n当前停留：{Subject(target)}");
             Publish();
         }
@@ -159,7 +163,12 @@ public sealed class FocusGuardController : IDisposable
     private async Task AssessAsync(GuardTarget target, GuardForeground front, Snapshot snap)
     {
         var token = generation;
-        lock (gate) { assessing = true; status = target.IsBrowser ? "关闭前由 AI 核对当前网页…" : "关闭前由 AI 核对当前应用…"; }
+        lock (gate)
+        {
+            assessing = true;
+            var subject = target.IsBrowser ? "当前网页" : "当前应用";
+            status = snap.Plan.AllowAIClosing ? $"关闭前由 AI 核对{subject}…" : $"由 AI 判断{subject}是否与本轮学习相关…";
+        }
         Publish();
         try
         {
@@ -187,14 +196,22 @@ public sealed class FocusGuardController : IDisposable
                 reviewed.Add(identity);
                 current = fresh;
             }
-            if (!snap.Plan.AllowAIClosing || !result.Relevance.PermitsClosing)
+            var relevance = result.Relevance;
+            if (relevance.Verdict == FocusVerdict.Related)
             {
-                var kept = result.Relevance.Verdict == FocusVerdict.Related ? "这个内容可以继续学习" : "AI 无法确认，已保留";
-                SetStatus($"本轮保留：{result.Relevance.Reason}");
-                notify(result.Relevance.Verdict == FocusVerdict.Related ? kept : "AI 无法确认，已保留", result.Relevance.Reason);
+                // AI 认定与本轮目标相关时顺手放行，本轮不必反复判断同一页；关闭授权与此无关。
+                if (snap.Settings.AIRelevance) allow(fresh);
+                SetStatus($"AI 判定与本轮学习相关：{relevance.Reason}");
+                notify("这个内容可以继续学习", relevance.Reason);
                 return;
             }
-            Close(fresh, still, snap.Plan, result.Relevance.Reason);
+            if (!GuardAssessmentPolicy.MayClose(snap.Plan, relevance))
+            {
+                SetStatus($"本轮保留：{relevance.Reason}");
+                notify(relevance.Verdict == FocusVerdict.Unrelated ? "AI 判定与本轮学习无关，已保留" : "AI 无法确认，已保留", relevance.Reason);
+                return;
+            }
+            Close(fresh, still, snap.Plan, relevance.Reason);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

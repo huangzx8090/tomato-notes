@@ -15,7 +15,7 @@ struct ActivityRecordingSettingsCard: View {
     var body: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 14) {
-                Label("AI 自动记录", systemImage: "sparkles").font(.system(size: 14, weight: .semibold))
+                Label("AI 自动记录", systemImage: "sparkles").font(AppTypography.heading(14))
                 SettingsHelpText("点开始后直接做事，AI 会根据下方允许的材料识别主题，到点后自动整理这一轮，无需填写或确认。")
                 SettingsHelpText("开启后，选中的页面标题、网站、便签变更与完成待办会在本机保存，并发送给 \(state.aiProvider.name) 判断主题和生成回顾。标题可能包含个人信息，请按需选择。")
                 SettingsToggleRow(title: "开启 AI 自动记录", detail: "约两分钟后初步识别；结束后后台整理。默认关闭，可随时停止。", value: source(\.enabled))
@@ -50,7 +50,7 @@ struct ActivitySessionDetails: View {
         PaperCard {
             VStack(alignment: .leading, spacing: 13) {
                 HStack {
-                    Label("主题与活动依据", systemImage: "text.magnifyingglass").font(.system(size: 14, weight: .semibold))
+                    Label("主题与活动依据", systemImage: "text.magnifyingglass").font(AppTypography.heading(14))
                     Spacer()
                     Button("修改主题") {
                         titleDraft = SessionProgress.build(sessionID: sessionID, from: state.data)?.title ?? ""

@@ -44,7 +44,7 @@ struct FocusHeatmapCompactContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(alignment: .firstTextBaseline) {
-                Text("专注热力图").font(.system(size: 14, weight: .semibold))
+                Text("专注热力图").font(AppTypography.heading(14))
                 Spacer()
                 Button("查看全部", action: onShowAll)
                     .buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent)
@@ -63,10 +63,6 @@ struct FocusHeatmapCompactContent: View {
                     dateRange
                     FocusHeatmapLegend(compact: true)
                 }
-            }
-            if range.activeDays == 0 {
-                Text("完成第一段专注后，这里会留下记录")
-                    .font(.system(size: 11)).foregroundStyle(Theme.secondary)
             }
         }
         .padding(13)
@@ -169,7 +165,7 @@ private struct FocusHeatmapWindowView: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("专注热力图").font(.system(size: 20, weight: .semibold))
+                Text("专注热力图").font(AppTypography.heading())
                 Text("\(range.startDay) 至 \(range.endDay)")
                     .font(.system(size: 12, design: .rounded)).foregroundStyle(Theme.secondary)
             }
@@ -194,7 +190,7 @@ private struct FocusHeatmapWindowView: View {
                 Text("有记录 \(range.activeDays) 天")
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 if range.activeDays == 0 {
-                    Text("完成第一段专注后，这里会留下记录")
+                    Text("暂无专注记录")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
             }

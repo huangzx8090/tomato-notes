@@ -12,6 +12,14 @@
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>59.110.50.227</key>
+            <dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
+        </dict>
+    </dict>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSRemindersFullAccessUsageDescription</key><string>应用将获得所有提醒事项的读写权限，并显示清单名称供选择；仅处理所选清单，在你确认后同步更改或追加进展。</string>

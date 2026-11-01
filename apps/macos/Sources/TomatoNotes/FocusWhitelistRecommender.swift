@@ -54,7 +54,7 @@ final class FocusWhitelistRecommender: ObservableObject {
                 guard self.generation == token, controller.aiProvider == provider else { return }
                 self.snapshot = snapshot
                 self.suggestions = result.suggestions
-                self.selectedIDs = Set(result.suggestions.filter { $0.disposition == .recommended }.map(\.id))
+                self.selectedIDs = Set(result.suggestions.filter { $0.disposition != .excluded }.map(\.id))
                 self.inputTokens = result.inputTokens
                 self.outputTokens = result.outputTokens
                 self.status = "已为 \(snapshot.appCount) 个 App、\(snapshot.pageCount) 个不同网页给出建议"
@@ -84,6 +84,7 @@ final class FocusWhitelistRecommender: ObservableObject {
     func confirmedPlan(from draft: FocusGuardPlan, provider: AIProviderConfig) -> FocusGuardPlan {
         guard !loading, requestedGoal == draft.goal, requestedProvider == provider,
               !suggestions.isEmpty, let snapshot else { return draft }
-        return snapshot.adding(selectedIDs, to: draft)
+        // 新建议替换旧名单，但保留用户明确设置的关键词与本轮关闭授权。
+        return snapshot.adding(selectedIDs, to: draft, replacingSelection: true)
     }
 }
