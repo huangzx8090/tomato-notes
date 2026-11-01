@@ -178,7 +178,7 @@ final class FocusGuardController: ObservableObject {
             if let checkURL = self.checkURL, page.flatMap({ FocusPageRule.pageKey($0.url) }) != checkURL {
                 self.monitor.reset(); self.status = "受控验收中：只处理指定的本地测试页面"; return
             }
-            let explicitlyAllowed = plan.allows(appID: app.bundleID, url: page?.url)
+            let explicitlyAllowed = plan.allows(appID: app.bundleID, url: page?.url, title: page?.title ?? "")
             let reviewed = page.map { self.ignoredPages.contains($0.id) } == true
             let allowed = explicitlyAllowed || reviewed
             let identity = allowed ? nil : (page?.id ?? app.bundleID)
@@ -256,7 +256,7 @@ final class FocusGuardController: ObservableObject {
                 self.ignoredPages.insert(page.id)
                 self.trace("decision-" + result.relevance.verdict.rawValue)
                 if result.relevance.permitsClosing {
-                    guard self.plan?.allows(appID: "com.google.Chrome", url: page.url) == false,
+                    guard self.plan?.allows(appID: "com.google.Chrome", url: page.url, title: page.title) == false,
                           self.plan?.allowAIClosing == true else { return }
                     _ = try await self.closePage(page)
                     guard self.isCurrentAssessment(round, token: token, provider: provider) else { return }

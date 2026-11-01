@@ -9,7 +9,7 @@ struct FocusGuardCard: View {
     var body: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 10) {
-                Label("专注范围", systemImage: "checkmark.shield").font(AppTypography.heading(14))
+                Label("专注范围", systemImage: "checkmark.shield").font(.system(size: 14, weight: .semibold))
                 if let plan = controller.plan {
                     Text(plan.goal).font(.system(size: 13, weight: .medium))
                     Text(plan.allowAIClosing ? "已开启 AI 关闭无关页面" : "离开勾选内容过久时提醒")
@@ -47,7 +47,9 @@ struct FocusGuardSetupView: View {
     @ViewState private var allowedApps: Set<String> = []
     @ViewState private var pages: [FocusPageRule] = []
     @ViewState private var manualPage = ""
-    @ViewState private var manualKind = FocusPageRule.Kind.page
+    @ViewState private var keywords: [String] = []
+    @ViewState private var manualSelections: Set<String> = []
+    @ViewState private var manualOverride = false
     @ViewState private var allowClosing = false
     @ViewState private var hasCapture = FocusPageCapture.hasPermission
     @ViewState private var validation: String?
@@ -55,9 +57,14 @@ struct FocusGuardSetupView: View {
     @ViewState private var moreExpanded = false
 
     private var confirmedPlan: FocusGuardPlan {
-        let draft = FocusGuardPlan(goal: goal.trimmingCharacters(in: .whitespacesAndNewlines), appIDs: allowedApps,
+        var draft = FocusGuardPlan(goal: goal.trimmingCharacters(in: .whitespacesAndNewlines), appIDs: allowedApps,
                                    pages: pages, allowAIClosing: allowClosing)
-        return recommender.confirmedPlan(from: draft, provider: controller.aiProvider)
+        draft.titleKeywords = keywords
+        var result = recommender.confirmedPlan(from: draft, provider: controller.aiProvider)
+        result.pages.removeAll { rule in
+            keywords.contains { rule.title.localizedStandardContains($0) }
+        }
+        return result
     }
     private var unavailableReason: String? {
         if goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "填写这轮要做的事，再开始专注" }
@@ -65,9 +72,9 @@ struct FocusGuardSetupView: View {
         if goalGenerator.loading { return "AI 正在生成名称…" }
         if recommender.loading { return "AI 正在推荐，也可以勾选清单切回手动" }
         let plan = confirmedPlan
-        if plan.appIDs.isEmpty && plan.pages.isEmpty { return "勾选至少一项，或选“仅计时”" }
-        if (!plan.pages.isEmpty || allowClosing) && !controller.chromeReady { return "点“读取网页”后再确认选择" }
-        if allowClosing && (!hasCapture || !state.hasAPIKey) { return "请在“更多选项”完成 AI 关闭授权" }
+        if plan.appIDs.isEmpty && plan.pages.isEmpty && plan.titleKeywords.isEmpty { return "勾选至少一项，或选“仅计时”" }
+        if (!plan.pages.isEmpty || !plan.titleKeywords.isEmpty || allowClosing) && !controller.chromeReady { return "点“读取网页”后再确认选择" }
+        if allowClosing && (!hasCapture || !state.hasAPIKey) { return "请在“自己调整”完成 AI 关闭授权" }
         return nil
     }
     private var maySave: Bool { unavailableReason == nil }
@@ -85,7 +92,7 @@ struct FocusGuardSetupView: View {
         }
         var seen: Set<String> = []
         return apps.filter { seen.insert($0.bundleID).inserted }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            .sorted { state.settings.focusGuard.whitelistMemory.precedes("app:" + $0.bundleID, "app:" + $1.bundleID) }
     }
     private var goalContext: FocusGoalContext {
         let plan = confirmedPlan
@@ -101,9 +108,7 @@ struct FocusGuardSetupView: View {
     private var favoritePages: [FocusPageRule] { state.settings.focusGuard.favoritePages }
     private var selectionSummary: String {
         let plan = confirmedPlan
-        let sites = plan.pages.filter { $0.kind == .site }.count
-        let exactPages = plan.pages.count - sites
-        return "已勾选 \(plan.appIDs.count) 个应用、\(exactPages) 个网页" + (sites > 0 ? "、\(sites) 个网站" : "")
+        return "已允许 \(plan.appIDs.count) 个应用、\(plan.pages.count) 条网页规则、\(keywords.count) 个关键词"
     }
 
     var body: some View {
@@ -111,29 +116,39 @@ struct FocusGuardSetupView: View {
             FocusWhitelistPickerHeader { state.guardSetupPresented = false }
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    FocusWhitelistGoalCard(
-                        goal: Binding(get: { goal }, set: { goal = $0 }),
-                        todos: unfinishedTodos,
-                        canGenerate: state.hasAPIKey && !goalContext.isEmpty && !recommender.loading,
-                        isGenerating: goalGenerator.loading,
-                        hasGenerated: goalGenerator.generatedGoal != nil,
-                        status: goalGenerator.status,
-                        providerName: controller.aiProvider.name,
-                        hasKey: state.hasAPIKey,
-                        onGenerate: { updateGoalGeneration(force: true) },
-                        onCancel: { goalGenerator.cancel() }
-                    )
-                    appsCard
-                    pagesCard
-                    DisclosureGroup("更多选项", isExpanded: $moreExpanded) {
+                    PaperCard {
+                        VStack(alignment: .leading, spacing: 10) {
+                            TextField("这轮做什么", text: Binding(get: { goal }, set: { goal = $0 }))
+                                .textFieldStyle(.roundedBorder).accessibilityIdentifier("guard.goal")
+                            if !unfinishedTodos.isEmpty {
+                                Menu("从待办选择") {
+                                    ForEach(unfinishedTodos) { todo in Button(todo.text) { goal = todo.text } }
+                                }
+                            }
+                            Label("优先采用 AI 建议", systemImage: "sparkles")
+                            Text("识别游戏、娱乐视频等分心内容，保留课程与学习辅助工具。")
+                                .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                            Text("将目标、应用名称、普通网页标题与网站发送给 \(controller.aiProvider.name)。")
+                                .font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                            if recommender.loading { ProgressView().controlSize(.small) }
+                            Text(state.hasAPIKey ? recommender.status : "尚未配置 AI，可展开下方手动勾选。")
+                                .font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                            if let error = recommender.error {
+                                Text(error).font(.system(size: 11)).foregroundStyle(Theme.accent)
+                            }
+                        }
+                    }
+                    DisclosureGroup("自己调整（可选）", isExpanded: $moreExpanded) {
                         VStack(alignment: .leading, spacing: 14) {
-                            FocusWhitelistRecommendationView(model: recommender, providerName: controller.aiProvider.name,
-                                                             hasKey: state.hasAPIKey,
-                                                             canRecommend: !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-                                                                goal.count <= 300 && !controller.loadingTabs,
-                                                             onRecommend: { recommender.recommend(goal: goal, controller: controller) })
+                            Button("重新获取 AI 建议") {
+                                manualOverride = false
+                                recommender.recommend(goal: goal, controller: controller)
+                            }.buttonStyle(SubtleButtonStyle()).disabled(!state.hasAPIKey || recommender.loading)
+                            Button("根据当前选择生成目标") { updateGoalGeneration(force: true) }
+                                .buttonStyle(SubtleButtonStyle()).disabled(!state.hasAPIKey || goalContext.isEmpty || recommender.loading || goalGenerator.loading)
                             manualCard
-                            favoritesCard
+                            appsCard
+                            pagesCard
                             closingCard
                         }.padding(.top, 12)
                     }.font(.system(size: 12, weight: .medium)).tint(Theme.secondary)
@@ -153,30 +168,18 @@ struct FocusGuardSetupView: View {
             if controller.plan == nil, !state.focusGoalDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 goal = state.focusGoalDraft
             }
-            updateGoalGeneration()
+            keywords = controller.plan?.titleKeywords ?? state.settings.focusGuard.whitelistMemory.keywords
+            if goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { goal = "学习与工作" }
+            manualOverride = controller.plan != nil
+        }
+        .task(id: goal + String(describing: state.settings.ai) + String(state.hasAPIKey)) {
+            guard state.hasAPIKey, !manualOverride, !goal.isEmpty, goal.count <= 300 else { return }
+            recommender.cancel()
+            do { try await Task.sleep(nanoseconds: 700_000_000) } catch { return }
+            guard !Task.isCancelled, !manualOverride else { return }
+            recommender.recommend(goal: goal, controller: controller)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in hasCapture = FocusPageCapture.hasPermission }
-        .onChange(of: goal) { previous, value in
-            if goalGenerator.generatedGoal == value {
-                // 起名会使推荐结果过期；保留当前勾选项，仍由底部按钮最终确认。
-                let draft = FocusGuardPlan(goal: previous.trimmingCharacters(in: .whitespacesAndNewlines),
-                                           appIDs: allowedApps, pages: pages, allowAIClosing: allowClosing)
-                let selected = recommender.confirmedPlan(from: draft, provider: controller.aiProvider)
-                allowedApps = selected.appIDs
-                pages = selected.pages
-            }
-            if recommender.loading || !recommender.suggestions.isEmpty {
-                recommender.cancel(message: "目标已修改，可重新读取并推荐。")
-            }
-            updateGoalGeneration()
-        }
-        .onChange(of: goalContext) { _, _ in updateGoalGeneration() }
-        .onChange(of: recommender.loading) { _, _ in updateGoalGeneration() }
-        .onChange(of: state.hasAPIKey) { _, _ in updateGoalGeneration() }
-        .onChange(of: state.settings.ai) { _, _ in
-            recommender.cancel(message: "AI 配置已修改，请重新推荐。")
-            updateGoalGeneration()
-        }
         .onDisappear { recommender.cancel(); goalGenerator.cancel() }
         .onChange(of: state.guardSetupPresented) { _, presented in
             if !presented { recommender.cancel(); goalGenerator.cancel(); onClose() }
@@ -195,7 +198,7 @@ struct FocusGuardSetupView: View {
     private var appsCard: some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 14) {
-                Text("应用").font(AppTypography.heading(13))
+                Text("应用").font(.system(size: 13, weight: .semibold))
                 FocusWhitelistAppChecklist(apps: selectableApps, selectedIDs: confirmedPlan.appIDs, onSet: setApp)
             }
         }
@@ -205,7 +208,7 @@ struct FocusGuardSetupView: View {
         PaperCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("Chrome 网页").font(AppTypography.heading(13))
+                    Text("Chrome 网页").font(.system(size: 13, weight: .semibold))
                     Spacer()
                     if controller.loadingTabs { ProgressView().controlSize(.small) }
                     Button(controller.availableTabs.isEmpty ? "读取网页" : "刷新") { controller.loadTabs() }
@@ -216,7 +219,8 @@ struct FocusGuardSetupView: View {
                     Text(controller.chromeReady ? "没有可勾选的普通网页" : "点“读取网页”，再勾选这轮需要的页面。")
                         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                 }
-                FocusWhitelistPageChecklist(pages: controller.availableTabs, rules: confirmedPlan.pages, filter: $tabFilter,
+                FocusWhitelistPageChecklist(pages: controller.availableTabs.filter { page in !keywords.contains { page.title.localizedStandardContains($0) } }, rules: confirmedPlan.pages, filter: $tabFilter,
+                                             selectionCounts: state.settings.focusGuard.whitelistMemory.counts,
                                              onSet: setPage, onSetVisible: setPages, onRemoveRule: removeRule)
                 if !controller.chromeReady, !controller.loadingTabs,
                    controller.permissionStatus != "连接 Chrome 后可选择本轮学习页面" {
@@ -233,65 +237,28 @@ struct FocusGuardSetupView: View {
 
     private var manualCard: some View {
         PaperCard {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("手动添加网址").font(AppTypography.heading(13))
+            VStack(alignment: .leading, spacing: 10) {
+                Text("网页标题关键词").font(.system(size: 13, weight: .semibold))
+                Text("例如“小林 coding”：标题包含这段文字的新页面也允许。只匹配标题，不放行整个视频网站。")
+                    .font(.system(size: 11)).foregroundStyle(Theme.secondary)
                 HStack {
-                    TextField("页面网址或网站域名", text: $manualPage).textFieldStyle(.roundedBorder)
-                    Picker("范围", selection: $manualKind) {
-                        Text("仅此页").tag(FocusPageRule.Kind.page)
-                        Text("整个网站").tag(FocusPageRule.Kind.site)
-                    }.labelsHidden().frame(width: 100)
+                    TextField("输入标题中的共同文字", text: $manualPage).textFieldStyle(.roundedBorder)
                     Button("加入") { addManual() }.buttonStyle(SubtleButtonStyle())
                 }
-                if manualKind == .site {
-                    Text("整个网站包括它的子域和后续新开的页面。")
-                        .font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                }
                 if let validation { Text(validation).font(.system(size: 11)).foregroundStyle(Theme.accent) }
-                let siteRules = confirmedPlan.pages.filter { $0.kind == .site }
-                if !siteRules.isEmpty {
-                    Text("已允许的整个网站").font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                    ForEach(siteRules) { rule in
-                        Toggle(rule.value, isOn: Binding(get: { confirmedPlan.pages.contains { $0.id == rule.id } },
-                                                         set: { if !$0 { removeRule(rule) } }))
-                            .toggleStyle(.checkbox).font(.system(size: 12))
-                    }
+                ForEach(keywords.sorted { state.settings.focusGuard.whitelistMemory.precedes("keyword:" + $0, "keyword:" + $1) }, id: \.self) { keyword in
+                    Toggle(keyword, isOn: Binding(get: { keywords.contains(keyword) }, set: { selected in
+                        if !selected { adoptRecommendations(); keywords.removeAll { $0 == keyword } }
+                    })).toggleStyle(.checkbox)
                 }
-            }
-        }
-    }
-
-    private var favoritesCard: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("常用网页").font(AppTypography.heading(13))
-                RuleChipsView(pages: favoritePages, emptyHint: "还没有保存的常用网页") { rule in
-                    var settings = state.settings
-                    settings.focusGuard.favoritePages.removeAll { $0.id == rule.id }
-                    _ = state.updateSettings(settings)
+                ForEach(favoritePages.filter { rule in !confirmedPlan.pages.contains { $0.id == rule.id } }) { rule in
+                    Toggle("原有常用：" + rule.title, isOn: Binding(get: { false }, set: { selected in
+                        if selected { adoptRecommendations(); pages.append(rule); manualSelections.insert(rule.id) }
+                    })).toggleStyle(.checkbox)
                 }
-                HStack(spacing: 8) {
-                    Button("加入清单") {
-                        adoptRecommendations()
-                        for rule in favoritePages where !pages.contains(where: { $0.id == rule.id }) { pages.append(rule) }
-                    }.buttonStyle(SubtleButtonStyle()).disabled(favoritePages.isEmpty)
-                    Button("替换网页选择") {
-                        adoptRecommendations(); pages = favoritePages
-                    }.buttonStyle(SubtleButtonStyle()).disabled(favoritePages.isEmpty)
-                    Button("将勾选网页存为常用") {
-                        var settings = state.settings
-                        for rule in confirmedPlan.pages where !settings.focusGuard.favoritePages.contains(where: { $0.id == rule.id }) {
-                            settings.focusGuard.favoritePages.append(rule)
-                        }
-                        _ = state.updateSettings(settings)
-                    }.buttonStyle(SubtleButtonStyle()).disabled(confirmedPlan.pages.isEmpty)
-                }
-                if !favoritePages.isEmpty {
-                    Button("清除常用网页", role: .destructive) {
-                        var settings = state.settings
-                        settings.focusGuard.favoritePages = []
-                        _ = state.updateSettings(settings)
-                    }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                ForEach(confirmedPlan.pages.filter { $0.kind == .site }) { rule in
+                    Toggle("原有网站：" + rule.value, isOn: Binding(get: { true }, set: { if !$0 { removeRule(rule) } }))
+                        .toggleStyle(.checkbox)
                 }
             }
         }
@@ -338,7 +305,12 @@ struct FocusGuardSetupView: View {
                     .help("本轮不提醒或检查页面")
                 Spacer()
                 Button(state.guardSetupActionTitle == "设置并开始专注" ? "开始专注" : "保存选择") {
-                    state.saveGuardPlan(confirmedPlan)
+                    var memory = state.settings.focusGuard.whitelistMemory
+                    memory.keywords = keywords
+                    let plan = confirmedPlan
+                    let active = Set(plan.appIDs.map { "app:" + $0 } + plan.pages.map { $0.id } + keywords.map { "keyword:" + $0 })
+                    memory.record(manualSelections.intersection(active))
+                    state.saveGuardPlan(plan, whitelistMemory: memory)
                 }.buttonStyle(SubtleButtonStyle()).disabled(!maySave)
                     .help("选择仅在本轮生效；暂停时保留，重启后需重新确认")
                     .accessibilityIdentifier("guard.confirmSelection")
@@ -347,6 +319,7 @@ struct FocusGuardSetupView: View {
     }
 
     private func adoptRecommendations() {
+        manualOverride = true
         let current = confirmedPlan
         allowedApps = current.appIDs
         pages = current.pages
@@ -357,14 +330,16 @@ struct FocusGuardSetupView: View {
     }
     private func setApp(_ id: String, _ allowed: Bool) {
         adoptRecommendations()
-        if allowed { allowedApps.insert(id) } else { allowedApps.remove(id) }
+        if allowed { allowedApps.insert(id); manualSelections.insert("app:" + id) } else { allowedApps.remove(id) }
     }
     private func setPage(_ page: GuardPage, _ allowed: Bool) {
         adoptRecommendations()
+        if allowed, let key = FocusPageRule.pageKey(page.url) { manualSelections.insert("page:" + key) }
         pages = FocusWhitelistSelection.setting(page, allowed: allowed, in: pages, availablePages: controller.availableTabs)
     }
     private func setPages(_ visible: [GuardPage], _ allowed: Bool) {
         adoptRecommendations()
+        if allowed { manualSelections.formUnion(visible.compactMap { FocusPageRule.pageKey($0.url).map { "page:" + $0 } }) }
         pages = FocusWhitelistSelection.setting(visible, allowed: allowed, in: pages, availablePages: controller.availableTabs)
     }
     private func removeRule(_ rule: FocusPageRule) {
@@ -372,14 +347,11 @@ struct FocusGuardSetupView: View {
         pages = FocusWhitelistSelection.removing(rule, in: pages, availablePages: controller.availableTabs)
     }
     private func addManual() {
-        let rule: FocusPageRule
-        if manualKind == .site, let host = FocusPageRule.siteHost(manualPage) {
-            rule = .init(kind: .site, value: host, title: host)
-        } else if manualKind == .page, let key = FocusPageRule.pageKey(manualPage) {
-            rule = .init(kind: .page, value: key, title: URLComponents(string: key)?.host ?? "手动添加的页面")
-        } else { validation = "请输入有效的网站域名或完整 http / https 网址。"; return }
+        let keyword = FocusWhitelistMemory.normalized(manualPage)
+        guard keyword.count >= 2, keyword.count <= 100 else { validation = "请输入 2–100 个字符的共同标题关键词。"; return }
         adoptRecommendations()
-        if !pages.contains(where: { $0.id == rule.id }) { pages.append(rule) }
+        if !keywords.contains(keyword) { keywords.append(keyword) }
+        manualSelections.insert("keyword:" + keyword)
         validation = nil; manualPage = ""
     }
 }

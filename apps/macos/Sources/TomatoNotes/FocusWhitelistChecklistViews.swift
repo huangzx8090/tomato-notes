@@ -7,8 +7,8 @@ struct FocusWhitelistPickerHeader: View {
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 7) {
-                Text("这轮允许用什么").font(AppTypography.heading())
-                Text("勾选这轮需要的应用和网页，离开它们太久时提醒你。")
+                Text("准备开始专注").font(.system(size: 20, weight: .semibold))
+                Text("AI 自动建议学习范围，需要时再展开调整。")
                     .font(.system(size: 12)).foregroundStyle(Theme.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -35,7 +35,7 @@ struct FocusWhitelistGoalCard: View {
         PaperCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("这轮做什么").font(AppTypography.heading(13))
+                    Text("这轮做什么").font(.system(size: 13, weight: .semibold))
                     Spacer()
                     if isGenerating {
                         ProgressView().controlSize(.small)
@@ -98,6 +98,7 @@ struct FocusWhitelistPageChecklist: View {
     let pages: [GuardPage]
     let rules: [FocusPageRule]
     @Binding var filter: String
+    var selectionCounts: [String: Int] = [:]
     var onSet: (GuardPage, Bool) -> Void
     var onSetVisible: ([GuardPage], Bool) -> Void
     var onRemoveRule: (FocusPageRule) -> Void
@@ -113,8 +114,11 @@ struct FocusWhitelistPageChecklist: View {
         var id: String { host }
     }
     private var groups: [PageGroup] {
-        Dictionary(grouping: visible, by: \.host).map { PageGroup(host: $0.key, pages: $0.value) }
-            .sorted { $0.host.localizedStandardCompare($1.host) == .orderedAscending }
+        [PageGroup(host: "当前网页", pages: visible.sorted {
+            let a = selectionCounts["page:" + (FocusPageRule.pageKey($0.url) ?? "")] ?? 0
+            let b = selectionCounts["page:" + (FocusPageRule.pageKey($1.url) ?? "")] ?? 0
+            return a == b ? $0.title.localizedStandardCompare($1.title) == .orderedAscending : a > b
+        })]
     }
     private var unlistedRules: [FocusPageRule] {
         let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
